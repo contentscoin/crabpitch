@@ -21,7 +21,7 @@ license: 크랩피치(CrabPitch) 내부 사용용. 범용(Claude/GPT/Gemini) 호
 
 ## 회신 자동 분류 (7유형)
 
-들어온 메일을 아래로 라벨링한다. (Gmail MCP 사용 시 `label_thread`로 실제 라벨 부착)
+들어온 메일을 아래로 라벨링한다. (Gmail MCP 사용 시 `mcp__Gmail__label_thread`로 실제 라벨 부착)
 
 | 유형 | 신호 문구 | 우선순위 | 담당 액션 |
 |---|---|---|---|
@@ -70,11 +70,10 @@ license: 크랩피치(CrabPitch) 내부 사용용. 범용(Claude/GPT/Gemini) 호
 ### ⑥ 수신거부 (컴플라이언스 핵심)
 변명·설득 없이 즉시 수용. 그리고 **반드시 억제 리스트에 등록**.
 ```
-{{기자성}} 기자님, 알겠습니다. 명단에서 즉시 제외했습니다.
-불편을 드려 죄송합니다. 좋은 하루 보내세요.
+{{기자성}} 기자님, 알겠습니다. 명단에서 즉시 제외했습니다. 좋은 하루 보내세요.
 ```
 → 처리: 해당 이메일을 suppression list에 추가. `press-distribution` 재발송 대상에서 영구 제외.
-→ Gmail MCP: `label_thread`로 `CrabPitch/수신거부` 라벨 부착.
+→ Gmail MCP: `mcp__Gmail__label_thread`로 `CrabPitch/수신거부` 라벨 부착.
 
 ### ⑦ 부정/컴플레인
 절대 방어적/감정적으로 대응하지 않는다. 사실 확인 → 정정/사과.
@@ -86,9 +85,9 @@ license: 크랩피치(CrabPitch) 내부 사용용. 범용(Claude/GPT/Gemini) 호
 ## 답장 초안 생성 워크플로우
 
 **Gmail MCP 연결 시:**
-1. `search_threads` 또는 캠페인 라벨로 미응답 회신 수집
-2. `get_thread`로 원문 파악 → 위 7유형으로 분류
-3. 유형별 템플릿으로 `create_draft`(`replyToMessageId` 지정) 초안 생성
+1. `mcp__Gmail__search_threads` 또는 캠페인 라벨로 미응답 회신 수집
+2. `mcp__Gmail__get_thread`로 원문 파악 → 위 7유형으로 분류
+3. 유형별 템플릿으로 `mcp__Gmail__create_draft`(`replyToMessageId` 지정) 초안 생성
 4. 사용자 검토 후 발송 / 수신거부·게재는 상태 자동 반영
 
 **GPT/Gemini 웹 시:**

@@ -54,6 +54,16 @@ OpenCrab 기자 데이터는 모두 `mailing_status: candidate` (발송 미승�
 - 동일 기자 7일 내 재발송 금지
 - 발송은 **사용자 본인 Gmail(BYO-Email)** 로
 
+## 개발 메모: `.skill` 빌드 (재생성)
+
+`dist/*.skill`는 각 `skills/<name>/SKILL.md`를 **SKILL.md 하나만 담아 zip으로 압축**한 것입니다.
+(아카이브 루트에 `SKILL.md` 단일 엔트리) SKILL.md를 수정한 뒤에는 아래로 다시 생성해
+소스와 배포물이 어긋나지 않게 하세요:
+
+```bash
+for d in skills/*/; do n=$(basename "$d"); (cd "$d" && zip -q -j "../../dist/$n.skill" SKILL.md); done
+```
+
 ## 다음에 이어서 할 것 (2차)
 성과 추적·예약 발송·대시보드 구현, 캘린더 연동 인터뷰 예약, 대행사용 멀티테넌시·API.
 자세한 로드맵은 기획서 9장 참조.
