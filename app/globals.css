@@ -1,0 +1,150 @@
+@import "tailwindcss";
+
+/* 다크 모드: 시스템 기본 + .dark 클래스 토글 모두 지원 */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+  크랩피치 디자인 토큰 — 브랜드: 🦀 오렌지(#ff6a3d) + 딥 네이비(#0b2a4a) + 틸(#0e7c86)
+  라이트/다크 두 테마를 시맨틱 변수로 정의하고 @theme 에서 Tailwind 유틸에 매핑한다.
+*/
+:root {
+  --background: #ffffff;
+  --surface: #f6f8fb;
+  --surface-2: #eef2f7;
+  --foreground: #0f1720;
+  --foreground-muted: #46586b;
+  --muted: #6b7787;
+  --card: #ffffff;
+  --card-foreground: #0f1720;
+  --border: #e7ebf0;
+  --input: #e7ebf0;
+  --ring: #ff6a3d;
+
+  --brand: #ff6a3d;
+  --brand-hover: #f2551f;
+  --brand-soft: #fff3ee;
+  --brand-foreground: #ffffff;
+
+  --deep: #0b2a4a;
+  --deep-foreground: #ffffff;
+  --teal: #0e7c86;
+
+  --success: #0f9d58;
+  --warning: #d98315;
+  --danger: #dc2b3d;
+
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 1px 2px rgba(16, 24, 40, 0.06), 0 8px 24px rgba(16, 24, 40, 0.06);
+  --shadow-lg: 0 12px 40px rgba(16, 24, 40, 0.12);
+}
+
+.dark {
+  --background: #0a0f16;
+  --surface: #0f1720;
+  --surface-2: #151f2b;
+  --foreground: #eef2f7;
+  --foreground-muted: #a7b4c4;
+  --muted: #7d8da0;
+  --card: #111a24;
+  --card-foreground: #eef2f7;
+  --border: #223042;
+  --input: #223042;
+  --ring: #ff8a5c;
+
+  --brand: #ff7a50;
+  --brand-hover: #ff8a5c;
+  --brand-soft: #2a1a12;
+  --brand-foreground: #0a0f16;
+
+  --deep: #0e2137;
+  --deep-foreground: #eef2f7;
+  --teal: #2aa5b0;
+
+  --success: #34b877;
+  --warning: #e8a34a;
+  --danger: #f2647a;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-muted: var(--muted);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-foreground: var(--brand-foreground);
+
+  --color-deep: var(--deep);
+  --color-deep-foreground: var(--deep-foreground);
+  --color-teal: var(--teal);
+
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+
+  --font-sans: "Pretendard", ui-sans-serif, system-ui, -apple-system,
+    "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+  --radius-2xl: 1.5rem;
+
+  --shadow-card: var(--shadow-md);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.6;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+  }
+  ::selection {
+    background: var(--brand);
+    color: var(--brand-foreground);
+  }
+}
+
+/* 브랜드 그라디언트 텍스트 */
+.text-gradient-brand {
+  background: linear-gradient(120deg, var(--brand), #ff8a5c);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* 은은한 히어로 배경 */
+.hero-glow {
+  background:
+    radial-gradient(900px 380px at 78% -8%, color-mix(in srgb, var(--brand) 14%, transparent) 0, transparent 60%),
+    radial-gradient(700px 340px at 8% 6%, color-mix(in srgb, var(--teal) 12%, transparent) 0, transparent 55%);
+}
