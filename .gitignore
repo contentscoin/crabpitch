@@ -6,13 +6,29 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Node / tooling (미래 대비)
+# Node / Next.js
 node_modules/
+.next/
+out/
+build/
 dist-build/
-*.log
-.env
-.env.*
+*.tsbuildinfo
+next-env.d.ts
 
-# 임시 파일
-*.tmp
+# 환경변수 (예제만 커밋)
+.env
+.env.local
+.env.*.local
+
+# Convex 로컬 캐시 (생성 타입 convex/_generated 는 커밋한다)
+.convex/
+
+# 로그 / 임시
+*.log
+npm-debug.log*
+pnpm-debug.log*
 .cache/
+*.tmp
+
+# Vercel
+.vercel

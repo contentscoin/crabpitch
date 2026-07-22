@@ -1,7 +1,24 @@
 # 크랩피치(CrabPitch) 패키지 — 사용 안내
 
-OpenCrab 한국 기자 온톨로지 + Gmail 기반 **보도자료 배포 SaaS** 기획과 실제 스킬 묶음입니다.
+OpenCrab 한국 기자 온톨로지 + Gmail 기반 **보도자료 배포 SaaS** 기획과 실제 스킬 묶음,
+그리고 이를 구현한 **풀스택 웹 앱(Convex + Next.js + Vercel)** 입니다.
 타깃: 1인 창업가·소상공인 · 스킬: Claude/GPT/Gemini 범용.
+
+## 🚀 웹 앱 (Convex + Next.js + Vercel)
+
+스킬 4종의 로직(매칭 점수·메일 프레임·회신 7유형 분류)을 그대로 흡수한 실제 SaaS 웹 앱입니다.
+매칭 → 작성 → 발송(승인 게이트) → 회신 응대까지 대시보드에서 실행합니다.
+
+```bash
+pnpm install
+npx convex dev     # Convex 로그인/프로젝트 생성 → NEXT_PUBLIC_CONVEX_URL 자동 주입
+pnpm dev           # http://localhost:3000  (로그인 후 대시보드 '데모 데이터 생성')
+```
+
+- 아키텍처·도메인 모델·통합 심(seam)·배포 절차: **`docs/ARCHITECTURE.md`**
+- 자격증명 없이도 데모 시드로 전 기능 동작. OpenCrab/Anthropic/Gmail 실 배선 지점은 `.env.example` 참조.
+
+아래는 **범용 스킬 패키지**(Claude/GPT/Gemini에 그대로 붙여 쓰는 마크다운) 안내입니다.
 
 ## 구성물
 
