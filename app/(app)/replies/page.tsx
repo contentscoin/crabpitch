@@ -34,7 +34,7 @@ export default function RepliesPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <ReplyTypeBadge type={r.type} />
                     <Badge variant="outline">{meta.priority}</Badge>
-                    <span className="text-sm font-semibold">{r.name}</span>
+                    <span className="text-sm font-semibold tabular-nums">{r.code}</span>
                     <span className="text-xs text-muted">· {r.outlet} · {r.campaignName}</span>
                   </div>
                   {r.handled ? (

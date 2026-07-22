@@ -18,7 +18,7 @@ export interface EmailContext {
 }
 
 export interface JournalistContext {
-  lastName: string; // 기자 성
+  // ⚠️ 실명은 앱 초안에 저장하지 않는다. 실제 발송 시점(Gmail)에서만 수신자 실명을 주입한다.
   beatPrimary: string;
   topReferenceTitle?: string;
 }
@@ -60,7 +60,7 @@ export function buildEmailDraft(
       : "";
 
   const body = [
-    `${j.lastName} 기자님, 안녕하세요. ${email.senderName}입니다.`,
+    `기자님, 안녕하세요. ${email.senderName}입니다.`,
     hook,
     "",
     `${email.companyName}은(는) ${email.headline}. ${angle}`,

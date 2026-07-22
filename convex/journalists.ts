@@ -1,33 +1,36 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireUser, getProfile } from "./model";
+import { requireUser } from "./model";
 import { scoreJournalist } from "./lib/scoring";
-import { maskEmail } from "./lib/mask";
-import { PLAN_LIMITS, type Plan } from "./lib/plans";
+import { journalistCode } from "./lib/mask";
 
-/** 기자 디렉터리 — 무료 플랜은 이메일 블러(업셀). */
+/**
+ * 기자 디렉터리.
+ * ⚠️ PII 보호: 실명·이메일·연락처는 클라이언트로 절대 내려보내지 않는다.
+ *    익명 코드(기자 #XXXX) + 매체 + beat + 신뢰도만 노출한다.
+ */
 export const list = query({
   args: { search: v.optional(v.string()) },
   handler: async (ctx, { search }) => {
-    const userId = await requireUser(ctx);
-    const profile = await getProfile(ctx, userId);
-    const plan: Plan = (profile?.plan as Plan) ?? "free";
-    const reveal = plan === "free";
+    await requireUser(ctx);
     let journalists = await ctx.db.query("journalists").collect();
     if (search) {
       const s = search.toLowerCase();
+      // 검색은 매체/beat 기준 (실명은 노출하지 않으므로 표시에 쓰지 않음)
       journalists = journalists.filter(
-        (j) =>
-          j.name.toLowerCase().includes(s) ||
-          j.outlet.toLowerCase().includes(s) ||
-          j.beatPrimary.toLowerCase().includes(s),
+        (j) => j.outlet.toLowerCase().includes(s) || j.beatPrimary.toLowerCase().includes(s),
       );
     }
     journalists.sort((a, b) => b.referenceArticleCount - a.referenceArticleCount);
     return journalists.map((j) => ({
-      ...j,
-      email: reveal ? maskEmail(j.email) : j.email,
-      emailMasked: reveal,
+      _id: j._id,
+      code: journalistCode(j._id),
+      outlet: j.outlet,
+      beatPrimary: j.beatPrimary,
+      beatSecondary: j.beatSecondary,
+      contactConfidence: j.contactConfidence,
+      referenceArticleCount: j.referenceArticleCount,
+      topReferenceTitle: j.topReferenceTitle,
     }));
   },
 });
@@ -86,16 +89,13 @@ export const matchForCampaign = mutation({
   },
 });
 
-/** 캠페인 매칭 결과 — 무료 플랜은 상위 N명만 이메일 공개. */
+/** 캠페인 매칭 결과 — 실명·이메일 없이 익명 코드 + 매체 + 적합도만. */
 export const listMatches = query({
   args: { campaignId: v.id("campaigns") },
   handler: async (ctx, { campaignId }) => {
     const userId = await requireUser(ctx);
     const campaign = await ctx.db.get(campaignId);
     if (!campaign || campaign.userId !== userId) return [];
-    const profile = await getProfile(ctx, userId);
-    const plan: Plan = (profile?.plan as Plan) ?? "free";
-    const revealLimit = PLAN_LIMITS[plan].matchReveal;
 
     const matches = await ctx.db
       .query("matches")
@@ -106,7 +106,6 @@ export const listMatches = query({
     return Promise.all(
       matches.map(async (m, idx) => {
         const j = await ctx.db.get(m.journalistId);
-        const masked = idx >= revealLimit;
         return {
           _id: m._id,
           journalistId: m.journalistId,
@@ -114,12 +113,10 @@ export const listMatches = query({
           reason: m.reason,
           included: m.included,
           rank: idx + 1,
-          name: j?.name ?? "?",
+          code: journalistCode(m.journalistId),
           outlet: j?.outlet ?? "?",
           beatPrimary: j?.beatPrimary ?? "",
           contactConfidence: j?.contactConfidence ?? "low",
-          email: j ? (masked ? maskEmail(j.email) : j.email) : "",
-          emailMasked: masked,
           topReferenceTitle: j?.topReferenceTitle,
         };
       }),
