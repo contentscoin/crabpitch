@@ -1,0 +1,10 @@
+# pnpm 10+ 설정 (package.json 의 pnpm 필드는 더 이상 읽지 않음)
+
+# 빌드 스크립트 승인 (Convex 번들링용 esbuild, Next 이미지용 sharp)
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+
+# 공급망 정책 완화: 갓 게시된 Next/React 등을 설치 허용.
+# (pnpm 기본 minimumReleaseAge 가 신규 패키지를 차단해 설치가 실패하는 문제 해소)
+minimumReleaseAge: 0
