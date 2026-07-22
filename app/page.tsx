@@ -24,7 +24,7 @@ export default function LandingPage() {
           </div>
           <div className="hidden items-center gap-7 text-sm font-medium text-foreground-muted md:flex">
             <a href="#how" className="hover:text-brand">작동 방식</a>
-            <a href="#compare" className="hover:text-brand">뉴스럴 비교</a>
+            <a href="#compare" className="hover:text-brand">대행사 비교</a>
             <a href="#price" className="hover:text-brand">요금제</a>
             <a href="#platform" className="hover:text-brand">플랫폼</a>
           </div>
@@ -124,17 +124,17 @@ export default function LandingPage() {
       {/* COMPARE */}
       <Section id="compare">
         <Eyebrow>포지셔닝</Eyebrow>
-        <SecTitle>뉴스럴과 무엇이 다른가</SecTitle>
+        <SecTitle>홍보 대행사와 무엇이 다른가</SecTitle>
         <SecDesc>
-          뉴스럴이 기업 홍보팀을 위한 <b>모니터링·성과분석</b> 솔루션이라면, 크랩피치는 홍보팀 없는
-          1인·소상공인을 위한 <b>배포 실행</b> 도구입니다.
+          월 수백만 원 대행사는 예산 있는 기업의 것입니다. 크랩피치는 <b>같은 실행(매칭→작성→발송→응대)</b>을
+          1인·소상공인이 직접, <b>100분의 1 비용</b>으로 돌리게 합니다. 기자 관계도 대행사가 아닌 내 것이 됩니다.
         </SecDesc>
         <div className="mt-9 overflow-hidden rounded-lg border border-border shadow-card">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr>
-                <th className="bg-deep px-4 py-4 text-left font-bold text-deep-foreground">기능</th>
-                <th className="bg-deep px-4 py-4 text-left font-bold text-deep-foreground">뉴스럴</th>
+                <th className="bg-deep px-4 py-4 text-left font-bold text-deep-foreground">구분</th>
+                <th className="bg-deep px-4 py-4 text-left font-bold text-deep-foreground">홍보 대행사</th>
                 <th className="bg-brand px-4 py-4 text-left font-bold text-brand-foreground">크랩피치</th>
               </tr>
             </thead>
@@ -142,7 +142,7 @@ export default function LandingPage() {
               {COMPARE_ROWS.map((r, i) => (
                 <tr key={r.feat} className={i % 2 ? "bg-surface" : "bg-card"}>
                   <td className="border-t border-border px-4 py-3.5 font-semibold">{r.feat}</td>
-                  <td className="border-t border-border px-4 py-3.5 text-foreground-muted">{r.neusral}</td>
+                  <td className="border-t border-border px-4 py-3.5 text-foreground-muted">{r.agency}</td>
                   <td className="border-t border-border bg-brand-soft/60 px-4 py-3.5 font-semibold text-foreground">
                     {r.us}
                   </td>
@@ -271,7 +271,7 @@ export default function LandingPage() {
               기자 연락처는 공개된 직무 정보이며, 실제 발송은 사용자 승인·수신거부 절차를 준수합니다.
             </p>
           </div>
-          <div className="shrink-0">© 2026 CrabPitch · 벤치마크: 뉴스럴</div>
+          <div className="shrink-0">© 2026 CrabPitch · 1인·소상공인을 위한 언론 배포</div>
         </div>
       </footer>
     </main>

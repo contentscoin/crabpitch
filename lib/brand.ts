@@ -60,13 +60,15 @@ export const PLANS: PlanCard[] = [
 ];
 
 export const COMPARE_ROWS = [
-  { feat: "핵심 가치", neusral: "뉴스 모니터링·PR 성과분석", us: "매칭 → 작성 → 발송 → 응대 실행" },
-  { feat: "기자 매칭", neusral: "기자 검색 제공", us: "주제 기반 적합도 자동 랭킹 + 매칭 이유" },
-  { feat: "메일 작성", neusral: "템플릿", us: "기자 최근 기사 반영 AI 개인화" },
-  { feat: "답장 응대", neusral: "—", us: "회신 7유형 자동 분류·답장 초안" },
-  { feat: "미디어킷", neusral: "—", us: "인터뷰형 자동 생성" },
-  { feat: "타깃", neusral: "기업 홍보팀", us: "1인 창업가·소상공인" },
-  { feat: "사용 방식", neusral: "웹 대시보드", us: "AI 대화(Claude·GPT·Gemini) + 웹" },
+  { feat: "월 비용", agency: "200만~500만 원 리테이너", us: "무료 시작 · Solo 월 19,000원" },
+  { feat: "계약 조건", agency: "최소 3~6개월 약정", us: "월 구독, 언제든 해지" },
+  { feat: "시작까지", agency: "미팅·온보딩 1~2주", us: "대화 시작 즉시" },
+  { feat: "기자 매칭", agency: "대행사 인맥에 의존(불투명)", us: "온톨로지 적합도 점수 + 매칭 이유 공개" },
+  { feat: "메일 작성", agency: "일괄 작성·형식적", us: "기자별 최근 기사 반영 AI 개인화" },
+  { feat: "진행 투명성", agency: "결과 보고서로만 확인", us: "매칭·발송·회신 실시간 대시보드" },
+  { feat: "발송 주체", agency: "대행사 명의", us: "내 Gmail(BYO-Email)" },
+  { feat: "기자 관계 소유", agency: "대행사가 보유", us: "관계·데이터 모두 내가 소유" },
+  { feat: "적합 대상", agency: "예산 있는 기업", us: "1인 창업가·소상공인" },
 ];
 
 export const STEPS = [

@@ -20,13 +20,27 @@ npx convex dev
 - `.env.local`에 `CONVEX_DEPLOYMENT`, `NEXT_PUBLIC_CONVEX_URL`이 자동 기록됩니다.
 - 스키마·함수가 dev 배포에 푸시됩니다. (이 창은 켜둔 채 로컬 개발 가능)
 
-## 2. Convex Auth 키 설정 ⭐ (로그인 동작에 필수)
+## 2. Google 로그인(OAuth) 설정 ⭐ (로그인 동작에 필수)
 
+로그인은 **Google 로그인으로 통일**되어 있습니다. 두 가지를 설정합니다.
+
+### 2-1. Convex Auth 키
 ```bash
 npx @convex-dev/auth
 ```
-- dev 배포에 `JWT_PRIVATE_KEY`, `JWKS`, `SITE_URL` 환경변수를 생성/설정합니다.
+- dev 배포에 `JWT_PRIVATE_KEY`, `JWKS`, `SITE_URL` 을 생성/설정합니다.
 - 로컬 테스트 시 `SITE_URL`은 보통 `http://localhost:3000`.
+
+### 2-2. Google OAuth 클라이언트
+1. [Google Cloud 콘솔](https://console.cloud.google.com/apis/credentials) → **OAuth 2.0 클라이언트 ID**(웹 애플리케이션) 생성.
+2. **승인된 리디렉션 URI**에 Convex 콜백 추가:
+   `https://<deployment>.convex.site/api/auth/callback/google`
+   (`<deployment>`는 Convex 대시보드의 배포 이름 — dev/prod 각각 추가.)
+3. 발급된 ID/시크릿을 **Convex 배포 환경변수**로 설정(`.env.local` 아님):
+```bash
+npx convex env set AUTH_GOOGLE_ID <client-id>
+npx convex env set AUTH_GOOGLE_SECRET <client-secret>
+```
 
 ## 3. 로컬 확인
 
@@ -46,11 +60,15 @@ Convex 대시보드(Settings → URL & Deploy Key)에서:
 - **프로덕션 배포 URL** 확인 (Vercel이 빌드시 자동 주입하므로 수동 입력 불필요)
 - **Production Deploy Key** 발급 → 복사 (다음 단계 Vercel 환경변수)
 
-프로덕션에도 Auth 키가 필요하므로:
+프로덕션에도 Auth 키 + Google OAuth 값이 필요하므로:
 ```bash
 npx @convex-dev/auth --prod
-# SITE_URL 은 Vercel 도메인으로 (5단계 후 확정되면 재설정)
+npx convex env set AUTH_GOOGLE_ID <client-id> --prod
+npx convex env set AUTH_GOOGLE_SECRET <client-secret> --prod
+# SITE_URL 은 Vercel 도메인으로 (6단계에서 확정 후 설정)
 ```
+그리고 Google Cloud 콘솔의 OAuth 클라이언트 **승인된 리디렉션 URI**에 프로덕션 콜백도 추가:
+`https://<prod-deployment>.convex.site/api/auth/callback/google`
 
 ## 5. Vercel 배포 ⭐
 
@@ -89,7 +107,7 @@ npx convex env set SITE_URL https://crabpitch.vercel.app --prod
 |---|---|
 | `OPENCRAB_API_URL` / `OPENCRAB_API_KEY` | 기자 온톨로지 실매칭(시드 대체) |
 | `ANTHROPIC_API_KEY` | 보도자료·메일 AI 개인화 강화 |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Gmail(BYO-Email) 발송·초안 OAuth |
+| `GMAIL_OAUTH_CLIENT_ID` / `GMAIL_OAUTH_CLIENT_SECRET` | Gmail(BYO-Email) 발송·초안 OAuth (로그인용 `AUTH_GOOGLE_*` 와 별개) |
 
 > Convex 액션에서 쓰는 서버 시크릿은 `npx convex env set KEY value --prod` 로 Convex 배포에 설정합니다.
 
@@ -99,8 +117,10 @@ npx convex env set SITE_URL https://crabpitch.vercel.app --prod
 
 - [ ] `npx convex dev` — dev 배포 + `.env.local`
 - [ ] `npx @convex-dev/auth` — Auth 키(dev)
-- [ ] 로컬 로그인 + 데모 시드 확인
+- [ ] Google OAuth 클라이언트 생성 + dev 콜백 URI 등록
+- [ ] `convex env set AUTH_GOOGLE_ID/SECRET` (dev)
+- [ ] 로컬 Google 로그인 + 데모 시드 확인
 - [ ] `npx convex deploy` — 프로덕션 배포
-- [ ] `npx @convex-dev/auth --prod` — Auth 키(prod)
+- [ ] `npx @convex-dev/auth --prod` + `AUTH_GOOGLE_*` (prod) + prod 콜백 URI 등록
 - [ ] Vercel `CONVEX_DEPLOY_KEY` 환경변수 + Deploy
 - [ ] `convex env set SITE_URL <vercel-domain> --prod`
