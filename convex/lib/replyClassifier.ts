@@ -76,12 +76,12 @@ export function classifyReply(rawBody: string): { type: ReplyType; label: string
 }
 
 export interface ReplyDraftContext {
-  lastName: string; // 기자 성
+  // ⚠️ 실명 미사용. 실제 회신 발송 시점(Gmail)에서만 수신자 실명을 주입한다.
   slots?: [string, string, string]; // 인터뷰 일정 3안
 }
 
-export function buildReplyDraft(type: ReplyType, ctx: ReplyDraftContext): string {
-  const name = `${ctx.lastName} 기자님`;
+export function buildReplyDraft(type: ReplyType, ctx: ReplyDraftContext = {}): string {
+  const name = "기자님";
   const slots = ctx.slots ?? ["(일정1)", "(일정2)", "(일정3)"];
   switch (type) {
     case "interview":

@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireUser, getProfile, bumpSends } from "./model";
 import { buildEmailDraft } from "./lib/emailTemplate";
+import { journalistCode } from "./lib/mask";
 import { PLAN_LIMITS, currentMonth, type Plan } from "./lib/plans";
 
 /** 포함된 매칭 기자 각각에 개인화 메일 초안 생성. */
@@ -33,7 +34,7 @@ export const generateForCampaign = mutation({
     for (const m of matches) {
       const j = await ctx.db.get(m.journalistId);
       if (!j) continue;
-      const lastName = j.name.slice(0, 1); // 성(첫 글자)
+      // ⚠️ 초안 본문에 기자 실명을 넣지 않는다("기자님"). 실명은 발송 시점(Gmail)에만 주입.
       const { subject, body } = buildEmailDraft(
         {
           companyName: profile?.companyName ?? pr.who ?? "회사",
@@ -45,7 +46,6 @@ export const generateForCampaign = mutation({
           contact: profile?.contactEmail,
         },
         {
-          lastName,
           beatPrimary: j.beatPrimary,
           topReferenceTitle: j.topReferenceTitle,
         },
@@ -86,7 +86,7 @@ export const listByCampaign = query({
           .unique();
         return {
           ...d,
-          name: j?.name ?? "?",
+          code: journalistCode(d.journalistId),
           outlet: j?.outlet ?? "?",
           score: match?.score ?? 0,
         };

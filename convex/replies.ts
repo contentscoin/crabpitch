@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireUser } from "./model";
 import { classifyReply, buildReplyDraft } from "./lib/replyClassifier";
+import { journalistCode } from "./lib/mask";
 
 /** 기자 회신 입력 → 7유형 분류 + 답장 초안 생성. 수신거부는 즉시 억제 리스트 반영. */
 export const add = mutation({
@@ -18,7 +19,8 @@ export const add = mutation({
     if (!j) throw new Error("기자를 찾을 수 없습니다.");
 
     const { type } = classifyReply(rawBody);
-    const draftResponse = buildReplyDraft(type, { lastName: j.name.slice(0, 1) });
+    // ⚠️ 답장 초안에 실명 미사용("기자님"). 실명은 실제 회신 발송 시점에만.
+    const draftResponse = buildReplyDraft(type);
 
     const id = await ctx.db.insert("replies", {
       campaignId,
@@ -73,7 +75,7 @@ export const listByCampaign = query({
     return Promise.all(
       replies.map(async (r) => {
         const j = await ctx.db.get(r.journalistId);
-        return { ...r, name: j?.name ?? "?", outlet: j?.outlet ?? "?" };
+        return { ...r, code: journalistCode(r.journalistId), outlet: j?.outlet ?? "?" };
       }),
     );
   },
@@ -100,7 +102,7 @@ export const inbox = query({
             const j = await ctx.db.get(r.journalistId);
             return {
               ...r,
-              name: j?.name ?? "?",
+              code: journalistCode(r.journalistId),
               outlet: j?.outlet ?? "?",
               campaignName: nameById.get(r.campaignId) ?? "",
             };

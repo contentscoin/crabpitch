@@ -126,7 +126,7 @@ export default function SettingsPage() {
               </div>
               <div>
                 <div className="font-semibold">Google 계정 연결</div>
-                <div className="text-xs text-muted">발송·초안은 사용자 본인 Gmail로 나갑니다. (OAuth 설정 시 활성화)</div>
+                <div className="text-xs text-muted">발송·초안은 사용자 본인 Gmail로 나가며, 모든 배포·회신은 Gmail <b>&lsquo;언론홍보&rsquo;</b> 라벨 안에서 관리됩니다. (OAuth 설정 시 활성화)</div>
               </div>
             </div>
             <Button variant="subtle" disabled>
@@ -152,7 +152,7 @@ export default function SettingsPage() {
                 {suppression.map((s) => (
                   <li key={s._id} className="flex items-center justify-between py-2.5">
                     <div>
-                      <span className="text-sm font-semibold">{s.email}</span>
+                      <span className="text-sm font-semibold tabular-nums">{s.masked}</span>
                       <span className="ml-2 text-xs text-muted">{s.reason}</span>
                     </div>
                     <Button size="sm" variant="ghost" onClick={() => removeSup({ id: s._id as Id<"suppressionList"> })}>

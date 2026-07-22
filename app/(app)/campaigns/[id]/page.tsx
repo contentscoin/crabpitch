@@ -13,7 +13,6 @@ import {
   Inbox,
   ChevronDown,
   Check,
-  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
@@ -113,8 +112,7 @@ export default function CampaignDetailPage() {
               <thead className="bg-surface text-left text-xs font-semibold text-foreground-muted">
                 <tr>
                   <th className="px-3 py-2.5">포함</th>
-                  <th className="px-3 py-2.5">기자</th>
-                  <th className="hidden px-3 py-2.5 md:table-cell">이메일</th>
+                  <th className="px-3 py-2.5">기자 · 매체</th>
                   <th className="px-3 py-2.5">적합도</th>
                   <th className="hidden px-3 py-2.5 lg:table-cell">매칭 이유</th>
                 </tr>
@@ -132,19 +130,13 @@ export default function CampaignDetailPage() {
                       />
                     </td>
                     <td className="px-3 py-3">
-                      <div className="font-semibold">
-                        {m.name} <span className="text-xs font-normal text-muted">· {m.outlet}</span>
+                      <div className="font-semibold tabular-nums">
+                        {m.code} <span className="text-xs font-normal text-muted">· {m.outlet}</span>
                       </div>
                       <div className="mt-1 flex items-center gap-1.5">
                         <span className="text-xs text-muted">{m.beatPrimary}</span>
                         <ConfidenceBadge level={m.contactConfidence as "high" | "medium" | "low"} />
                       </div>
-                    </td>
-                    <td className="hidden px-3 py-3 md:table-cell">
-                      <span className={m.emailMasked ? "inline-flex items-center gap-1 text-muted" : "text-foreground-muted"}>
-                        {m.emailMasked && <Lock className="h-3 w-3" />}
-                        {m.email}
-                      </span>
                     </td>
                     <td className="px-3 py-3">
                       <ScoreBar score={m.score} />
@@ -156,9 +148,9 @@ export default function CampaignDetailPage() {
             </table>
           </div>
         )}
-        {matches && matches.some((m) => m.emailMasked) && (
+        {matches && matches.length > 0 && (
           <p className="mt-3 text-xs text-muted">
-            🔒 무료 플랜은 상위 {usage?.limits.matchReveal ?? 3}명 이메일만 공개됩니다. 전체 공개는 Solo 이상에서.
+            🔒 기자 실명·이메일·연락처는 표시하지 않습니다(익명 코드). 실제 연락처는 발송 시점에만 사용됩니다.
           </p>
         )}
       </StepSection>
@@ -277,7 +269,7 @@ function StepSection({
 function DraftItem({
   draft,
 }: {
-  draft: { _id: string; subject: string; body: string; name: string; outlet: string; status: string };
+  draft: { _id: string; subject: string; body: string; code: string; outlet: string; status: string };
 }) {
   const [open, setOpen] = useState(false);
   const hasOptOut = draft.body.includes("수신거부");
@@ -286,7 +278,7 @@ function DraftItem({
       <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-surface">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold">{draft.subject}</div>
-          <div className="mt-0.5 text-xs text-muted">→ {draft.name} · {draft.outlet}</div>
+          <div className="mt-0.5 text-xs text-muted">→ {draft.code} · {draft.outlet}</div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {hasOptOut && (
@@ -311,7 +303,7 @@ function ReplyComposer({
   drafts,
 }: {
   campaignId: Id<"campaigns">;
-  drafts: { journalistId: string; name: string }[];
+  drafts: { journalistId: string; code: string; outlet: string }[];
 }) {
   const addReply = useMutation(api.replies.add);
   const [journalistId, setJournalistId] = useState("");
@@ -319,7 +311,9 @@ function ReplyComposer({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
 
-  const options = Array.from(new Map(drafts.map((d) => [d.journalistId, d.name])).entries());
+  const options = Array.from(
+    new Map(drafts.map((d) => [d.journalistId, `${d.code} · ${d.outlet}`])).entries(),
+  );
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -386,7 +380,7 @@ function ReplyItem({
     rawBody: string;
     draftResponse: string;
     handled: boolean;
-    name: string;
+    code: string;
     outlet: string;
   };
 }) {
@@ -396,7 +390,7 @@ function ReplyItem({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <ReplyTypeBadge type={reply.type} />
-          <span className="text-sm font-semibold">{reply.name}</span>
+          <span className="text-sm font-semibold tabular-nums">{reply.code}</span>
           <span className="text-xs text-muted">· {reply.outlet}</span>
         </div>
         {reply.handled ? (
