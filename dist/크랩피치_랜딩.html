@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>크랩피치 — 말만 하면, 알맞은 기자에게 보도자료가 갑니다</title>
+<style>
+  :root{
+    --ink:#0f1720; --ink2:#3a4756; --mut:#6b7787; --line:#e7ebf0; --bg:#ffffff;
+    --soft:#f6f8fb; --brand:#ff6a3d; --brand2:#ff8a5c; --deep:#0b2a4a; --teal:#0e7c86;
+    --good:#0f9d58; --shadow:0 1px 2px rgba(16,24,40,.06),0 8px 24px rgba(16,24,40,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{font-family:'Pretendard',-apple-system,BlinkMacSystemFont,'Malgun Gothic','Apple SD Gothic Neo',sans-serif;
+    color:var(--ink);background:var(--bg);line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+  h1,h2,h3{letter-spacing:-.02em;line-height:1.2}
+  a{color:inherit;text-decoration:none}
+  .btn{display:inline-block;background:var(--brand);color:#fff;font-weight:700;padding:14px 26px;
+    border-radius:12px;transition:.15s;box-shadow:var(--shadow)}
+  .btn:hover{background:#f2551f;transform:translateY(-1px)}
+  .btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);box-shadow:none}
+  .pill{display:inline-flex;align-items:center;gap:7px;background:#fff3ee;color:#c2451c;
+    font-weight:700;font-size:13px;padding:6px 13px;border-radius:999px;border:1px solid #ffd9c9}
+
+  /* nav */
+  nav{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.86);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .logo{font-weight:800;font-size:19px;display:flex;align-items:center;gap:8px}
+  .logo .mk{font-size:20px}
+  nav .links{display:flex;gap:26px;font-size:15px;color:var(--ink2);font-weight:500}
+  nav .links a:hover{color:var(--brand)}
+  @media(max-width:720px){nav .links{display:none}}
+
+  /* hero */
+  .hero{padding:76px 0 64px;background:
+    radial-gradient(900px 380px at 78% -8%,#fff1ea 0,transparent 60%),
+    radial-gradient(700px 340px at 8% 6%,#eef6f7 0,transparent 55%)}
+  .hero h1{font-size:52px;font-weight:800}
+  .hero h1 .hl{background:linear-gradient(120deg,var(--brand),var(--brand2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero p.sub{font-size:19px;color:var(--ink2);margin:22px 0 32px;max-width:640px}
+  .hero .cta{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+  .hero .note{font-size:13px;color:var(--mut);margin-top:14px}
+  @media(max-width:720px){.hero h1{font-size:36px}}
+
+  /* generic section */
+  section{padding:66px 0}
+  .eyebrow{color:var(--brand);font-weight:800;font-size:14px;letter-spacing:.04em;text-transform:uppercase}
+  .sec-h{font-size:34px;font-weight:800;margin:10px 0 8px}
+  .sec-d{color:var(--ink2);font-size:17px;max-width:660px}
+  .soft{background:var(--soft)}
+
+  /* problem cards */
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:38px}
+  @media(max-width:720px){.grid3{grid-template-columns:1fr}}
+  .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:26px;box-shadow:var(--shadow)}
+  .card .n{font-size:13px;font-weight:800;color:var(--brand)}
+  .card h3{font-size:19px;margin:8px 0 8px}
+  .card p{color:var(--ink2);font-size:15px}
+
+  /* steps */
+  .steps{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:40px}
+  @media(max-width:900px){.steps{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:520px){.steps{grid-template-columns:1fr}}
+  .step{background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px;position:relative}
+  .step .b{width:34px;height:34px;border-radius:10px;background:var(--deep);color:#fff;font-weight:800;
+    display:flex;align-items:center;justify-content:center;font-size:15px}
+  .step h3{font-size:17px;margin:14px 0 6px}
+  .step p{font-size:14px;color:var(--ink2)}
+
+  /* compare */
+  table.cmp{width:100%;border-collapse:collapse;margin-top:34px;background:#fff;border-radius:16px;overflow:hidden;box-shadow:var(--shadow)}
+  table.cmp th,table.cmp td{padding:15px 18px;text-align:left;border-bottom:1px solid var(--line);font-size:15px}
+  table.cmp thead th{background:var(--deep);color:#fff;font-weight:700}
+  table.cmp thead th.us{background:var(--brand)}
+  table.cmp td.feat{font-weight:600;color:var(--ink)}
+  table.cmp td.us{background:#fff7f3;font-weight:600}
+  table.cmp tr:last-child td{border-bottom:none}
+
+  /* pricing */
+  .prices{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:40px;align-items:stretch}
+  @media(max-width:900px){.prices{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:520px){.prices{grid-template-columns:1fr}}
+  .plan{background:#fff;border:1px solid var(--line);border-radius:18px;padding:26px 22px;display:flex;flex-direction:column;box-shadow:var(--shadow)}
+  .plan.pop{border:2px solid var(--brand);box-shadow:0 12px 30px rgba(255,106,61,.16)}
+  .plan .tag{font-weight:800;font-size:16px}
+  .plan .who{color:var(--mut);font-size:13px;margin-top:2px;min-height:34px}
+  .plan .price{font-size:30px;font-weight:800;margin:14px 0 2px}
+  .plan .price small{font-size:14px;color:var(--mut);font-weight:600}
+  .plan ul{list-style:none;margin:16px 0 20px;display:flex;flex-direction:column;gap:9px}
+  .plan li{font-size:14px;color:var(--ink2);padding-left:22px;position:relative}
+  .plan li:before{content:"✓";position:absolute;left:0;color:var(--good);font-weight:800}
+  .plan .best{display:inline-block;background:var(--brand);color:#fff;font-size:11px;font-weight:800;
+    padding:4px 10px;border-radius:999px;margin-bottom:10px;width:fit-content}
+  .plan .foot{margin-top:auto}
+  .plan .foot a{display:block;text-align:center;padding:11px;border-radius:10px;font-weight:700;font-size:14px}
+  .plan .foot .p{background:var(--brand);color:#fff}
+  .plan .foot .s{background:var(--soft);color:var(--ink);border:1px solid var(--line)}
+  .addon{margin-top:22px;font-size:14px;color:var(--ink2);text-align:center}
+
+  /* compliance strip */
+  .strip{background:var(--deep);color:#fff;border-radius:18px;padding:34px;margin-top:20px;
+    display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap}
+  .strip .ic{font-size:30px}
+  .strip h3{font-size:20px;margin-bottom:6px}
+  .strip p{color:#c9d6e5;font-size:15px;max-width:760px}
+
+  /* platforms */
+  .plats{display:flex;gap:14px;flex-wrap:wrap;margin-top:30px}
+  .plat{flex:1;min-width:180px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px;box-shadow:var(--shadow)}
+  .plat b{font-size:16px}
+  .plat p{font-size:13px;color:var(--ink2);margin-top:6px}
+
+  /* cta */
+  .final{background:linear-gradient(120deg,#12314f,#0b2338);color:#fff;text-align:center;border-radius:22px;padding:56px 24px;margin:20px 0}
+  .final h2{font-size:32px;font-weight:800}
+  .final p{color:#c9d6e5;margin:12px 0 26px;font-size:17px}
+  footer{padding:40px 0;border-top:1px solid var(--line);color:var(--mut);font-size:13px}
+  footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+  .disc{font-size:12px;color:var(--mut);margin-top:8px}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <div class="logo"><span class="mk">🦀</span> 크랩피치</div>
+  <div class="links">
+    <a href="#how">작동 방식</a>
+    <a href="#compare">뉴스럴 비교</a>
+    <a href="#price">요금제</a>
+    <a href="#platform">플랫폼</a>
+  </div>
+  <a href="#price" class="btn" style="padding:9px 18px;font-size:14px">무료로 시작</a>
+</div></nav>
+
+<header class="hero"><div class="wrap">
+  <span class="pill">🦀 OpenCrab 기자 온톨로지 기반 · 매일 갱신</span>
+  <h1 style="margin-top:18px">말만 하면,<br><span class="hl">알맞은 기자에게</span> 보도자료가 갑니다.</h1>
+  <p class="sub">홍보팀도, 월 수백만 원 대행사도 없이. 1인 창업가와 소상공인을 위한 AI 언론 배포 도구.
+    보도자료 작성부터 기자 매칭·개인화 메일·답장 응대까지, 대화 한 번으로 끝냅니다.</p>
+  <div class="cta">
+    <a href="#price" class="btn">무료로 첫 배포 시작</a>
+    <a href="#how" class="btn ghost">작동 방식 보기</a>
+  </div>
+  <p class="note">✓ 신용카드 불필요 &nbsp;·&nbsp; ✓ 내 Gmail로 직접 발송 &nbsp;·&nbsp; ✓ 수신거부·승인 게이트 기본 탑재</p>
+</div></header>
+
+<!-- problem -->
+<section><div class="wrap">
+  <span class="eyebrow">왜 필요한가</span>
+  <h2 class="sec-h">언론 노출, 세 곳에서 막힙니다</h2>
+  <p class="sec-d">대행사는 월 200만~500만 원. 1인·소상공인에겐 현실적이지 않습니다. 그래서 대부분 포기하거나, 정제 안 된 기자 명단에 똑같은 메일을 뿌리고 스팸 처리됩니다.</p>
+  <div class="grid3">
+    <div class="card"><div class="n">문제 1</div><h3>누구에게 보낼지 모른다</h3><p>내 주제를 실제로 다루는 현역 기자를 찾지 못합니다. 오래된 엑셀 명단은 이미 부서를 옮긴 기자투성이입니다.</p></div>
+    <div class="card"><div class="n">문제 2</div><h3>어떻게 쓸지 모른다</h3><p>기자는 하루 수백 통을 받고 3초 안에 판단합니다. 버려지지 않는 메일 프레임을 모릅니다.</p></div>
+    <div class="card"><div class="n">문제 3</div><h3>그 다음을 모른다</h3><p>답장이 와도 언제 어떤 톤으로 응대할지, 인터뷰 요청과 수신거부를 어떻게 처리할지 막막합니다.</p></div>
+  </div>
+</div></section>
+
+<!-- how -->
+<section id="how" class="soft"><div class="wrap">
+  <span class="eyebrow">작동 방식</span>
+  <h2 class="sec-h">대화 한 번, 네 단계로 끝</h2>
+  <p class="sec-d">AI 에이전트가 검증된 기자 지식그래프와 당신의 Gmail을 연결해 실행 루프 전체를 돌립니다.</p>
+  <div class="steps">
+    <div class="step"><div class="b">1</div><h3>보도자료 정리</h3><p>"이 소식 알리고 싶어"라고 말하면 5W1H를 묻고 표준 보도자료와 헤드라인 3안을 만들어 줍니다.</p></div>
+    <div class="step"><div class="b">2</div><h3>기자 매칭</h3><p>주제에 맞는 현역 기자를 적합도 점수와 <b>매칭 이유(최근 기사)</b>까지 근거로 제시합니다.</p></div>
+    <div class="step"><div class="b">3</div><h3>개인화 메일</h3><p>기자별 최근 기사를 언급하는 서로 다른 메일 초안. 무작위 대량발송이 아닌 정밀 피치.</p></div>
+    <div class="step"><div class="b">4</div><h3>발송·응대</h3><p>승인 후 내 Gmail로 발송. 답장은 7유형으로 자동 분류해 답장 초안까지 만들어 줍니다.</p></div>
+  </div>
+</div></section>
+
+<!-- compare -->
+<section id="compare"><div class="wrap">
+  <span class="eyebrow">포지셔닝</span>
+  <h2 class="sec-h">뉴스럴과 무엇이 다른가</h2>
+  <p class="sec-d">뉴스럴이 기업 홍보팀을 위한 <b>모니터링·성과분석</b> 솔루션이라면, 크랩피치는 홍보팀 없는 1인·소상공인을 위한 <b>배포 실행</b> 도구입니다.</p>
+  <table class="cmp">
+    <thead><tr><th>기능</th><th>뉴스럴</th><th class="us">크랩피치</th></tr></thead>
+    <tbody>
+      <tr><td class="feat">핵심 가치</td><td>뉴스 모니터링·PR 성과분석</td><td class="us">매칭 → 작성 → 발송 → 응대 실행</td></tr>
+      <tr><td class="feat">기자 매칭</td><td>기자 검색 제공</td><td class="us">주제 기반 적합도 자동 랭킹 + 매칭 이유</td></tr>
+      <tr><td class="feat">메일 작성</td><td>템플릿</td><td class="us">기자 최근 기사 반영 AI 개인화</td></tr>
+      <tr><td class="feat">답장 응대</td><td>—</td><td class="us">회신 7유형 자동 분류·답장 초안</td></tr>
+      <tr><td class="feat">미디어킷</td><td>—</td><td class="us">인터뷰형 자동 생성</td></tr>
+      <tr><td class="feat">타깃</td><td>기업 홍보팀</td><td class="us">1인 창업가·소상공인</td></tr>
+      <tr><td class="feat">사용 방식</td><td>웹 대시보드</td><td class="us">AI 대화(Claude·GPT·Gemini) + 웹</td></tr>
+    </tbody>
+  </table>
+</div></section>
+
+<!-- pricing -->
+<section id="price" class="soft"><div class="wrap">
+  <span class="eyebrow">요금제</span>
+  <h2 class="sec-h">첫 성공은 무료로, 규모는 합리적으로</h2>
+  <p class="sec-d">대행사의 100분의 1 가격. 무료로 '언론에 한 번 실리는 경험'부터 시작하세요. 연간 결제 시 2개월 무료.</p>
+  <div class="prices">
+    <div class="plan">
+      <div class="tag">Free</div>
+      <div class="who">체험 · 초기 창업가</div>
+      <div class="price">0<small>원</small></div>
+      <ul>
+        <li>보도자료 작성 월 3건</li>
+        <li>기자 매칭 미리보기 (상위 5명, 이메일 3명 공개)</li>
+        <li>내 Gmail로 발송 월 10통</li>
+        <li>미디어킷 1개 (웹 링크)</li>
+      </ul>
+      <div class="foot"><a class="s" href="#">무료로 시작</a></div>
+    </div>
+    <div class="plan pop">
+      <span class="best">가장 인기</span>
+      <div class="tag">Solo</div>
+      <div class="who">1인 창업가 · 소상공인</div>
+      <div class="price">19,000<small>원/월</small></div>
+      <ul>
+        <li>기자 매칭 무제한 공개</li>
+        <li>발송 월 100통</li>
+        <li>답장 자동 분류·응대 초안</li>
+        <li>미디어킷 3개 · 성과 리포트</li>
+      </ul>
+      <div class="foot"><a class="p" href="#">Solo 시작하기</a></div>
+    </div>
+    <div class="plan">
+      <div class="tag">Growth</div>
+      <div class="who">성장 스타트업</div>
+      <div class="price">49,000<small>원/월</small></div>
+      <ul>
+        <li>발송 월 500통</li>
+        <li>예약·반복 발송</li>
+        <li>경쟁사 노출 비교</li>
+        <li>미디어킷 무제한 · 우선 지원</li>
+      </ul>
+      <div class="foot"><a class="s" href="#">Growth 선택</a></div>
+    </div>
+    <div class="plan">
+      <div class="tag">Agency</div>
+      <div class="who">PR 대행사</div>
+      <div class="price">149,000<small>원~/월</small></div>
+      <ul>
+        <li>멀티 클라이언트 · 팀 시트</li>
+        <li>화이트라벨</li>
+        <li>발송 무제한</li>
+        <li>API 연동</li>
+      </ul>
+      <div class="foot"><a class="s" href="#">문의하기</a></div>
+    </div>
+  </div>
+  <p class="addon">단발성 이용은 종량제로 — 발송 100통당 <b>9,000원</b> · 미디어킷 PDF 1건 <b>5,000원</b></p>
+</div></section>
+
+<!-- compliance -->
+<section><div class="wrap">
+  <div class="strip">
+    <div class="ic">🛡️</div>
+    <div>
+      <h3>스팸이 아니라, 정밀 피치입니다</h3>
+      <p>모든 발송은 <b>사용자 승인 게이트</b>를 거치고, 메일에는 <b>수신거부 문구</b>가 기본 삽입됩니다. 동일 기자 7일 내 재발송을 막고, 수신거부 회신은 <b>억제 리스트</b>에 영구 등록됩니다. 발송은 회사 서버가 아닌 <b>당신의 Gmail(BYO-Email)</b>로 나가 신뢰를 지킵니다. 무작위 대량발송보다 근거 있는 소량 정밀 발송이 실제로 더 잘 실립니다.</p>
+    </div>
+  </div>
+</div></section>
+
+<!-- platforms -->
+<section id="platform" class="soft"><div class="wrap">
+  <span class="eyebrow">어디서든</span>
+  <h2 class="sec-h">Claude · ChatGPT · Gemini 어디서나</h2>
+  <p class="sec-d">특정 앱에 종속되지 않습니다. 스킬은 마크다운 하나로 세 플랫폼 공용, 자동화 깊이만 다릅니다.</p>
+  <div class="plats">
+    <div class="plat"><b>🤖 Claude / Cowork</b><p>.skill 설치 → OpenCrab·Gmail MCP 완전 자동화. 매칭부터 발송·응대까지 대화로 끝.</p></div>
+    <div class="plat"><b>💬 ChatGPT 웹</b><p>커스텀 GPT Instructions에 스킬 탑재, 웹 로그인 상태로 메일링. 반자동 진행.</p></div>
+    <div class="plat"><b>✨ Gemini 웹</b><p>동일 스킬을 Gem/프롬프트로, Google Workspace 연동으로 Gmail 발송.</p></div>
+  </div>
+</div></section>
+
+<!-- final -->
+<section><div class="wrap">
+  <div class="final">
+    <h2>오늘, 첫 보도자료를 알맞은 기자에게</h2>
+    <p>무료로 첫 언론 노출을 경험하세요. 카드 등록 없이 시작합니다.</p>
+    <a href="#" class="btn" style="background:var(--brand);font-size:17px">🦀 무료로 시작하기</a>
+  </div>
+</div></section>
+
+<footer><div class="wrap">
+  <div>
+    <div class="logo" style="font-size:16px">🦀 크랩피치</div>
+    <div class="disc">* '크랩피치'는 작업용 가칭입니다. OpenCrab 기자 온톨로지 + Gmail 기반 보도자료 배포 SaaS 콘셉트 제안.<br>
+    * 기자 연락처는 공개된 직무 정보이며, 실제 발송은 사용자 승인·수신거부 절차를 준수합니다.</div>
+  </div>
+  <div>© 2026 CrabPitch (concept) · 벤치마크: 뉴스럴</div>
+</div></footer>
+
+</body>
+</html>
