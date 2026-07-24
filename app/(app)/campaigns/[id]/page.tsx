@@ -42,12 +42,14 @@ export default function CampaignDetailPage() {
   const genDrafts = useMutation(api.drafts.generateForCampaign);
   const enhanceDrafts = useAction(api.aiActions.enhanceCampaignDrafts);
   const sendCampaign = useMutation(api.drafts.sendCampaign);
+  const scheduleCampaign = useMutation(api.drafts.scheduleCampaign);
   const pushGmail = useAction(api.gmailActions.pushCampaignToGmail);
 
   const [busy, setBusy] = useState<string | null>(null);
   const [optOutConfirmed, setOptOutConfirmed] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [syncNote, setSyncNote] = useState<string | null>(null);
+  const [scheduleLocal, setScheduleLocal] = useState("");
 
   if (data === undefined) {
     return <div className="h-64 animate-pulse rounded-lg border border-border bg-card" />;
@@ -233,10 +235,35 @@ export default function CampaignDetailPage() {
 
             {sendError && <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{sendError}</p>}
 
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <Label htmlFor="sched">예약 발송 (선택)</Label>
+                <input
+                  id="sched"
+                  type="datetime-local"
+                  value={scheduleLocal}
+                  onChange={(e) => setScheduleLocal(e.target.value)}
+                  className="mt-1 block rounded-md border border-border bg-card px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 onClick={() =>
                   wrap("send", async () => {
+                    if (scheduleLocal) {
+                      const at = new Date(scheduleLocal).getTime();
+                      if (Number.isNaN(at)) throw new Error("예약 시각이 올바르지 않습니다.");
+                      const result = await scheduleCampaign({
+                        campaignId: id,
+                        scheduledSendAt: at,
+                      });
+                      setSyncNote(
+                        `${result.count}통 예약됨 · ${new Date(result.scheduledSendAt).toLocaleString("ko-KR")}`,
+                      );
+                      return;
+                    }
                     if (gmail?.connected) {
                       const result = await pushGmail({ campaignId: id });
                       if (result.message) setSyncNote(result.message);
@@ -250,16 +277,25 @@ export default function CampaignDetailPage() {
                 <Send className="h-4 w-4" />{" "}
                 {busy === "send"
                   ? "처리 중…"
-                  : gmail?.connected
-                    ? "Gmail 초안 생성 (승인)"
-                    : "발송 기록 (승인)"}
+                  : scheduleLocal
+                    ? "예약 발송 (승인)"
+                    : gmail?.connected
+                      ? "Gmail 초안 생성 (승인)"
+                      : "발송 기록 (승인)"}
               </Button>
               <span className="text-xs text-muted">
-                {gmail?.connected
-                  ? `* 연결된 Gmail(${gmail.email})의 ‘언론홍보’ 라벨에 초안을 만듭니다. 실발송은 Gmail에서 확인 후.`
-                  : "* Gmail 미연결 시 ‘발송됨’으로만 기록합니다. 설정에서 BYO Gmail을 연결하면 초안이 생성됩니다."}
+                {scheduleLocal
+                  ? "* 예약 시각에 발송 기록으로 확정됩니다(매분 크론·스케줄러)."
+                  : gmail?.connected
+                    ? `* 연결된 Gmail(${gmail.email})의 ‘언론홍보’ 라벨에 초안을 만듭니다. 실발송은 Gmail에서 확인 후.`
+                    : "* Gmail 미연결 시 ‘발송됨’으로만 기록합니다. 설정에서 BYO Gmail을 연결하면 초안이 생성됩니다."}
               </span>
             </div>
+            {campaign.scheduledSendAt && campaign.status === "sending" && (
+              <p className="text-sm font-semibold text-brand">
+                예약됨 · {new Date(campaign.scheduledSendAt).toLocaleString("ko-KR")}
+              </p>
+            )}
             {sentCount > 0 && (
               <p className="text-sm font-semibold text-success">✓ {sentCount}통 발송 기록 완료 — 3·7일 뒤 게재 확인을 권장합니다.</p>
             )}
@@ -431,9 +467,13 @@ function ReplyItem({
     handled: boolean;
     code: string;
     outlet: string;
+    interviewSlots?: string[];
+    interviewPickedSlot?: string;
   };
 }) {
   const markHandled = useMutation(api.replies.markHandled);
+  const confirmSlot = useMutation(api.replies.confirmInterviewSlot);
+  const refreshSlots = useMutation(api.replies.refreshInterviewSlots);
   return (
     <div className="rounded-lg border border-border bg-card p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -445,6 +485,7 @@ function ReplyItem({
         {reply.handled ? (
           <Badge variant="success">
             <Check className="h-3 w-3" /> 처리됨
+            {reply.interviewPickedSlot ? ` · ${reply.interviewPickedSlot}` : ""}
           </Badge>
         ) : (
           <Button size="sm" variant="subtle" onClick={() => markHandled({ id: reply._id as Id<"replies"> })}>
@@ -457,6 +498,23 @@ function ReplyItem({
         <div className="text-xs font-semibold text-muted">답장 초안</div>
         <pre className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-foreground">{reply.draftResponse}</pre>
       </div>
+      {reply.type === "interview" && !reply.handled && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {(reply.interviewSlots ?? []).map((slot) => (
+            <Button
+              key={slot}
+              size="sm"
+              variant="brand"
+              onClick={() => confirmSlot({ id: reply._id as Id<"replies">, slot })}
+            >
+              {slot}
+            </Button>
+          ))}
+          <Button size="sm" variant="ghost" onClick={() => refreshSlots({ id: reply._id as Id<"replies"> })}>
+            일정 다시 제안
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

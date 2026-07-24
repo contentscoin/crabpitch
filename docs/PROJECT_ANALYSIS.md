@@ -166,7 +166,8 @@ Convex Cloud
 
 ### P2 — Phase-2 제품
 
-7. 메일·보도문 Anthropic 개인화 — `aiActions.enhanceCampaignDrafts` / `polishPressRelease` (키 없으면 스킵) **코드 완료**
-8. 분석 대시보드, 예약 발송, 인터뷰 캘린더, 에이전시/멀티테넌트 API **잔여**
+7. 메일·보도문 Anthropic 개인화 — **완료**
+8. 분석 대시보드(`usage.getAnalytics`) · 예약 발송(`scheduleCampaign`+cron) · 인터뷰 슬롯 확정 — **완료**
+9. 에이전시/멀티테넌트 API — **잔여**
 
-새 작업은 **P0 자격증명 실검증** → P2 잔여(대시보드 등) 순서를 기본으로 한다.
+자격증명 실검증(OpenCrab/Gmail/Anthropic)과 에이전시 API가 남은 작업이다.

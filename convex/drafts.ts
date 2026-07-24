@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { requireUser, getProfile, bumpSends } from "./model";
 import { buildEmailDraft } from "./lib/emailTemplate";
 import { journalistCode } from "./lib/mask";
@@ -135,8 +136,139 @@ export const sendCampaign = mutation({
       await ctx.db.patch(d._id, { status: "sent", sentAt: now });
     }
     await bumpSends(ctx, userId, pending.length);
-    await ctx.db.patch(campaignId, { status: "sent" });
+    await ctx.db.patch(campaignId, { status: "sent", scheduledSendAt: undefined });
     return pending.length;
+  },
+});
+
+/**
+ * 예약 발송 — 승인 게이트 후 미래 시각에 발송 기록(또는 Gmail 초안) 실행.
+ * Convex scheduler.runAt 으로 정확히 한 번 실행 + cron 백업.
+ */
+export const scheduleCampaign = mutation({
+  args: {
+    campaignId: v.id("campaigns"),
+    scheduledSendAt: v.number(),
+  },
+  handler: async (ctx, { campaignId, scheduledSendAt }) => {
+    const userId = await requireUser(ctx);
+    const campaign = await ctx.db.get(campaignId);
+    if (!campaign || campaign.userId !== userId) throw new Error("캠페인을 찾을 수 없습니다.");
+
+    const now = Date.now();
+    if (scheduledSendAt <= now + 30_000) {
+      throw new Error("예약 시각은 최소 1분 뒤로 설정하세요. 즉시 발송은 ‘발송 기록’을 사용하세요.");
+    }
+
+    const profile = await getProfile(ctx, userId);
+    const plan: Plan = (profile?.plan as Plan) ?? "free";
+    const month = currentMonth();
+    const usage = await ctx.db
+      .query("usage")
+      .withIndex("by_user_month", (q) => q.eq("userId", userId).eq("month", month))
+      .unique();
+    const used = usage?.sendsUsed ?? 0;
+    const remaining = PLAN_LIMITS[plan].sends - used;
+
+    const pending = (
+      await ctx.db
+        .query("emailDrafts")
+        .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
+        .collect()
+    ).filter((d) => d.status === "draft" || d.status === "queued");
+
+    if (pending.length === 0) throw new Error("예약할 초안이 없습니다.");
+    if (pending.length > remaining) {
+      throw new Error(
+        `발송 한도 초과: 이번 달 잔여 ${remaining}통, 요청 ${pending.length}통.`,
+      );
+    }
+
+    for (const d of pending) {
+      await ctx.db.patch(d._id, { status: "queued", scheduledSendAt });
+    }
+    await ctx.db.patch(campaignId, { status: "sending", scheduledSendAt });
+
+    await ctx.scheduler.runAt(scheduledSendAt, internal.drafts.executeScheduledSend, {
+      campaignId,
+      userId,
+    });
+
+    return { count: pending.length, scheduledSendAt };
+  },
+});
+
+/** scheduler / cron 에서 호출 — queued 초안을 sent 로 확정. */
+export const executeScheduledSend = internalMutation({
+  args: {
+    campaignId: v.id("campaigns"),
+    userId: v.id("users"),
+  },
+  handler: async (ctx, { campaignId, userId }) => {
+    const campaign = await ctx.db.get(campaignId);
+    if (!campaign || campaign.userId !== userId) return 0;
+    if (campaign.status === "sent" || campaign.status === "done") return 0;
+
+    const pending = (
+      await ctx.db
+        .query("emailDrafts")
+        .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
+        .collect()
+    ).filter((d) => d.status === "queued" || d.status === "draft");
+
+    if (pending.length === 0) {
+      await ctx.db.patch(campaignId, { status: "sent", scheduledSendAt: undefined });
+      return 0;
+    }
+
+    const now = Date.now();
+    for (const d of pending) {
+      await ctx.db.patch(d._id, {
+        status: "sent",
+        sentAt: now,
+        scheduledSendAt: undefined,
+      });
+    }
+    await bumpSends(ctx, userId, pending.length);
+    await ctx.db.patch(campaignId, { status: "sent", scheduledSendAt: undefined });
+    return pending.length;
+  },
+});
+
+/** cron 백업: 기한 지난 queued 캠페인 일괄 처리. */
+export const processDueSends = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const campaigns = await ctx.db.query("campaigns").collect();
+    let processed = 0;
+    for (const c of campaigns) {
+      if (c.status !== "sending" || !c.scheduledSendAt || c.scheduledSendAt > now) continue;
+
+      const pending = (
+        await ctx.db
+          .query("emailDrafts")
+          .withIndex("by_campaign", (q) => q.eq("campaignId", c._id))
+          .collect()
+      ).filter((d) => d.status === "queued" || d.status === "draft");
+
+      if (pending.length === 0) {
+        await ctx.db.patch(c._id, { status: "sent", scheduledSendAt: undefined });
+        continue;
+      }
+
+      for (const d of pending) {
+        await ctx.db.patch(d._id, {
+          status: "sent",
+          sentAt: now,
+          scheduledSendAt: undefined,
+        });
+      }
+      await bumpSends(ctx, c.userId, pending.length);
+      await ctx.db.patch(c._id, { status: "sent", scheduledSendAt: undefined });
+      processed += pending.length;
+    }
+    return processed;
   },
 });
 

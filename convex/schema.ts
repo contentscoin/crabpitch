@@ -93,7 +93,10 @@ export default defineSchema({
     pressReleaseId: v.id("pressReleases"),
     name: v.string(),
     status: campaignStatusValidator,
-  }).index("by_user", ["userId"]),
+    scheduledSendAt: v.optional(v.number()), // 예약 발송 시각(ms)
+  })
+    .index("by_user", ["userId"])
+    .index("by_scheduled", ["scheduledSendAt"]),
 
   // 기자 매칭 결과 (적합도 점수 + 근거)
   matches: defineTable({
@@ -120,9 +123,11 @@ export default defineSchema({
       v.literal("published"),
     ),
     sentAt: v.optional(v.number()),
+    scheduledSendAt: v.optional(v.number()),
   })
     .index("by_campaign", ["campaignId"])
-    .index("by_campaign_journalist", ["campaignId", "journalistId"]),
+    .index("by_campaign_journalist", ["campaignId", "journalistId"])
+    .index("by_status_scheduled", ["status", "scheduledSendAt"]),
 
   // 기자 회신 + 7유형 분류 + 답장 초안
   replies: defineTable({
@@ -132,6 +137,9 @@ export default defineSchema({
     rawBody: v.string(),
     draftResponse: v.string(),
     handled: v.boolean(),
+    interviewSlots: v.optional(v.array(v.string())), // 인터뷰 제안 3안
+    interviewPickedSlot: v.optional(v.string()),
+    interviewConfirmedAt: v.optional(v.number()),
   }).index("by_campaign", ["campaignId"]),
 
   // 억제 리스트(수신거부 영구 제외)
