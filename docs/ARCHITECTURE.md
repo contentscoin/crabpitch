@@ -69,7 +69,7 @@ replies · suppressionList · mediaKits · usage` (+ Convex Auth `users`/`authSe
 | 기능 | 현재(데모) | 실 배선 |
 |---|---|---|
 | 기자 매칭 | `seed.ts` 시드 기자 DB | `opencrabActions.syncJournalists` → `OPENCRAB_API_*` 업서트 (실패/미설정 시 시드 폴백) |
-| 보도자료·메일 생성 | 템플릿(`emailTemplate.ts`) | `ANTHROPIC_API_KEY` (P2) |
+| 보도자료·메일 생성 | 템플릿(`emailTemplate.ts`) + 선택 AI | `aiActions.*` + `ANTHROPIC_API_KEY` (없으면 템플릿 유지) |
 | Gmail 발송/초안 | 상태 기록만 (`drafts.sendCampaign`) | 설정에서 BYO OAuth → `gmailActions.pushCampaignToGmail` (`언론홍보` 라벨 초안) |
 
 OpenCrab HTTP 계약: `POST OPENCRAB_API_URL` + Bearer 키, body `{ query, pack_query, top_k }`,

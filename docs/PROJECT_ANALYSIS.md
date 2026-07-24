@@ -19,8 +19,8 @@
 | `crabpitch` (이 저장소) | Next.js + Convex 웹앱, 스킬 로직을 `convex/lib`에 흡수, `skills-public/` 소스 | `contentscoin/crabpitch` |
 | `crabpitch-skill` | 공개 배포용 마크다운 스킬 4종 (기자 PII 없음) | `contentscoin/crabpitch-skill` |
 
-관계: [`skills-public/`](../skills-public/) 내용이 `crabpitch-skill`로 게시된다.
-(`PUBLISH.md`의 목표 이름 `crabpitch-skills`와 실제 공개 repo `crabpitch-skill` 표기 차이를 인지할 것.)
+관계: [`skills-public/`](../skills-public/) 내용이 [`contentscoin/crabpitch-skill`](https://github.com/contentscoin/crabpitch-skill) 로 게시된다.
+동기화: `pnpm sync:skills-public` (`scripts/sync-skills-public.sh`).
 
 ---
 
@@ -162,11 +162,11 @@ Convex Cloud
 
 4. **단위 테스트** — `convex/lib` scoring / emailTemplate / replyClassifier / plans / mask / opencrabMap / gmailMime
 5. **CI** — `.github/workflows/ci.yml` (lint + typecheck + test)
-6. **공개 스킬 동기화** — `skills-public/` ↔ `contentscoin/crabpitch-skill` 게시 이름/절차 정리 (잔여)
+6. **공개 스킬 동기화** — `pnpm sync:skills-public` → `contentscoin/crabpitch-skill` (게시명 단수로 정리됨)
 
-### P2 — Phase-2 제품 (README)
+### P2 — Phase-2 제품
 
-7. 메일 개인화 Anthropic 강화 (`ANTHROPIC_API_KEY`)
-8. 분석 대시보드, 예약 발송, 인터뷰 캘린더, 에이전시/멀티테넌트 API
+7. 메일·보도문 Anthropic 개인화 — `aiActions.enhanceCampaignDrafts` / `polishPressRelease` (키 없으면 스킵) **코드 완료**
+8. 분석 대시보드, 예약 발송, 인터뷰 캘린더, 에이전시/멀티테넌트 API **잔여**
 
-새 작업은 **P0 자격증명 실검증** → P1 잔여(스킬 동기화) → P2 순서를 기본으로 한다.
+새 작업은 **P0 자격증명 실검증** → P2 잔여(대시보드 등) 순서를 기본으로 한다.

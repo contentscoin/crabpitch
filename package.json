@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "codegen": "convex codegen",
-    "seed": "convex run seed:run"
+    "seed": "convex run seed:run",
+    "sync:skills-public": "bash scripts/sync-skills-public.sh"
   },
   "dependencies": {
     "@auth/core": "0.37.4",

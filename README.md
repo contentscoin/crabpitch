@@ -27,7 +27,8 @@ PII를 내려보내지 않습니다.
 ## 📦 공개 스킬 팩 (`skills-public/`)
 Codex/Claude/Gemini에서 바로 쓰는 **공개 배포용** 스킬 묶음(보도문·미디어킷·기자배포·회신).
 Gmail **`언론홍보`** 라벨 워크플로우 + PII 보호가 내장돼 있으며, 기자 실데이터를 포함하지 않습니다.
-`contentscoin/crabpitch-skills` (public)로 게시하는 절차는 `skills-public/PUBLISH.md` 참조.
+`contentscoin/crabpitch-skill` (public)로 게시하는 절차는 `skills-public/PUBLISH.md` 참조.
+동기화: `pnpm sync:skills-public`
 
 아래는 **범용 스킬 패키지**(Claude/GPT/Gemini에 그대로 붙여 쓰는 마크다운) 안내입니다.
 

@@ -40,6 +40,7 @@ export default function CampaignDetailPage() {
   const syncOpenCrab = useAction(api.opencrabActions.syncJournalists);
   const toggleInclude = useMutation(api.journalists.toggleInclude);
   const genDrafts = useMutation(api.drafts.generateForCampaign);
+  const enhanceDrafts = useAction(api.aiActions.enhanceCampaignDrafts);
   const sendCampaign = useMutation(api.drafts.sendCampaign);
   const pushGmail = useAction(api.gmailActions.pushCampaignToGmail);
 
@@ -169,16 +170,36 @@ export default function CampaignDetailPage() {
 
       {/* ③ 개인화 메일 초안 */}
       <StepSection icon={PenLine} step="③" title="개인화 메일 초안" desc="기자별 최근 기사를 언급한 서로 다른 메일. 무작위 대량발송이 아닙니다.">
-        <div className="mb-4">
+        <div className="mb-4 flex flex-wrap gap-2">
           <Button
             variant={drafts && drafts.length ? "subtle" : "brand"}
-            onClick={() => wrap("gen", () => genDrafts({ campaignId: id }))}
+            onClick={() =>
+              wrap("gen", async () => {
+                await genDrafts({ campaignId: id });
+                const enhanced = await enhanceDrafts({ campaignId: id });
+                if (enhanced.message) setSyncNote(enhanced.message);
+              })
+            }
             disabled={busy === "gen" || includedCount === 0}
           >
             <PenLine className="h-4 w-4" /> {busy === "gen" ? "생성 중…" : "개인화 메일 초안 생성"}
             {includedCount > 0 && <span className="opacity-80">({includedCount}명)</span>}
           </Button>
-          {includedCount === 0 && <p className="mt-2 text-xs text-muted">먼저 매칭에서 발송할 기자를 포함하세요.</p>}
+          {drafts && drafts.length > 0 && (
+            <Button
+              variant="subtle"
+              onClick={() =>
+                wrap("ai", async () => {
+                  const enhanced = await enhanceDrafts({ campaignId: id });
+                  if (enhanced.message) setSyncNote(enhanced.message);
+                })
+              }
+              disabled={busy === "ai"}
+            >
+              {busy === "ai" ? "AI 다듬는 중…" : "AI로 다시 다듬기"}
+            </Button>
+          )}
+          {includedCount === 0 && <p className="mt-2 w-full text-xs text-muted">먼저 매칭에서 발송할 기자를 포함하세요.</p>}
         </div>
 
         {drafts && drafts.length > 0 && (

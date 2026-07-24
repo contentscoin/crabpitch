@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { requireUser, getProfile, bumpSends } from "./model";
 import { buildEmailDraft } from "./lib/emailTemplate";
 import { journalistCode } from "./lib/mask";
@@ -150,5 +150,76 @@ export const markPublished = mutation({
     const campaign = await ctx.db.get(d.campaignId);
     if (!campaign || campaign.userId !== userId) throw new Error("권한이 없습니다.");
     await ctx.db.patch(draftId, { status: "published" });
+  },
+});
+
+/** AI 개인화용: 캠페인 초안 + 컨텍스트 (실명 미포함). */
+export const listDraftsForEnhance = internalQuery({
+  args: { campaignId: v.id("campaigns"), userId: v.id("users") },
+  returns: v.union(
+    v.object({
+      companyName: v.string(),
+      senderName: v.string(),
+      headline: v.string(),
+      drafts: v.array(
+        v.object({
+          draftId: v.id("emailDrafts"),
+          subject: v.string(),
+          body: v.string(),
+          beatPrimary: v.string(),
+          topReferenceTitle: v.optional(v.string()),
+        }),
+      ),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, { campaignId, userId }) => {
+    const campaign = await ctx.db.get(campaignId);
+    if (!campaign || campaign.userId !== userId) return null;
+    const pr = await ctx.db.get(campaign.pressReleaseId);
+    if (!pr) return null;
+    const profile = await getProfile(ctx, userId);
+    const drafts = await ctx.db
+      .query("emailDrafts")
+      .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
+      .collect();
+    const rows = [];
+    for (const d of drafts) {
+      if (d.status !== "draft" && d.status !== "queued") continue;
+      const j = await ctx.db.get(d.journalistId);
+      if (!j) continue;
+      rows.push({
+        draftId: d._id,
+        subject: d.subject,
+        body: d.body,
+        beatPrimary: j.beatPrimary,
+        topReferenceTitle: j.topReferenceTitle,
+      });
+    }
+    return {
+      companyName: profile?.companyName ?? pr.who ?? "회사",
+      senderName: profile?.senderName ?? "담당자",
+      headline: pr.headlines[0] ?? pr.title,
+      drafts: rows,
+    };
+  },
+});
+
+export const applyEnhancedDrafts = internalMutation({
+  args: {
+    updates: v.array(
+      v.object({
+        draftId: v.id("emailDrafts"),
+        subject: v.string(),
+        body: v.string(),
+      }),
+    ),
+  },
+  returns: v.number(),
+  handler: async (ctx, { updates }) => {
+    for (const u of updates) {
+      await ctx.db.patch(u.draftId, { subject: u.subject, body: u.body });
+    }
+    return updates.length;
   },
 });

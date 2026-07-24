@@ -2,9 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { useMutation } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Input, Label, Textarea } from "@/components/ui/Input";
@@ -14,6 +14,7 @@ export default function NewCampaignPage() {
   const router = useRouter();
   const createPR = useMutation(api.pressReleases.create);
   const createCampaign = useMutation(api.campaigns.create);
+  const polish = useAction(api.aiActions.polishPressRelease);
 
   const [form, setForm] = useState({
     who: "",
@@ -25,10 +26,43 @@ export default function NewCampaignPage() {
     links: "",
   });
   const [loading, setLoading] = useState(false);
+  const [polishing, setPolishing] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   function set<K extends keyof typeof form>(k: K, v: string) {
     setForm((f) => ({ ...f, [k]: v }));
+  }
+
+  async function onPolish() {
+    setError(null);
+    setPolishing(true);
+    setNote(null);
+    try {
+      const tags = form.topicTags
+        .split(/[,\s]+/)
+        .map((t) => t.trim())
+        .filter(Boolean);
+      const result = await polish({
+        title: form.headline || `${form.who} 보도자료`,
+        topicTags: tags.length ? tags : ["IT·스타트업"],
+        who: form.who || undefined,
+        numbers: form.numbers || undefined,
+        quote: form.quote || undefined,
+        bodyHint: form.body || undefined,
+        newsValue: form.headline || undefined,
+      });
+      setForm((f) => ({
+        ...f,
+        headline: result.headlines[0] ?? result.title,
+        body: result.body,
+      }));
+      setNote(result.message ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "AI 다듬기에 실패했습니다.");
+    } finally {
+      setPolishing(false);
+    }
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -44,9 +78,12 @@ export default function NewCampaignPage() {
         .split(/[\n,]+/)
         .map((l) => l.trim())
         .filter(Boolean);
+      const title = form.headline || `${form.who} 보도자료`;
       const prId = await createPR({
-        title: form.headline || `${form.who} 보도자료`,
-        headlines: [form.headline].filter(Boolean),
+        title,
+        headlines: [form.headline, form.numbers ? `${form.headline} — 수치` : title, `${title} — 업계`].filter(
+          Boolean,
+        ) as string[],
         body: form.body,
         topicTags: tags.length ? tags : ["IT·스타트업"],
         who: form.who || undefined,
@@ -141,11 +178,15 @@ export default function NewCampaignPage() {
               />
             </div>
 
+            {note && <p className="text-xs text-muted">{note}</p>}
             {error && <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}
 
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
               <Button type="button" variant="subtle" onClick={() => router.back()}>
                 취소
+              </Button>
+              <Button type="button" variant="subtle" disabled={polishing || !form.headline} onClick={onPolish}>
+                <Wand2 className="h-4 w-4" /> {polishing ? "AI 다듬는 중…" : "AI로 보도문 다듬기"}
               </Button>
               <Button type="submit" disabled={loading}>
                 <Sparkles className="h-4 w-4" /> {loading ? "생성 중…" : "저장하고 기자 매칭"}
