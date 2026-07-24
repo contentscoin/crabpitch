@@ -109,6 +109,14 @@ npx convex env set SITE_URL https://crabpitch.vercel.app --prod
 | `ANTHROPIC_API_KEY` | 보도자료·메일 AI 개인화 강화 |
 | `GMAIL_OAUTH_CLIENT_ID` / `GMAIL_OAUTH_CLIENT_SECRET` | Gmail(BYO-Email) 초안 OAuth. 콜백: `https://<deployment>.convex.site/gmail/callback` (로그인용 `AUTH_GOOGLE_*` 와 별개) |
 
+Agency REST (Agency 플랜 + `/agency`에서 `cp_live_…` 키 발급):
+
+| Method | Path | 설명 |
+|---|---|---|
+| GET/POST | `https://<deployment>.convex.site/api/v1/clients` | 클라이언트 목록/생성 |
+| GET | `…/api/v1/campaigns?clientId=` | 캠페인 목록 |
+| POST | `…/api/v1/press-releases` | 보도자료+캠페인 (`clientId`, `title`, `body`) |
+
 > Convex 액션에서 쓰는 서버 시크릿은 `npx convex env set KEY value --prod` 로 Convex 배포에 설정합니다.
 
 ---

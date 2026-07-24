@@ -5,6 +5,7 @@
  * NOTE: `npx convex dev` 실행 시 실제 함수 기준으로 재생성됩니다.
  */
 import type { ApiFromModules, FilterApi, FunctionReference } from "convex/server";
+import type * as agency from "../agency.js";
 import type * as aiActions from "../aiActions.js";
 import type * as auth from "../auth.js";
 import type * as campaigns from "../campaigns.js";
@@ -23,6 +24,7 @@ import type * as suppression from "../suppression.js";
 import type * as usage from "../usage.js";
 
 declare const fullApi: ApiFromModules<{
+  agency: typeof agency;
   aiActions: typeof aiActions;
   auth: typeof auth;
   campaigns: typeof campaigns;

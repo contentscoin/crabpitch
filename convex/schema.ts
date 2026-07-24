@@ -53,6 +53,8 @@ export default defineSchema({
     contactEmail: v.optional(v.string()),
     plan: planValidator,
     gmailConnected: v.optional(v.boolean()),
+    activeAgencyId: v.optional(v.id("agencies")),
+    activeClientId: v.optional(v.id("agencyClients")),
   }).index("by_user", ["userId"]),
 
   // OpenCrab 기자 온톨로지 캐시 (mailing_status: candidate)
@@ -85,7 +87,8 @@ export default defineSchema({
     quote: v.optional(v.string()),
     links: v.optional(v.array(v.string())),
     status: v.union(v.literal("draft"), v.literal("ready")),
-  }).index("by_user", ["userId"]),
+    agencyClientId: v.optional(v.id("agencyClients")),
+  }).index("by_user", ["userId"]).index("by_client", ["agencyClientId"]),
 
   // 배포 캠페인
   campaigns: defineTable({
@@ -94,9 +97,11 @@ export default defineSchema({
     name: v.string(),
     status: campaignStatusValidator,
     scheduledSendAt: v.optional(v.number()), // 예약 발송 시각(ms)
+    agencyClientId: v.optional(v.id("agencyClients")),
   })
     .index("by_user", ["userId"])
-    .index("by_scheduled", ["scheduledSendAt"]),
+    .index("by_scheduled", ["scheduledSendAt"])
+    .index("by_client", ["agencyClientId"]),
 
   // 기자 매칭 결과 (적합도 점수 + 근거)
   matches: defineTable({
@@ -189,4 +194,40 @@ export default defineSchema({
     state: v.string(),
     createdAt: v.number(),
   }).index("by_state", ["state"]),
+
+  // Agency 멀티테넌트 — PR 대행사 워크스페이스
+  agencies: defineTable({
+    name: v.string(),
+    ownerUserId: v.id("users"),
+    createdAt: v.number(),
+  }).index("by_owner", ["ownerUserId"]),
+
+  agencyMembers: defineTable({
+    agencyId: v.id("agencies"),
+    userId: v.id("users"),
+    role: v.union(v.literal("owner"), v.literal("admin"), v.literal("member")),
+  })
+    .index("by_agency", ["agencyId"])
+    .index("by_user", ["userId"])
+    .index("by_agency_user", ["agencyId", "userId"]),
+
+  agencyClients: defineTable({
+    agencyId: v.id("agencies"),
+    name: v.string(),
+    contactEmail: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_agency", ["agencyId"]),
+
+  // Agency REST API 키 (원문은 생성 시 1회만 반환, 해시만 저장)
+  agencyApiKeys: defineTable({
+    agencyId: v.id("agencies"),
+    name: v.string(),
+    keyPrefix: v.string(),
+    keyHash: v.string(),
+    createdAt: v.number(),
+    revoked: v.boolean(),
+  })
+    .index("by_agency", ["agencyId"])
+    .index("by_hash", ["keyHash"]),
 });

@@ -23,15 +23,17 @@ app/                      Next.js App Router
   page.tsx                마케팅 랜딩
   signin/                 로그인·가입
   (app)/                  인증 보호 그룹 (미들웨어 가드)
-    dashboard/ campaigns/ journalists/ replies/ media-kit/ settings/
+    dashboard/ campaigns/ journalists/ replies/ media-kit/ agency/ settings/
 convex/                   백엔드
-  schema.ts               도메인 스키마(11 테이블 + auth)
-  auth.ts http.ts         Convex Auth
+  schema.ts               도메인 스키마(+ agency 테이블 + auth)
+  auth.ts http.ts         Convex Auth + Agency REST
+  agency.ts agencyHttp.ts 멀티테넌트·API 키
   lib/                    ★ 스킬 로직 흡수(순수 TS)
     scoring.ts            기자 매칭 적합도(press-distribution 랭킹 규칙)
     emailTemplate.ts      기자 배포 메일 6블록(journalist-outreach-email)
     replyClassifier.ts    회신 7유형 분류·답장 초안(reply-handler)
     plans.ts mask.ts      요금 한도 · 이메일 블러
+    agencyAuth.ts         Agency 플랜·멤버·API 키 해시
   campaigns/ drafts/ journalists/ replies/ ... 함수 모듈
   seed.ts                 데모 기자 온톨로지 + 데모 캠페인
 components/ui|app         디자인 시스템 · 앱 셸
@@ -41,7 +43,8 @@ skills/ dist/ demo/       기존 스킬 패키지(범용 Claude/GPT/Gemini, 그�
 ## 도메인 모델 (Convex 스키마)
 
 `profiles · journalists · pressReleases · campaigns · matches · emailDrafts ·
-replies · suppressionList · mediaKits · usage` (+ Convex Auth `users`/`authSessions` 등)
+replies · suppressionList · mediaKits · usage · agencies · agencyMembers ·
+agencyClients · agencyApiKeys` (+ Convex Auth `users`/`authSessions` 등)
 
 ## 실행 루프 (매칭 → 작성 → 발송 → 응대)
 
@@ -74,6 +77,15 @@ replies · suppressionList · mediaKits · usage` (+ Convex Auth `users`/`authSe
 | 예약 발송 | `drafts.scheduleCampaign` + `crons.ts` (1분) | `scheduledSendAt` 시점에 queued→sent |
 | 분석 | `usage.getAnalytics` | 게재율·회신 유형·미처리·예약 |
 | 인터뷰 일정 | `replies.confirmInterviewSlot` | KST 슬롯 3안 제안·확정 |
+| Agency API | `/agency` UI + `agencyApiKeys` | `Bearer cp_live_…` → `/api/v1/clients|campaigns|press-releases` |
+
+Agency REST (Convex site URL):
+
+| Method | Path | 설명 |
+|---|---|---|
+| GET/POST | `/api/v1/clients` | 클라이언트 목록 / 생성 |
+| GET | `/api/v1/campaigns?clientId=` | 캠페인 목록 |
+| POST | `/api/v1/press-releases` | 보도자료+캠페인 생성 (`clientId`, `title`, `body`) |
 
 OpenCrab HTTP 계약: `POST OPENCRAB_API_URL` + Bearer 키, body `{ query, pack_query, top_k }`,
 응답 `{ journalists: [{ reporter_name, outlet_name, email, beat_primary, ... }] }`

@@ -7,6 +7,7 @@ import { LogOut, Plus } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UsageMeter } from "./UsageMeter";
+import { ClientSwitcher } from "./ClientSwitcher";
 
 export function Topbar() {
   const { signOut } = useAuthActions();
@@ -18,6 +19,7 @@ export function Topbar() {
       </Link>
       <div className="hidden md:block" />
       <div className="flex items-center gap-2 sm:gap-3">
+        <ClientSwitcher />
         <UsageMeter />
         <Link href="/campaigns/new">
           <Button size="sm">

@@ -1,17 +1,39 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireUser } from "./model";
+import { getProfile, requireUser } from "./model";
+import { canAccessClientScoped, getMembership } from "./lib/agencyAuth";
 import { campaignStatusValidator } from "./schema";
 
 export const list = query({
   args: {},
   handler: async (ctx) => {
     const userId = await requireUser(ctx);
-    const campaigns = await ctx.db
-      .query("campaigns")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .order("desc")
-      .collect();
+    const profile = await getProfile(ctx, userId);
+    let campaigns;
+    if (profile?.activeClientId) {
+      const client = await ctx.db.get(profile.activeClientId);
+      const member =
+        client && (await getMembership(ctx, client.agencyId, userId));
+      campaigns = member
+        ? await ctx.db
+            .query("campaigns")
+            .withIndex("by_client", (q) =>
+              q.eq("agencyClientId", profile.activeClientId!),
+            )
+            .order("desc")
+            .collect()
+        : await ctx.db
+            .query("campaigns")
+            .withIndex("by_user", (q) => q.eq("userId", userId))
+            .order("desc")
+            .collect();
+    } else {
+      campaigns = await ctx.db
+        .query("campaigns")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .order("desc")
+        .collect();
+    }
     // 각 캠페인의 요약 카운트 부착
     return Promise.all(
       campaigns.map(async (c) => {
@@ -44,7 +66,12 @@ export const get = query({
   handler: async (ctx, { id }) => {
     const userId = await requireUser(ctx);
     const campaign = await ctx.db.get(id);
-    if (!campaign || campaign.userId !== userId) return null;
+    if (
+      !campaign ||
+      !(await canAccessClientScoped(ctx, userId, campaign.userId, campaign.agencyClientId))
+    ) {
+      return null;
+    }
     const pressRelease = await ctx.db.get(campaign.pressReleaseId);
     return { campaign, pressRelease };
   },
@@ -55,12 +82,19 @@ export const create = mutation({
   handler: async (ctx, { pressReleaseId, name }) => {
     const userId = await requireUser(ctx);
     const pr = await ctx.db.get(pressReleaseId);
-    if (!pr || pr.userId !== userId) throw new Error("보도자료를 찾을 수 없습니다.");
+    if (
+      !pr ||
+      !(await canAccessClientScoped(ctx, userId, pr.userId, pr.agencyClientId))
+    ) {
+      throw new Error("보도자료를 찾을 수 없습니다.");
+    }
+    const profile = await getProfile(ctx, userId);
     return ctx.db.insert("campaigns", {
-      userId,
+      userId: pr.userId,
       pressReleaseId,
       name: name ?? pr.title,
       status: "draft",
+      agencyClientId: profile?.activeClientId ?? pr.agencyClientId,
     });
   },
 });
@@ -70,7 +104,12 @@ export const updateStatus = mutation({
   handler: async (ctx, { id, status }) => {
     const userId = await requireUser(ctx);
     const campaign = await ctx.db.get(id);
-    if (!campaign || campaign.userId !== userId) throw new Error("권한이 없습니다.");
+    if (
+      !campaign ||
+      !(await canAccessClientScoped(ctx, userId, campaign.userId, campaign.agencyClientId))
+    ) {
+      throw new Error("권한이 없습니다.");
+    }
     await ctx.db.patch(id, { status });
   },
 });

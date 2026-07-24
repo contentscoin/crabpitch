@@ -56,14 +56,14 @@
 | 영역 | 경로 |
 |---|---|
 | 랜딩/인증 | `app/page.tsx`, `app/signin/`, `middleware.ts` |
-| 앱 화면 | `app/(app)/` — dashboard, campaigns, journalists, replies, media-kit, settings |
+| 앱 화면 | `app/(app)/` — dashboard, campaigns, journalists, replies, media-kit, agency, settings |
 | 스키마 | `convex/schema.ts` |
-| 스킬 로직 | `convex/lib/` — scoring, emailTemplate, replyClassifier, plans, mask |
+| 스킬 로직 | `convex/lib/` — scoring, emailTemplate, replyClassifier, plans, mask, agencyAuth |
 | 시드/데모 | `convex/seed.ts` |
 
 ### 도메인 테이블
 
-`profiles` · `journalists` · `pressReleases` · `campaigns` · `matches` · `emailDrafts` · `replies` · `suppressionList` · `mediaKits` · `usage` (+ `authTables`)
+`profiles` · `journalists` · `pressReleases` · `campaigns` · `matches` · `emailDrafts` · `replies` · `suppressionList` · `mediaKits` · `usage` · `agencies` · `agencyMembers` · `agencyClients` · `agencyApiKeys` (+ `authTables`)
 
 ### 요금제 (코드 기준, `convex/lib/plans.ts`)
 
@@ -113,7 +113,7 @@ Cursor 플러그인이 **아님** (`.cursor-plugin` 없음). 마크다운 스킬
 | Gmail BYO OAuth / 언론홍보 초안 | `gmailActions` + `/gmail/callback` 배선 |
 | 단위 테스트 | `convex/lib/*.test.ts` (vitest) |
 | CI | `.github/workflows/ci.yml` (typecheck · test · lint) |
-| Phase-2 (README) | Anthropic 개인화, 분석 대시보드, 예약 발송, 인터뷰 캘린더, 에이전시 API |
+| Phase-2 (README) | Anthropic 개인화, 분석 대시보드, 예약 발송, 인터뷰 캘린더, 에이전시 API — **코드 완료** |
 
 ---
 
@@ -168,6 +168,9 @@ Convex Cloud
 
 7. 메일·보도문 Anthropic 개인화 — **완료**
 8. 분석 대시보드(`usage.getAnalytics`) · 예약 발송(`scheduleCampaign`+cron) · 인터뷰 슬롯 확정 — **완료**
-9. 에이전시/멀티테넌트 API — **잔여**
+9. 에이전시/멀티테넌트 API — **완료**
+   - 스키마: `agencies` / `agencyMembers` / `agencyClients` / `agencyApiKeys`
+   - UI: `/agency` · Topbar 클라이언트 스위처 · 활성 클라이언트 스코프
+   - REST: `Bearer cp_live_…` → `/api/v1/clients` · `/api/v1/campaigns` · `/api/v1/press-releases`
 
-자격증명 실검증(OpenCrab/Gmail/Anthropic)과 에이전시 API가 남은 작업이다.
+남은 작업은 자격증명 실검증(OpenCrab/Gmail/Anthropic)뿐이다.
