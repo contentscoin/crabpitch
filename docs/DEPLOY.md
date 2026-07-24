@@ -105,9 +105,12 @@ npx convex env set SITE_URL https://crabpitch.vercel.app --prod
 
 | 변수 | 용도 |
 |---|---|
-| `OPENCRAB_API_URL` / `OPENCRAB_API_KEY` | 기자 온톨로지 실매칭(시드 대체). `POST` JSON → journalists 업서트 |
-| `ANTHROPIC_API_KEY` | 보도자료·메일 AI 개인화 강화 |
-| `GMAIL_OAUTH_CLIENT_ID` / `GMAIL_OAUTH_CLIENT_SECRET` | Gmail(BYO-Email) 초안 OAuth. 콜백: `https://<deployment>.convex.site/gmail/callback` (로그인용 `AUTH_GOOGLE_*` 와 별개) |
+| `OPENCRAB_API_URL` / `OPENCRAB_API_KEY` | 기자 온톨로지. MCP는 `URL=https://opencrab.sh/api/mcp` + `KEY=ocm_…`. HTTP는 기존 POST+Bearer |
+| `ANTHROPIC_API_KEY` | (선택) 보도자료·메일 AI 개인화. 없으면 템플릿 유지 |
+| `GMAIL_OAUTH_CLIENT_ID` / `GMAIL_OAUTH_CLIENT_SECRET` | (선택) Gmail BYO. **없으면 `AUTH_GOOGLE_*` 폴백**. 콜백: `https://<deployment>.convex.site/gmail/callback` |
+
+프로덕션 일괄 설정 스크립트: `scripts/set-prod-integrations.sh`  
+(`CONVEX_DEPLOY_KEY` + `OPENCRAB_API_KEY` export 후 실행)
 
 Agency REST (Agency 플랜 + `/agency`에서 `cp_live_…` 키 발급):
 

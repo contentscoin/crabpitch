@@ -1,17 +1,13 @@
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { requireGoogleOAuthClient } from "./lib/googleOAuthEnv";
 
 function siteUrl() {
   return (process.env.SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
 }
 
 function requireGmailOAuthEnv() {
-  const clientId = process.env.GMAIL_OAUTH_CLIENT_ID?.trim();
-  const clientSecret = process.env.GMAIL_OAUTH_CLIENT_SECRET?.trim();
-  if (!clientId || !clientSecret) {
-    throw new Error("oauth_env");
-  }
-  return { clientId, clientSecret };
+  return requireGoogleOAuthClient();
 }
 
 /** OAuth 콜백 — http.ts 에서 `/gmail/callback` 에 등록. */

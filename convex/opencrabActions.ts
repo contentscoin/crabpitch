@@ -8,15 +8,15 @@ import {
   buildOpenCrabQueryBody,
   extractJournalistsFromResponse,
 } from "./lib/opencrabMap";
+import {
+  fetchOpenCrabViaHttp,
+  fetchOpenCrabViaMcp,
+  resolveOpenCrabTransport,
+} from "./lib/opencrabClient";
 
 /**
- * OpenCrab HTTP 심 — `OPENCRAB_API_URL` + `OPENCRAB_API_KEY` 가 있으면 조회 후 업서트.
- * 미설정·실패 시 `{ synced: 0, mode: "skipped" }` 반환(시드/기존 DB로 매칭 계속).
- *
- * 계약(POST JSON):
- *   Body: { query, pack_query, top_k }
- *   Header: Authorization: Bearer <KEY>
- *   Response: { journalists: [...] } 또는 evidence/results 변형 (opencrabMap 참조)
+ * OpenCrab 심 — HTTP 또는 MCP(`ocm_` 키)로 조회 후 업서트.
+ * 미설정·실패 시 `{ synced: 0, mode: "skipped"|"error" }` (시드/기존 DB로 매칭 계속).
  */
 export const syncJournalists = action({
   args: {
@@ -47,31 +47,14 @@ export const syncJournalists = action({
 
     const topK = args.topK ?? 15;
     const body = buildOpenCrabQueryBody(args.topicTags ?? [], topK);
-    const url = baseUrl.replace(/\/$/, "");
+    const transport = resolveOpenCrabTransport(baseUrl, apiKey);
 
     try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify(body),
-      });
+      const payload =
+        transport.mode === "mcp"
+          ? await fetchOpenCrabViaMcp(transport.endpoint, body.query, topK)
+          : await fetchOpenCrabViaHttp(transport.endpoint, apiKey, body);
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        return {
-          synced: 0,
-          inserted: 0,
-          updated: 0,
-          mode: "error",
-          message: `OpenCrab HTTP ${res.status}: ${text.slice(0, 200)}`,
-        };
-      }
-
-      const payload: unknown = await res.json();
       const journalists = extractJournalistsFromResponse(payload).slice(0, topK);
 
       if (journalists.length === 0) {
@@ -80,7 +63,10 @@ export const syncJournalists = action({
           inserted: 0,
           updated: 0,
           mode: "opencrab",
-          message: "OpenCrab 응답에 정규화 가능한 기자 레코드가 없습니다.",
+          message:
+            transport.mode === "mcp"
+              ? "OpenCrab MCP 응답에 정규화 가능한 기자 레코드가 없습니다. (팩 설치·문서 인제스트 필요)"
+              : "OpenCrab 응답에 정규화 가능한 기자 레코드가 없습니다.",
         };
       }
 
@@ -94,7 +80,7 @@ export const syncJournalists = action({
         inserted: result.inserted,
         updated: result.updated,
         mode: "opencrab",
-        message: `OpenCrab에서 ${journalists.length}명 동기화 (신규 ${result.inserted} · 갱신 ${result.updated})`,
+        message: `OpenCrab(${transport.mode})에서 ${journalists.length}명 동기화 (신규 ${result.inserted} · 갱신 ${result.updated})`,
       };
     } catch (e) {
       return {

@@ -7,16 +7,10 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "./_generated/dataModel";
 import { buildRawEmail, GMAIL_PR_LABEL, GMAIL_SCOPES } from "./lib/gmailMime";
 import { personalizeForSend } from "./lib/emailTemplate";
+import { requireGoogleOAuthClient } from "./lib/googleOAuthEnv";
 
 function requireGmailOAuthEnv() {
-  const clientId = process.env.GMAIL_OAUTH_CLIENT_ID?.trim();
-  const clientSecret = process.env.GMAIL_OAUTH_CLIENT_SECRET?.trim();
-  if (!clientId || !clientSecret) {
-    throw new Error(
-      "Gmail OAuth 미설정: Convex에 GMAIL_OAUTH_CLIENT_ID / GMAIL_OAUTH_CLIENT_SECRET 를 설정하세요.",
-    );
-  }
-  return { clientId, clientSecret };
+  return requireGoogleOAuthClient();
 }
 
 function callbackUrl() {
