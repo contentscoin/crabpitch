@@ -71,6 +71,9 @@ replies · suppressionList · mediaKits · usage` (+ Convex Auth `users`/`authSe
 | 기자 매칭 | `seed.ts` 시드 기자 DB | `opencrabActions.syncJournalists` → `OPENCRAB_API_*` 업서트 (실패/미설정 시 시드 폴백) |
 | 보도자료·메일 생성 | 템플릿(`emailTemplate.ts`) + 선택 AI | `aiActions.*` + `ANTHROPIC_API_KEY` (없으면 템플릿 유지) |
 | Gmail 발송/초안 | 상태 기록만 (`drafts.sendCampaign`) | 설정에서 BYO OAuth → `gmailActions.pushCampaignToGmail` (`언론홍보` 라벨 초안) |
+| 예약 발송 | `drafts.scheduleCampaign` + `crons.ts` (1분) | `scheduledSendAt` 시점에 queued→sent |
+| 분석 | `usage.getAnalytics` | 게재율·회신 유형·미처리·예약 |
+| 인터뷰 일정 | `replies.confirmInterviewSlot` | KST 슬롯 3안 제안·확정 |
 
 OpenCrab HTTP 계약: `POST OPENCRAB_API_URL` + Bearer 키, body `{ query, pack_query, top_k }`,
 응답 `{ journalists: [{ reporter_name, outlet_name, email, beat_primary, ... }] }`
