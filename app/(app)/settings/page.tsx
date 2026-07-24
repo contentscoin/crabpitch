@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Mail, Trash2, Check } from "lucide-react";
@@ -13,14 +14,33 @@ import { PageHeader } from "@/components/app/bits";
 import { PLANS } from "@/lib/brand";
 
 export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="h-64 animate-pulse rounded-lg bg-surface" />}>
+      <SettingsInner />
+    </Suspense>
+  );
+}
+
+function SettingsInner() {
+  const searchParams = useSearchParams();
   const data = useQuery(api.profiles.getMyProfile);
   const usage = useQuery(api.usage.getMyUsage);
   const suppression = useQuery(api.suppression.list);
+  const gmail = useQuery(api.gmailAccounts.getConnection);
   const update = useMutation(api.profiles.updateProfile);
   const removeSup = useMutation(api.suppression.remove);
+  const disconnectGmail = useMutation(api.gmailAccounts.disconnect);
+  const getGmailUrl = useAction(api.gmailActions.getConnectUrl);
 
-  const [form, setForm] = useState({ companyName: "", senderName: "", contactEmail: "", boilerplate: "" });
+  const [form, setForm] = useState({
+    companyName: "",
+    senderName: "",
+    contactEmail: "",
+    boilerplate: "",
+  });
   const [saved, setSaved] = useState(false);
+  const [gmailBusy, setGmailBusy] = useState(false);
+  const [gmailMsg, setGmailMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (data?.profile) {
@@ -33,6 +53,15 @@ export default function SettingsPage() {
     }
   }, [data?.profile?._id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    const status = searchParams.get("gmail");
+    if (status === "connected") setGmailMsg("Gmail 연결이 완료되었습니다.");
+    if (status === "error") {
+      const reason = searchParams.get("reason") ?? "unknown";
+      setGmailMsg(`Gmail 연결 실패: ${reason}`);
+    }
+  }, [searchParams]);
+
   const currentPlan = usage?.plan ?? "free";
 
   async function saveProfile() {
@@ -40,11 +69,22 @@ export default function SettingsPage() {
     setSaved(true);
   }
 
+  async function connectGmail() {
+    setGmailBusy(true);
+    setGmailMsg(null);
+    try {
+      const { url } = await getGmailUrl({});
+      window.location.href = url;
+    } catch (e) {
+      setGmailMsg(e instanceof Error ? e.message : "Gmail 연결을 시작할 수 없습니다.");
+      setGmailBusy(false);
+    }
+  }
+
   return (
     <div className="max-w-3xl space-y-8">
       <PageHeader title="설정" description="발신 아이덴티티·요금제·연동·억제 리스트를 관리합니다." />
 
-      {/* 프로필 */}
       <section>
         <h2 className="mb-3 text-lg font-bold">발신 아이덴티티</h2>
         <Card>
@@ -52,20 +92,50 @@ export default function SettingsPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <Label htmlFor="cn">회사/브랜드명</Label>
-                <Input id="cn" value={form.companyName} onChange={(e) => { setForm({ ...form, companyName: e.target.value }); setSaved(false); }} />
+                <Input
+                  id="cn"
+                  value={form.companyName}
+                  onChange={(e) => {
+                    setForm({ ...form, companyName: e.target.value });
+                    setSaved(false);
+                  }}
+                />
               </div>
               <div>
                 <Label htmlFor="sn">보내는 사람</Label>
-                <Input id="sn" value={form.senderName} onChange={(e) => { setForm({ ...form, senderName: e.target.value }); setSaved(false); }} />
+                <Input
+                  id="sn"
+                  value={form.senderName}
+                  onChange={(e) => {
+                    setForm({ ...form, senderName: e.target.value });
+                    setSaved(false);
+                  }}
+                />
               </div>
             </div>
             <div>
               <Label htmlFor="ce">회신용 이메일</Label>
-              <Input id="ce" type="email" value={form.contactEmail} onChange={(e) => { setForm({ ...form, contactEmail: e.target.value }); setSaved(false); }} />
+              <Input
+                id="ce"
+                type="email"
+                value={form.contactEmail}
+                onChange={(e) => {
+                  setForm({ ...form, contactEmail: e.target.value });
+                  setSaved(false);
+                }}
+              />
             </div>
             <div>
               <Label htmlFor="bp">보일러플레이트 (보도자료 하단 공식 소개)</Label>
-              <Textarea id="bp" rows={2} value={form.boilerplate} onChange={(e) => { setForm({ ...form, boilerplate: e.target.value }); setSaved(false); }} />
+              <Textarea
+                id="bp"
+                rows={2}
+                value={form.boilerplate}
+                onChange={(e) => {
+                  setForm({ ...form, boilerplate: e.target.value });
+                  setSaved(false);
+                }}
+              />
             </div>
             <div className="flex items-center gap-3">
               <Button onClick={saveProfile}>저장</Button>
@@ -75,7 +145,6 @@ export default function SettingsPage() {
         </Card>
       </section>
 
-      {/* 요금제 */}
       <section>
         <h2 className="mb-3 text-lg font-bold">요금제</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -112,10 +181,11 @@ export default function SettingsPage() {
             );
           })}
         </div>
-        <p className="mt-2 text-xs text-muted">* 데모 환경에서는 결제 없이 플랜을 전환해 한도 동작을 확인할 수 있습니다.</p>
+        <p className="mt-2 text-xs text-muted">
+          * 데모 환경에서는 결제 없이 플랜을 전환해 한도 동작을 확인할 수 있습니다.
+        </p>
       </section>
 
-      {/* Gmail 연동 */}
       <section>
         <h2 className="mb-3 text-lg font-bold">Gmail 연동 (BYO-Email)</h2>
         <Card>
@@ -125,18 +195,41 @@ export default function SettingsPage() {
                 <Mail className="h-5 w-5 text-muted" />
               </div>
               <div>
-                <div className="font-semibold">Google 계정 연결</div>
-                <div className="text-xs text-muted">발송·초안은 사용자 본인 Gmail로 나가며, 모든 배포·회신은 Gmail <b>&lsquo;언론홍보&rsquo;</b> 라벨 안에서 관리됩니다. (OAuth 설정 시 활성화)</div>
+                <div className="font-semibold">
+                  {gmail?.connected ? `연결됨 · ${gmail.email}` : "Google 계정 연결"}
+                </div>
+                <div className="text-xs text-muted">
+                  발송·초안은 사용자 본인 Gmail로 나가며, 모든 배포·회신은 Gmail{" "}
+                  <b>&lsquo;언론홍보&rsquo;</b> 라벨 안에서 관리됩니다.
+                </div>
+                {gmailMsg && <p className="mt-1 text-xs text-foreground-muted">{gmailMsg}</p>}
               </div>
             </div>
-            <Button variant="subtle" disabled>
-              연결 (준비 중)
-            </Button>
+            {gmail?.connected ? (
+              <Button
+                variant="subtle"
+                disabled={gmailBusy}
+                onClick={async () => {
+                  setGmailBusy(true);
+                  try {
+                    await disconnectGmail({});
+                    setGmailMsg("Gmail 연결을 해제했습니다.");
+                  } finally {
+                    setGmailBusy(false);
+                  }
+                }}
+              >
+                연결 해제
+              </Button>
+            ) : (
+              <Button variant="brand" disabled={gmailBusy} onClick={connectGmail}>
+                {gmailBusy ? "이동 중…" : "Gmail 연결"}
+              </Button>
+            )}
           </CardContent>
         </Card>
       </section>
 
-      {/* 억제 리스트 */}
       <section>
         <h2 className="mb-3 text-lg font-bold">억제 리스트 (수신거부)</h2>
         <Card>
@@ -145,7 +238,8 @@ export default function SettingsPage() {
               <div className="h-16 animate-pulse rounded-md bg-surface" />
             ) : suppression.length === 0 ? (
               <p className="flex items-center gap-2 text-sm text-muted">
-                <Check className="h-4 w-4 text-success" /> 억제된 기자가 없습니다. 수신거부 회신 시 자동 등록됩니다.
+                <Check className="h-4 w-4 text-success" /> 억제된 기자가 없습니다. 수신거부 회신 시
+                자동 등록됩니다.
               </p>
             ) : (
               <ul className="divide-y divide-border">
@@ -155,7 +249,11 @@ export default function SettingsPage() {
                       <span className="text-sm font-semibold tabular-nums">{s.masked}</span>
                       <span className="ml-2 text-xs text-muted">{s.reason}</span>
                     </div>
-                    <Button size="sm" variant="ghost" onClick={() => removeSup({ id: s._id as Id<"suppressionList"> })}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => removeSup({ id: s._id as Id<"suppressionList"> })}
+                    >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </li>

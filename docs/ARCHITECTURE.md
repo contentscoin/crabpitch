@@ -68,9 +68,16 @@ replies · suppressionList · mediaKits · usage` (+ Convex Auth `users`/`authSe
 
 | 기능 | 현재(데모) | 실 배선 |
 |---|---|---|
-| 기자 매칭 | `seed.ts` 시드 기자 DB | OpenCrab MCP/HTTP → `journalists` 업서트 (`OPENCRAB_API_*`) |
-| 보도자료·메일 생성 | 템플릿(`emailTemplate.ts`) | Anthropic API로 개인화 강화 (`ANTHROPIC_API_KEY`) |
-| Gmail 발송/초안 | 상태 기록만 | Google OAuth + Gmail API (`GOOGLE_CLIENT_*`, BYO-Email) |
+| 기자 매칭 | `seed.ts` 시드 기자 DB | `opencrabActions.syncJournalists` → `OPENCRAB_API_*` 업서트 (실패/미설정 시 시드 폴백) |
+| 보도자료·메일 생성 | 템플릿(`emailTemplate.ts`) | `ANTHROPIC_API_KEY` (P2) |
+| Gmail 발송/초안 | 상태 기록만 (`drafts.sendCampaign`) | 설정에서 BYO OAuth → `gmailActions.pushCampaignToGmail` (`언론홍보` 라벨 초안) |
+
+OpenCrab HTTP 계약: `POST OPENCRAB_API_URL` + Bearer 키, body `{ query, pack_query, top_k }`,
+응답 `{ journalists: [{ reporter_name, outlet_name, email, beat_primary, ... }] }`
+(변형 형태는 `convex/lib/opencrabMap.ts` 가 정규화).
+
+Gmail 콜백: `https://<deployment>.convex.site/gmail/callback`
+(`GMAIL_OAUTH_*` 는 로그인용 `AUTH_GOOGLE_*` 와 별도 클라이언트 권장).
 
 ## 로컬 실행
 

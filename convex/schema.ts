@@ -164,4 +164,21 @@ export default defineSchema({
     sendsUsed: v.number(),
     pressReleasesUsed: v.number(),
   }).index("by_user_month", ["userId", "month"]),
+
+  // BYO Gmail OAuth 토큰 (로그인용 AUTH_GOOGLE_* 와 별개)
+  gmailAccounts: defineTable({
+    userId: v.id("users"),
+    email: v.string(),
+    accessToken: v.string(),
+    refreshToken: v.optional(v.string()),
+    expiryDate: v.optional(v.number()),
+    scope: v.optional(v.string()),
+  }).index("by_user", ["userId"]),
+
+  // Gmail OAuth state (CSRF 방지)
+  gmailOauthStates: defineTable({
+    userId: v.id("users"),
+    state: v.string(),
+    createdAt: v.number(),
+  }).index("by_state", ["state"]),
 });

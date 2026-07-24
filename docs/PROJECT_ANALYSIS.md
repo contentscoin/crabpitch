@@ -109,10 +109,11 @@ Cursor 플러그인이 **아님** (`.cursor-plugin` 없음). 마크다운 스킬
 |---|---|
 | 버전 | `0.1.0` (private SaaS) |
 | UI / 도메인 / 승인·한도·마스킹 | 구현됨 |
-| OpenCrab / Anthropic / Gmail 실연동 | 심(seam)만, 대부분 미배선 |
-| 테스트 | 없음 |
-| CI (`.github/`) | 없음 |
-| Phase-2 (README) | 분석, 예약발송, 대시보드 고도화, 인터뷰 캘린더, 에이전시 API |
+| OpenCrab HTTP 동기화 | `opencrabActions.syncJournalists` 배선 (미설정 시 시드 폴백) |
+| Gmail BYO OAuth / 언론홍보 초안 | `gmailActions` + `/gmail/callback` 배선 |
+| 단위 테스트 | `convex/lib/*.test.ts` (vitest) |
+| CI | `.github/workflows/ci.yml` (typecheck · test · lint) |
+| Phase-2 (README) | Anthropic 개인화, 분석 대시보드, 예약 발송, 인터뷰 캘린더, 에이전시 API |
 
 ---
 
@@ -151,21 +152,21 @@ Convex Cloud
 분석 갭을 기준으로 **다음 구현 백로그 범위를 아래처럼 확정**한다.
 (Phase-2 기능보다 프로덕션 배선·품질을 먼저 둔다.)
 
-### P0 — 라이브 배선 (프로덕션 필수)
+### P0 — 라이브 배선 (프로덕션 필수) — 코드 완료, 자격증명 연결 필요
 
-1. **OpenCrab 연동** — `OPENCRAB_API_*`로 기자 온톨로지 업서트, `seed.ts`는 폴백 유지
-2. **Gmail BYO OAuth** — 초안 생성·`언론홍보` 라벨·승인 후 발송까지 실배선
+1. **OpenCrab 연동** — `opencrabActions.syncJournalists` + `opencrabMap` (시드 폴백 유지). Convex에 `OPENCRAB_API_*` 설정 후 실검증.
+2. **Gmail BYO OAuth** — 설정 연결 · `/gmail/callback` · `pushCampaignToGmail` (`언론홍보` 라벨). `GMAIL_OAUTH_*` + 콜백 URI 등록 후 실검증.
 3. **배포 런북 검증** — [DEPLOY.md](./DEPLOY.md)대로 Convex prod + Vercel + Google OAuth 콜백 확인
 
-### P1 — 품질·안전망
+### P1 — 품질·안전망 — 코드 완료
 
-4. **단위 테스트** — `convex/lib` (scoring, emailTemplate, replyClassifier, plans, mask)
-5. **CI** — lint + typecheck + test (GitHub Actions)
-6. **공개 스킬 동기화** — `skills-public/` ↔ `contentscoin/crabpitch-skill` 게시 이름/절차 정리
+4. **단위 테스트** — `convex/lib` scoring / emailTemplate / replyClassifier / plans / mask / opencrabMap / gmailMime
+5. **CI** — `.github/workflows/ci.yml` (lint + typecheck + test)
+6. **공개 스킬 동기화** — `skills-public/` ↔ `contentscoin/crabpitch-skill` 게시 이름/절차 정리 (잔여)
 
 ### P2 — Phase-2 제품 (README)
 
 7. 메일 개인화 Anthropic 강화 (`ANTHROPIC_API_KEY`)
 8. 분석 대시보드, 예약 발송, 인터뷰 캘린더, 에이전시/멀티테넌트 API
 
-새 작업 티켓은 위 P0 → P1 → P2 순서를 기본으로 한다.
+새 작업은 **P0 자격증명 실검증** → P1 잔여(스킬 동기화) → P2 순서를 기본으로 한다.

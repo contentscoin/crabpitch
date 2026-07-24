@@ -105,9 +105,9 @@ npx convex env set SITE_URL https://crabpitch.vercel.app --prod
 
 | 변수 | 용도 |
 |---|---|
-| `OPENCRAB_API_URL` / `OPENCRAB_API_KEY` | 기자 온톨로지 실매칭(시드 대체) |
+| `OPENCRAB_API_URL` / `OPENCRAB_API_KEY` | 기자 온톨로지 실매칭(시드 대체). `POST` JSON → journalists 업서트 |
 | `ANTHROPIC_API_KEY` | 보도자료·메일 AI 개인화 강화 |
-| `GMAIL_OAUTH_CLIENT_ID` / `GMAIL_OAUTH_CLIENT_SECRET` | Gmail(BYO-Email) 발송·초안 OAuth (로그인용 `AUTH_GOOGLE_*` 와 별개) |
+| `GMAIL_OAUTH_CLIENT_ID` / `GMAIL_OAUTH_CLIENT_SECRET` | Gmail(BYO-Email) 초안 OAuth. 콜백: `https://<deployment>.convex.site/gmail/callback` (로그인용 `AUTH_GOOGLE_*` 와 별개) |
 
 > Convex 액션에서 쓰는 서버 시크릿은 `npx convex env set KEY value --prod` 로 Convex 배포에 설정합니다.
 
