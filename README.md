@@ -16,6 +16,7 @@ pnpm dev           # http://localhost:3000  (로그인 후 대시보드 '데모 
 ```
 
 - 아키텍처·도메인 모델·통합 심(seam)·배포 절차: **`docs/ARCHITECTURE.md`**
+- 프로젝트 현황·성숙도·후속 백로그: **`docs/PROJECT_ANALYSIS.md`**
 - 자격증명 없이도 데모 시드로 전 기능 동작. OpenCrab/Anthropic/Gmail 실 배선 지점은 `.env.example` 참조.
 
 ### 🔒 기자 개인정보 보호 (앱 기본값)

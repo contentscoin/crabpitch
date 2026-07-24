@@ -1,5 +1,7 @@
 # 크랩피치 아키텍처 (Convex + Next.js + Vercel)
 
+현황·성숙도·후속 작업 범위는 **[PROJECT_ANALYSIS.md](./PROJECT_ANALYSIS.md)** 를 본다.
+
 마크다운 스킬 묶음이던 크랩피치를 **실제 풀스택 SaaS**로 고도화한 구조 문서입니다.
 스킬 4종(press-distribution / journalist-outreach-email / reply-handler / media-kit-builder)의
 로직은 폐기되지 않고 **Convex 백엔드의 순수 라이브러리**로 흡수되었습니다.
