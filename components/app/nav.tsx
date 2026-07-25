@@ -1,4 +1,13 @@
-import { Building2, FileText, Inbox, LayoutDashboard, Send, Settings, Users } from "lucide-react";
+import {
+  Bot,
+  Building2,
+  FileText,
+  Inbox,
+  LayoutDashboard,
+  Send,
+  Settings,
+  Users,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export interface NavItem {
@@ -9,6 +18,7 @@ export interface NavItem {
 
 export const NAV: NavItem[] = [
   { href: "/dashboard", label: "대시보드", icon: LayoutDashboard },
+  { href: "/ai", label: "내 AI", icon: Bot },
   { href: "/campaigns", label: "캠페인", icon: Send },
   { href: "/journalists", label: "기자 DB", icon: Users },
   { href: "/replies", label: "회신 인박스", icon: Inbox },

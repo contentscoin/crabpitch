@@ -55,6 +55,10 @@ export default defineSchema({
     gmailConnected: v.optional(v.boolean()),
     activeAgencyId: v.optional(v.id("agencies")),
     activeClientId: v.optional(v.id("agencyClients")),
+    /** BYO AI: 사용자가 스킬을 실행할 기본 제공자 */
+    preferredAiProvider: v.optional(
+      v.union(v.literal("claude"), v.literal("chatgpt"), v.literal("gemini")),
+    ),
   }).index("by_user", ["userId"]),
 
   // OpenCrab 기자 온톨로지 캐시 (mailing_status: candidate)

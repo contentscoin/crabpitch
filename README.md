@@ -93,11 +93,16 @@ OpenCrab 기자 데이터는 모두 `mailing_status: candidate` (발송 미승�
 for d in skills/*/; do n=$(basename "$d"); (cd "$d" && zip -q -j "../../dist/$n.skill" SKILL.md); done
 ```
 
+## 내 AI로 작성 (BYO)
+
+웹앱은 서버 LLM API보다 **사용자 본인 ChatGPT · Claude · Gemini** + 공개 스킬 팩을 우선합니다.
+앱 메뉴 **내 AI** (`/ai`)에서 제공자를 고르고, 스킬 프롬프트를 복사한 뒤 이미 로그인한 AI 앱/웹을 엽니다.
+(다른 앱의 OAuth 토큰을 기기에서 자동으로 읽어 오는 기능은 OS 보안상 불가능합니다.)
+
 ## 다음에 이어서 할 것
 
-2차(자동화)·에이전시 API는 앱에 구현됨. 남은 것:
 1. Convex prod에 OpenCrab MCP 키 설정 + Google `/gmail/callback` 등록
-2. 설정 → **서버 연동 상태**에서 배선 확인·OpenCrab 동기화 테스트
+2. 설정 → **서버 연동 상태** / **내 AI** 확인
 3. (선택) 경쟁사 모니터링 등 로드맵 3차
 
 상세: `docs/PROJECT_ANALYSIS.md` · 배포: `docs/DEPLOY.md`

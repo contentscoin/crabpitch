@@ -5,12 +5,14 @@ import { useSearchParams } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { Mail, Trash2, Check, Plug, RefreshCw } from "lucide-react";
+import { Mail, Trash2, Check, Plug, RefreshCw, Bot } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Input, Label, Textarea } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { PageHeader } from "@/components/app/bits";
+import { ByoAiConnectPanel } from "@/components/app/ByoAiConnect";
 import { PLANS } from "@/lib/brand";
 
 export default function SettingsPage() {
@@ -103,7 +105,19 @@ function SettingsInner() {
 
   return (
     <div className="max-w-3xl space-y-8">
-      <PageHeader title="설정" description="발신 아이덴티티·요금제·연동·억제 리스트를 관리합니다." />
+      <PageHeader title="설정" description="발신 아이덴티티·요금제·내 AI·연동·억제 리스트를 관리합니다." />
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-lg font-bold">
+            <Bot className="h-5 w-5" /> 내 AI (ChatGPT · Claude · Gemini)
+          </h2>
+          <Link href="/ai" className="text-xs font-semibold text-brand">
+            전체 안내 →
+          </Link>
+        </div>
+        <ByoAiConnectPanel skill="press-release-writer" compact />
+      </section>
 
       <section>
         <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">

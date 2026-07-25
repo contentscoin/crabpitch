@@ -8,6 +8,7 @@ import type { ApiFromModules, FilterApi, FunctionReference } from "convex/server
 import type * as agency from "../agency.js";
 import type * as aiActions from "../aiActions.js";
 import type * as auth from "../auth.js";
+import type * as byoAi from "../byoAi.js";
 import type * as campaigns from "../campaigns.js";
 import type * as drafts from "../drafts.js";
 import type * as gmailAccounts from "../gmailAccounts.js";
@@ -28,6 +29,7 @@ declare const fullApi: ApiFromModules<{
   agency: typeof agency;
   aiActions: typeof aiActions;
   auth: typeof auth;
+  byoAi: typeof byoAi;
   campaigns: typeof campaigns;
   drafts: typeof drafts;
   gmailAccounts: typeof gmailAccounts;

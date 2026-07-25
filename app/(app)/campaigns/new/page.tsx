@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Input, Label, Textarea } from "@/components/ui/Input";
 import { PageHeader } from "@/components/app/bits";
+import { ByoAiConnectPanel } from "@/components/app/ByoAiConnect";
 
 export default function NewCampaignPage() {
   const router = useRouter();
@@ -99,12 +100,27 @@ export default function NewCampaignPage() {
     }
   }
 
+  const topicList = form.topicTags
+    .split(/[,\s]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+
   return (
-    <div className="max-w-2xl">
+    <div className="mx-auto max-w-2xl space-y-6">
       <PageHeader
         title="새 보도자료 배포"
-        description="핵심 정보를 채우면 기자 매칭과 개인화 메일 초안으로 이어집니다. (역피라미드: 결론·숫자 → 배경 → 의미)"
+        description="본인 ChatGPT·Claude·Gemini 스킬로 보도문을 다듬거나, 아래 폼에 직접 입력한 뒤 기자 매칭으로 이어갑니다."
       />
+
+      <ByoAiConnectPanel
+        skill="press-release-writer"
+        who={form.who}
+        headline={form.headline}
+        bodyHint={form.body}
+        topicTags={topicList}
+        compact
+      />
+
       <Card>
         <CardContent className="pt-6">
           <form onSubmit={onSubmit} className="space-y-5">
@@ -185,8 +201,15 @@ export default function NewCampaignPage() {
               <Button type="button" variant="subtle" onClick={() => router.back()}>
                 취소
               </Button>
-              <Button type="button" variant="subtle" disabled={polishing || !form.headline} onClick={onPolish}>
-                <Wand2 className="h-4 w-4" /> {polishing ? "AI 다듬는 중…" : "AI로 보도문 다듬기"}
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={polishing || !form.headline}
+                onClick={onPolish}
+                title="서버 Anthropic 키가 있을 때만 동작 (기본은 내 AI 스킬 사용)"
+              >
+                <Wand2 className="h-4 w-4" />
+                {polishing ? "서버 AI…" : "서버 AI(선택)"}
               </Button>
               <Button type="submit" disabled={loading}>
                 <Sparkles className="h-4 w-4" /> {loading ? "생성 중…" : "저장하고 기자 매칭"}
