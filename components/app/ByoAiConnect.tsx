@@ -185,10 +185,11 @@ export function ByoAiConnectPanel({
       {!compact && (
         <Card>
           <CardContent className="space-y-3 pt-5">
-            <div className="text-sm font-semibold">OpenCrab MCP (Cursor / 데스크톱)</div>
+            <div className="text-sm font-semibold">OpenCrab MCP (온톨로지, 선택)</div>
             <p className="text-xs text-muted">
-              기자 온톨로지는 MCP로 연결합니다. 키는 OpenCrab에서 발급한{" "}
-              <code className="rounded bg-surface px-1">ocm_…</code> 를 넣으세요.
+              기자 온톨로지 심 연동용입니다. CrabPitch 앱 도구는 위의{" "}
+              <strong>CrabPitch MCP 키</strong>(유료)를 쓰세요. OpenCrab 키는{" "}
+              <code className="rounded bg-surface px-1">ocm_…</code> 형식입니다.
             </p>
             <pre className="overflow-x-auto rounded-md bg-surface p-3 text-xs">
               {hub.mcpSnippet}

@@ -234,4 +234,17 @@ export default defineSchema({
   })
     .index("by_agency", ["agencyId"])
     .index("by_hash", ["keyHash"]),
+
+  // 유저별 MCP 키 (유료 플랜 전용) — Claude/ChatGPT/Gemini 플러그인 등록용
+  userMcpKeys: defineTable({
+    userId: v.id("users"),
+    name: v.string(),
+    keyPrefix: v.string(),
+    keyHash: v.string(),
+    createdAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    revoked: v.boolean(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_hash", ["keyHash"]),
 });

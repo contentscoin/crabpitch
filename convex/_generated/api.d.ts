@@ -15,6 +15,7 @@ import type * as gmailAccounts from "../gmailAccounts.js";
 import type * as gmailActions from "../gmailActions.js";
 import type * as integrations from "../integrations.js";
 import type * as journalists from "../journalists.js";
+import type * as mcpInternal from "../mcpInternal.js";
 import type * as mediaKits from "../mediaKits.js";
 import type * as opencrab from "../opencrab.js";
 import type * as opencrabActions from "../opencrabActions.js";
@@ -24,6 +25,7 @@ import type * as replies from "../replies.js";
 import type * as seed from "../seed.js";
 import type * as suppression from "../suppression.js";
 import type * as usage from "../usage.js";
+import type * as userMcpKeys from "../userMcpKeys.js";
 
 declare const fullApi: ApiFromModules<{
   agency: typeof agency;
@@ -36,6 +38,7 @@ declare const fullApi: ApiFromModules<{
   gmailActions: typeof gmailActions;
   integrations: typeof integrations;
   journalists: typeof journalists;
+  mcpInternal: typeof mcpInternal;
   mediaKits: typeof mediaKits;
   opencrab: typeof opencrab;
   opencrabActions: typeof opencrabActions;
@@ -45,6 +48,7 @@ declare const fullApi: ApiFromModules<{
   seed: typeof seed;
   suppression: typeof suppression;
   usage: typeof usage;
+  userMcpKeys: typeof userMcpKeys;
 }>;
 export declare const api: FilterApi<typeof fullApi, FunctionReference<any, "public">>;
 export declare const internal: FilterApi<typeof fullApi, FunctionReference<any, "internal">>;

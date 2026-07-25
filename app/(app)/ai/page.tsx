@@ -4,6 +4,7 @@ import { Bot } from "lucide-react";
 import { PageHeader } from "@/components/app/bits";
 import { ByoAiConnectPanel } from "@/components/app/ByoAiConnect";
 import { ByoCliSetupPanel } from "@/components/app/ByoCliSetup";
+import { UserMcpKeysPanel } from "@/components/app/UserMcpKeys";
 
 export default function AiHubPage() {
   return (
@@ -18,6 +19,7 @@ export default function AiHubPage() {
         <div>
           <p className="font-semibold text-foreground">권장 순서</p>
           <ol className="mt-1 list-decimal space-y-1 pl-5">
+            <li>유료 플랜에서 CrabPitch MCP 키를 발급해 Claude/ChatGPT/Gemini/Cursor에 등록합니다.</li>
             <li>아래에서 CLI 설치 스크립트를 실행해 브라우저 로그인 창을 완료합니다.</li>
             <li>스킬 프롬프트를 복사한 뒤 CLI 또는 웹/앱 채팅에 붙여넣습니다.</li>
           </ol>
@@ -25,17 +27,22 @@ export default function AiHubPage() {
       </div>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-bold">1. CLI 설치 &amp; 로그인 창</h2>
+        <h2 className="text-lg font-bold">1. CrabPitch MCP 키 (유료)</h2>
+        <UserMcpKeysPanel />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-bold">2. CLI 설치 &amp; 로그인 창</h2>
         <ByoCliSetupPanel />
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-bold">2. 보도자료 스킬 실행</h2>
+        <h2 className="text-lg font-bold">3. 보도자료 스킬 실행</h2>
         <ByoAiConnectPanel skill="press-release-writer" />
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-bold">3. 프레스킷 스킬 실행</h2>
+        <h2 className="text-lg font-bold">4. 프레스킷 스킬 실행</h2>
         <ByoAiConnectPanel skill="media-kit-builder" compact />
       </section>
     </div>

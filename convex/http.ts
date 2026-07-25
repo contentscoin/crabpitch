@@ -8,6 +8,7 @@ import {
   agencyClientsHttp,
   agencyPressReleasesHttp,
 } from "./agencyHttp";
+import { mcpHttpHandler } from "./mcpHttp";
 
 const http = httpRouter();
 
@@ -22,6 +23,8 @@ http.route({
       JSON.stringify({
         ok: true,
         service: "crabpitch",
+        mcp: true,
+        mcpPath: "/api/mcp",
         opencrab: Boolean(
           process.env.OPENCRAB_API_URL?.trim() && process.env.OPENCRAB_API_KEY?.trim(),
         ),
@@ -40,6 +43,12 @@ http.route({
     );
   }),
 });
+
+// 유저별 CrabPitch MCP (유료 플랜 · Bearer 또는 /api/mcp/cp_mcp_…)
+for (const method of ["GET", "POST", "OPTIONS"] as const) {
+  http.route({ path: "/api/mcp", method, handler: mcpHttpHandler });
+  http.route({ pathPrefix: "/api/mcp/", method, handler: mcpHttpHandler });
+}
 
 // BYO Gmail OAuth 콜백 (로그인용 Google Auth 와 별개)
 http.route({

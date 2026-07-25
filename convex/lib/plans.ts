@@ -9,14 +9,57 @@ export interface PlanLimits {
   pressReleases: number; // 월 보도자료 작성 건수
   matchReveal: number; // 매칭 결과 이메일 공개 인원 (초과분 블러)
   mediaKits: number;
+  /** Claude/ChatGPT/Gemini MCP 플러그인 키 발급·호출 */
+  mcp: boolean;
 }
 
 export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
-  free: { label: "Free", price: 0, sends: 10, pressReleases: 3, matchReveal: 3, mediaKits: 1 },
-  solo: { label: "Solo", price: 19000, sends: 100, pressReleases: 9999, matchReveal: 9999, mediaKits: 3 },
-  growth: { label: "Growth", price: 49000, sends: 500, pressReleases: 99999, matchReveal: 99999, mediaKits: 99999 },
-  agency: { label: "Agency", price: 149000, sends: 1_000_000, pressReleases: 999999, matchReveal: 999999, mediaKits: 999999 },
+  free: {
+    label: "Free",
+    price: 0,
+    sends: 10,
+    pressReleases: 3,
+    matchReveal: 3,
+    mediaKits: 1,
+    mcp: false,
+  },
+  solo: {
+    label: "Solo",
+    price: 19000,
+    sends: 100,
+    pressReleases: 9999,
+    matchReveal: 9999,
+    mediaKits: 3,
+    mcp: true,
+  },
+  growth: {
+    label: "Growth",
+    price: 49000,
+    sends: 500,
+    pressReleases: 99999,
+    matchReveal: 99999,
+    mediaKits: 99999,
+    mcp: true,
+  },
+  agency: {
+    label: "Agency",
+    price: 149000,
+    sends: 1_000_000,
+    pressReleases: 999999,
+    matchReveal: 999999,
+    mediaKits: 999999,
+    mcp: true,
+  },
 };
+
+export function isPaidPlan(plan: Plan | string | undefined): boolean {
+  return plan === "solo" || plan === "growth" || plan === "agency";
+}
+
+export function planAllowsMcp(plan: Plan | string | undefined): boolean {
+  if (!plan || !(plan in PLAN_LIMITS)) return false;
+  return PLAN_LIMITS[plan as Plan].mcp;
+}
 
 export function currentMonth(): string {
   const d = new Date();
