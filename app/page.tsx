@@ -232,9 +232,9 @@ export default function LandingPage() {
         </SecDesc>
         <div className="mt-8 grid gap-4 sm:grid-cols-3">
           {[
-            { i: <Sparkles className="h-5 w-5" />, t: "🤖 Claude / Cowork", d: ".skill 설치 → OpenCrab·Gmail MCP 완전 자동화. 매칭부터 발송·응대까지 대화로 끝." },
-            { i: <MessageSquareReply className="h-5 w-5" />, t: "💬 ChatGPT 웹", d: "커스텀 GPT Instructions에 스킬 탑재, 웹 로그인 상태로 메일링. 반자동 진행." },
-            { i: <Target className="h-5 w-5" />, t: "✨ Gemini 웹", d: "동일 스킬을 Gem/프롬프트로, Google Workspace 연동으로 Gmail 발송." },
+            { i: <Sparkles className="h-5 w-5" />, t: "🤖 Claude / Cowork", d: "스킬 + CrabPitch MCP(유료 cp_mcp_…)·Gmail 연동. 매칭부터 발송·응대까지 대화로." },
+            { i: <MessageSquareReply className="h-5 w-5" />, t: "💬 ChatGPT 웹", d: "커스텀 GPT + CrabPitch MCP 커넥터. 웹 로그인 상태로 피치·메일링." },
+            { i: <Target className="h-5 w-5" />, t: "✨ Gemini 웹", d: "동일 스킬·MCP를 Gem/프롬프트로, Google Workspace로 Gmail 발송." },
           ].map((p) => (
             <div key={p.t} className="rounded-lg border border-border bg-card p-6 shadow-card">
               <b className="text-base">{p.t}</b>

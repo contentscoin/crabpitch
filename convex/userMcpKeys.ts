@@ -8,13 +8,10 @@ import {
   requireMcpPlan,
 } from "./lib/mcpAuth";
 import { sha256Hex } from "./lib/agencyAuth";
+import { mcpSiteBase } from "./lib/mcpHttpAuth";
 
 function siteBase(): string {
-  return (
-    process.env.CONVEX_SITE_URL?.trim() ||
-    process.env.SITE_URL?.trim() ||
-    "https://YOUR_DEPLOYMENT.convex.site"
-  ).replace(/\/$/, "");
+  return mcpSiteBase();
 }
 
 export const getAccess = query({

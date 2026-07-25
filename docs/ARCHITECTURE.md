@@ -78,6 +78,7 @@ agencyClients · agencyApiKeys` (+ Convex Auth `users`/`authSessions` 등)
 | 분석 | `usage.getAnalytics` | 게재율·회신 유형·미처리·예약 |
 | 인터뷰 일정 | `replies.confirmInterviewSlot` | KST 슬롯 3안 제안·확정 |
 | Agency API | `/agency` UI + `agencyApiKeys` | `Bearer cp_live_…` → `/api/v1/clients|campaigns|press-releases` |
+| 유저 MCP (유료) | `/ai` + `userMcpKeys` | `cp_mcp_…` → `/api/mcp` JSON-RPC (`mcpHttp` / `mcpInternal`) |
 
 Agency REST (Convex site URL):
 
@@ -86,6 +87,16 @@ Agency REST (Convex site URL):
 | GET/POST | `/api/v1/clients` | 클라이언트 목록 / 생성 |
 | GET | `/api/v1/campaigns?clientId=` | 캠페인 목록 |
 | POST | `/api/v1/press-releases` | 보도자료+캠페인 생성 (`clientId`, `title`, `body`) |
+
+유저 MCP (Solo/Growth/Agency, Free 거부) — 스니펫 URL은 **`CONVEX_SITE_URL`** (`.convex.site`) 기준:
+
+| Method | Path | 설명 |
+|---|---|---|
+| GET/POST/OPTIONS | `/api/mcp` | Bearer `cp_mcp_…` |
+| GET/POST/OPTIONS | `/api/mcp/cp_mcp_…` | URL에 키 포함 |
+
+도구: `crabpitch_status`, `crabpitch_match_journalists`, `crabpitch_email_template`, `crabpitch_classify`.  
+상세: `docs/MCP-SETUP.md`
 
 OpenCrab HTTP 계약: `POST OPENCRAB_API_URL` + Bearer 키, body `{ query, pack_query, top_k }`,
 응답 `{ journalists: [{ reporter_name, outlet_name, email, beat_primary, ... }] }`

@@ -179,6 +179,7 @@ Convex Cloud
 11. **기자 팩 인제스트** — OpenCrab MCP는 연결돼도 접근 문서 0이면 매칭 결과 없음 → 기자 온톨로지 팩 설치 필요
 12. **BYO AI (제품 핵심)** — 사용자 본인 ChatGPT·Claude·Gemini에서 공개 스킬/MCP로 보도자료·프레스킷 작성
     - UI: `/ai` · 설정 · 캠페인/미디어킷의 「프롬프트 복사 후 내 AI에서 열기」
+    - **유저 MCP 키 (유료)** — `userMcpKeys` + `/api/mcp` (`cp_mcp_…`), Solo/Growth/Agency만. 가이드 `docs/MCP-SETUP.md`
     - PC/모바일 앱 OAuth 토큰 자동 스캔은 **불가**(보안). 이미 로그인된 네이티브/웹 세션으로 딥링크
     - Claude 구독 OAuth를 SaaS가 대행 호출하는 경로는 Anthropic 약관상 미구현
 13. (로드맵) 경쟁사 모니터링

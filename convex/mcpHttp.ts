@@ -3,6 +3,7 @@ import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { DataModel, Id } from "./_generated/dataModel";
 import { jsonResponse } from "./lib/http";
+import { extractMcpBearer, tagsFromQuery } from "./lib/mcpHttpAuth";
 
 type ActionCtx = GenericActionCtx<DataModel>;
 
@@ -126,38 +127,6 @@ function jsonRpcError(
 }
 
 /** URL path `/api/mcp/cp_mcp_…` 또는 Bearer / x-api-key / ?key= */
-function extractBearer(request: Request): string | null {
-  const url = new URL(request.url);
-  const pathKey = url.pathname.replace(/^\/api\/mcp\/?/, "").trim();
-  if (pathKey.startsWith("cp_mcp_")) {
-    try {
-      return decodeURIComponent(pathKey);
-    } catch {
-      return pathKey;
-    }
-  }
-
-  const header = request.headers.get("authorization") ?? "";
-  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-  if (match?.[1]) return match[1].trim();
-
-  const apiKey = request.headers.get("x-api-key")?.trim();
-  if (apiKey) return apiKey;
-
-  const queryKey = url.searchParams.get("key")?.trim();
-  if (queryKey) return queryKey;
-
-  return null;
-}
-
-function tagsFromQuery(query: string): string[] {
-  return query
-    .split(/[,，、\n|/]+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length >= 2)
-    .slice(0, 12);
-}
-
 async function authenticate(
   ctx: ActionCtx,
   request: Request,
@@ -165,7 +134,7 @@ async function authenticate(
   | { ok: true; userId: Id<"users">; keyId: Id<"userMcpKeys"> }
   | { ok: false; status: number; message: string }
 > {
-  const rawKey = extractBearer(request);
+  const rawKey = extractMcpBearer(request);
   if (!rawKey) {
     return {
       ok: false,

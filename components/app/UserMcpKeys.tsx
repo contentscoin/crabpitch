@@ -103,7 +103,15 @@ export function UserMcpKeysPanel() {
           <p className="text-xs text-muted">
             발급된 <code className="rounded bg-surface px-1">cp_mcp_…</code> 키를
             Claude Desktop / Cursor / ChatGPT 커스텀 커넥터 / Gemini에 등록하세요.
-            기자 실명·이메일은 MCP 응답에 포함되지 않습니다.
+            기자 실명·이메일은 MCP 응답에 포함되지 않습니다.{" "}
+            <a
+              href="https://github.com/contentscoin/crabpitch/blob/main/docs/MCP-SETUP.md"
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2"
+            >
+              설정 가이드
+            </a>
           </p>
           <div className="flex flex-wrap items-end gap-2">
             <div className="min-w-[12rem] flex-1 space-y-1">

@@ -94,6 +94,7 @@ vercel --prod
 배포 도메인 확정 후(예: `https://crabpitch.vercel.app`):
 ```bash
 npx convex env set SITE_URL https://crabpitch.vercel.app --prod
+# MCP 스니펫 호스트는 SITE_URL이 아니라 Convex 자동 CONVEX_SITE_URL(.convex.site)
 ```
 → Google OAuth 등 콜백/리다이렉트가 프로덕션 도메인과 일치하게 됩니다.
 
