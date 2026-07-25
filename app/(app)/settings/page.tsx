@@ -13,6 +13,7 @@ import { Input, Label, Textarea } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { PageHeader } from "@/components/app/bits";
 import { ByoAiConnectPanel } from "@/components/app/ByoAiConnect";
+import { McpDashboardCard } from "@/components/app/McpGuide";
 import { PLANS } from "@/lib/brand";
 
 export default function SettingsPage() {
@@ -120,6 +121,11 @@ function SettingsInner() {
       </section>
 
       <section>
+        <h2 className="mb-3 text-lg font-bold">CrabPitch MCP</h2>
+        <McpDashboardCard />
+      </section>
+
+      <section>
         <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
           <Plug className="h-5 w-5" /> 서버 연동 상태
         </h2>
@@ -166,6 +172,10 @@ function SettingsInner() {
                   ) : (
                     <Badge variant="warning">미설정</Badge>
                   )}
+                </li>
+                <li className="flex items-center justify-between gap-2">
+                  <span>유저 MCP (/api/mcp)</span>
+                  <Badge variant="success">배포됨 · 유료 키</Badge>
                 </li>
               </ul>
             )}

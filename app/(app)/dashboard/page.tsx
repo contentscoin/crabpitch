@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { PageHeader, StatCard, EmptyState, CampaignStatusBadge, REPLY_TYPES } from "@/components/app/bits";
+import { McpDashboardCard } from "@/components/app/McpGuide";
 
 export default function DashboardPage() {
   const usage = useQuery(api.usage.getMyUsage);
@@ -98,6 +99,11 @@ export default function DashboardPage() {
           }
           icon={Inbox}
         />
+      </div>
+
+      <div className="mt-6">
+        <h2 className="mb-3 text-lg font-bold">내 AI · MCP</h2>
+        <McpDashboardCard />
       </div>
 
       {analytics && (analytics.queuedCount > 0 || analytics.scheduledCampaigns > 0) && (
