@@ -74,12 +74,21 @@ npx convex env set AUTH_GOOGLE_SECRET <client-secret> --prod
 
 **방법 A — GitHub 연동(권장, push마다 자동 배포):**
 1. vercel.com → **Add New → Project** → 이 저장소(`contentscoin/crabpitch`) 임포트.
-2. **Environment Variables**에 추가:
-   - `CONVEX_DEPLOY_KEY` = 4단계에서 발급한 Production Deploy Key
-3. Build Command는 `vercel.json`에 이미 설정됨:
+2. **Environment Variables**에 추가 (Production + Preview 권장):
+   - `CONVEX_DEPLOY_KEY` = Convex 대시보드 → Settings → **URL & Deploy Keys** → **Production Deploy Key**
+3. Build Command는 `vercel.json`에 설정됨:
    `npx convex deploy --cmd 'pnpm build'`
    → 빌드 시 Convex 프로덕션 배포 + 올바른 `NEXT_PUBLIC_CONVEX_URL` 자동 주입.
 4. **Deploy**.
+
+### Cursor Cloud Agent용
+에이전트가 `npx convex deploy`를 돌리려면 **같은 키**를 Cursor 환경 시크릿에 넣으세요.
+
+1. [Cloud Agents 환경](https://cursor.com/dashboard/cloud-agents) → 이 워크스페이스 환경
+2. Secrets에 `CONVEX_DEPLOY_KEY` = `prod:…` 추가
+3. **새 에이전트 실행**으로 시크릿이 주입되게 함 (이미 돌 중인 런에는 안 붙을 수 있음)
+
+에이전트는 Convex 대시보드에 로그인할 수 없으므로, **키 발급은 사용자만** 가능합니다.
 
 **방법 B — CLI:**
 ```bash
