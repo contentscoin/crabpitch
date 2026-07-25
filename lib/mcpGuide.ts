@@ -129,3 +129,9 @@ export const MCP_VS_OPENCRAB = [
     plan: "OpenCrab 계정",
   },
 ];
+
+/** 공개 스킬 팩 · MCP 문서 (랜딩/대시보드 공용) */
+export const CRABPITCH_SKILL_REPO_URL =
+  "https://github.com/contentscoin/crabpitch-skill";
+export const CRABPITCH_MCP_DOCS_URL =
+  "https://github.com/contentscoin/crabpitch/blob/main/docs/MCP-SETUP.md";

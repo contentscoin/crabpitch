@@ -13,7 +13,11 @@ import {
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PLANS, COMPARE_ROWS, STEPS } from "@/lib/brand";
-import { MCP_TOOLS } from "@/lib/mcpGuide";
+import {
+  CRABPITCH_MCP_DOCS_URL,
+  CRABPITCH_SKILL_REPO_URL,
+  MCP_TOOLS,
+} from "@/lib/mcpGuide";
 import { cn } from "@/lib/utils";
 
 export default function LandingPage() {
@@ -184,15 +188,45 @@ export default function LandingPage() {
                 <li>실제 발송·실명 주입은 <b className="text-foreground">웹앱 + 내 Gmail</b>에서만</li>
                 <li>MCP는 <b className="text-foreground">Solo / Growth / Agency</b> 유료 전용</li>
               </ul>
-              <Link
-                href="/signin"
-                className="mt-5 inline-flex rounded-md bg-brand px-4 py-2.5 text-sm font-bold text-brand-foreground hover:bg-brand-hover"
-              >
-                로그인 후 MCP 키 발급
-              </Link>
+              <div className="mt-5 flex flex-wrap gap-2">
+                <Link
+                  href="/signin"
+                  className="inline-flex rounded-md bg-brand px-4 py-2.5 text-sm font-bold text-brand-foreground hover:bg-brand-hover"
+                >
+                  로그인 후 MCP 키 발급
+                </Link>
+                <a
+                  href={CRABPITCH_SKILL_REPO_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex rounded-md border border-border bg-card px-4 py-2.5 text-sm font-bold text-foreground hover:bg-surface"
+                >
+                  공개 스킬 GitHub
+                </a>
+              </div>
             </div>
           </div>
         </div>
+        <p className="mt-6 text-sm text-foreground-muted">
+          스킬 원문(보도자료·미디어킷·기자배포·회신):{" "}
+          <a
+            href={CRABPITCH_SKILL_REPO_URL}
+            className="font-semibold text-brand underline underline-offset-2"
+            target="_blank"
+            rel="noreferrer"
+          >
+            github.com/contentscoin/crabpitch-skill
+          </a>
+          {" · "}
+          <a
+            href={CRABPITCH_MCP_DOCS_URL}
+            className="underline underline-offset-2 hover:text-brand"
+            target="_blank"
+            rel="noreferrer"
+          >
+            MCP 설정 가이드
+          </a>
+        </p>
       </Section>
 
       {/* COMPARE */}
@@ -331,16 +365,27 @@ export default function LandingPage() {
           ))}
         </div>
         <p className="mt-6 text-center text-sm text-foreground-muted">
-          자세한 등록 절차는 로그인 후 <b>내 AI</b> 화면, 또는{" "}
+          공개 스킬 팩:{" "}
           <a
-            href="https://github.com/contentscoin/crabpitch/blob/main/docs/MCP-SETUP.md"
+            href={CRABPITCH_SKILL_REPO_URL}
+            className="font-semibold text-brand underline underline-offset-2"
+            target="_blank"
+            rel="noreferrer"
+          >
+            contentscoin/crabpitch-skill
+          </a>
+          {" · "}
+          MCP 등록:{" "}
+          <a
+            href={CRABPITCH_MCP_DOCS_URL}
             className="underline underline-offset-2 hover:text-brand"
             target="_blank"
             rel="noreferrer"
           >
-            MCP 설정 가이드
+            MCP-SETUP.md
           </a>
-          를 보세요.
+          {" · "}
+          로그인 후 <b>내 AI</b>에서도 확인
         </p>
       </Section>
 
@@ -370,6 +415,34 @@ export default function LandingPage() {
               &lsquo;크랩피치&rsquo;는 작업용 가칭입니다. OpenCrab 기자 온톨로지 + Gmail + 유저 MCP
               기반 보도자료 배포 SaaS. 기자 연락처는 공개된 직무 정보이며, MCP·화면에는 실명·이메일을
               노출하지 않고 실제 발송은 사용자 승인·수신거부 절차를 준수합니다.
+            </p>
+            <p className="mt-2 text-xs">
+              <a
+                href={CRABPITCH_SKILL_REPO_URL}
+                className="underline underline-offset-2 hover:text-brand"
+                target="_blank"
+                rel="noreferrer"
+              >
+                공개 스킬 GitHub
+              </a>
+              {" · "}
+              <a
+                href={CRABPITCH_MCP_DOCS_URL}
+                className="underline underline-offset-2 hover:text-brand"
+                target="_blank"
+                rel="noreferrer"
+              >
+                MCP 가이드
+              </a>
+              {" · "}
+              <a
+                href="https://github.com/contentscoin/crabpitch"
+                className="underline underline-offset-2 hover:text-brand"
+                target="_blank"
+                rel="noreferrer"
+              >
+                앱 저장소
+              </a>
             </p>
           </div>
           <div className="shrink-0">© 2026 CrabPitch · 1인·소상공인을 위한 언론 배포</div>

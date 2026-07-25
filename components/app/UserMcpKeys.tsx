@@ -10,6 +10,10 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Input, Label } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
+import {
+  CRABPITCH_MCP_DOCS_URL,
+  CRABPITCH_SKILL_REPO_URL,
+} from "@/lib/mcpGuide";
 
 async function copyText(text: string) {
   await navigator.clipboard.writeText(text);
@@ -105,12 +109,21 @@ export function UserMcpKeysPanel() {
             Claude Desktop / Cursor / ChatGPT 커스텀 커넥터 / Gemini에 등록하세요.
             기자 실명·이메일은 MCP 응답에 포함되지 않습니다.{" "}
             <a
-              href="https://github.com/contentscoin/crabpitch/blob/main/docs/MCP-SETUP.md"
+              href={CRABPITCH_MCP_DOCS_URL}
               target="_blank"
               rel="noreferrer"
               className="underline underline-offset-2"
             >
-              설정 가이드
+              MCP 가이드
+            </a>
+            {" · "}
+            <a
+              href={CRABPITCH_SKILL_REPO_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2"
+            >
+              공개 스킬
             </a>
           </p>
           <div className="flex flex-wrap items-end gap-2">

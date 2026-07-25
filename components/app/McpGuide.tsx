@@ -21,6 +21,8 @@ import {
   MCP_PRIVACY_RULES,
   MCP_TOOLS,
   MCP_VS_OPENCRAB,
+  CRABPITCH_MCP_DOCS_URL,
+  CRABPITCH_SKILL_REPO_URL,
 } from "@/lib/mcpGuide";
 
 async function copyText(text: string) {
@@ -263,6 +265,18 @@ export function McpGuidePanel() {
             일상적인 보도자료·피치 워크플로는 <strong>CrabPitch MCP</strong>를
             쓰고, 서버가 기자 DB를 동기화할 때만 OpenCrab을 사용합니다.
           </p>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <a href={CRABPITCH_SKILL_REPO_URL} target="_blank" rel="noreferrer">
+              <Button type="button" size="sm" variant="subtle">
+                공개 스킬 GitHub
+              </Button>
+            </a>
+            <a href={CRABPITCH_MCP_DOCS_URL} target="_blank" rel="noreferrer">
+              <Button type="button" size="sm" variant="ghost">
+                MCP 설정 가이드
+              </Button>
+            </a>
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -312,6 +326,25 @@ export function McpDashboardCard() {
           ))}
         </ul>
         <p className="text-xs text-muted">{access.message}</p>
+        <div className="flex flex-wrap gap-2">
+          <a
+            href={CRABPITCH_SKILL_REPO_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs font-semibold text-brand underline underline-offset-2"
+          >
+            공개 스킬 GitHub
+          </a>
+          <span className="text-xs text-muted">·</span>
+          <a
+            href={CRABPITCH_MCP_DOCS_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs underline underline-offset-2 hover:text-brand"
+          >
+            MCP 가이드
+          </a>
+        </div>
       </CardContent>
     </Card>
   );
