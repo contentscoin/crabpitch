@@ -173,4 +173,10 @@ Convex Cloud
    - UI: `/agency` · Topbar 클라이언트 스위처 · 활성 클라이언트 스코프
    - REST: `Bearer cp_live_…` → `/api/v1/clients` · `/api/v1/campaigns` · `/api/v1/press-releases`
 
-남은 작업은 자격증명 실검증(OpenCrab/Gmail/Anthropic)뿐이다.
+### P3 — 라이브 검증·운영
+
+10. **자격증명 실검증** — Convex prod에 `OPENCRAB_*` 설정 + Google `/gmail/callback` + 설정 화면 「서버 연동 상태」·OpenCrab 동기화 테스트
+11. **기자 팩 인제스트** — OpenCrab MCP는 연결돼도 접근 문서 0이면 매칭 결과 없음 → 기자 온톨로지 팩 설치 필요
+12. (로드맵) 경쟁사 모니터링
+
+설정 UI: `integrations.getStatus` · `/health` (불리언만, 시크릿 미노출).

@@ -93,6 +93,11 @@ OpenCrab 기자 데이터는 모두 `mailing_status: candidate` (발송 미승�
 for d in skills/*/; do n=$(basename "$d"); (cd "$d" && zip -q -j "../../dist/$n.skill" SKILL.md); done
 ```
 
-## 다음에 이어서 할 것 (2차)
-성과 추적·예약 발송·대시보드 구현, 캘린더 연동 인터뷰 예약, 대행사용 멀티테넌시·API.
-자세한 로드맵은 기획서 9장 참조.
+## 다음에 이어서 할 것
+
+2차(자동화)·에이전시 API는 앱에 구현됨. 남은 것:
+1. Convex prod에 OpenCrab MCP 키 설정 + Google `/gmail/callback` 등록
+2. 설정 → **서버 연동 상태**에서 배선 확인·OpenCrab 동기화 테스트
+3. (선택) 경쟁사 모니터링 등 로드맵 3차
+
+상세: `docs/PROJECT_ANALYSIS.md` · 배포: `docs/DEPLOY.md`

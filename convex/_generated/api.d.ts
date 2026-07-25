@@ -12,6 +12,7 @@ import type * as campaigns from "../campaigns.js";
 import type * as drafts from "../drafts.js";
 import type * as gmailAccounts from "../gmailAccounts.js";
 import type * as gmailActions from "../gmailActions.js";
+import type * as integrations from "../integrations.js";
 import type * as journalists from "../journalists.js";
 import type * as mediaKits from "../mediaKits.js";
 import type * as opencrab from "../opencrab.js";
@@ -31,6 +32,7 @@ declare const fullApi: ApiFromModules<{
   drafts: typeof drafts;
   gmailAccounts: typeof gmailAccounts;
   gmailActions: typeof gmailActions;
+  integrations: typeof integrations;
   journalists: typeof journalists;
   mediaKits: typeof mediaKits;
   opencrab: typeof opencrab;

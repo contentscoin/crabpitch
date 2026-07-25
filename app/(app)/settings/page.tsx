@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { Mail, Trash2, Check } from "lucide-react";
+import { Mail, Trash2, Check, Plug, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Input, Label, Textarea } from "@/components/ui/Input";
@@ -27,10 +27,12 @@ function SettingsInner() {
   const usage = useQuery(api.usage.getMyUsage);
   const suppression = useQuery(api.suppression.list);
   const gmail = useQuery(api.gmailAccounts.getConnection);
+  const integrations = useQuery(api.integrations.getStatus);
   const update = useMutation(api.profiles.updateProfile);
   const removeSup = useMutation(api.suppression.remove);
   const disconnectGmail = useMutation(api.gmailAccounts.disconnect);
   const getGmailUrl = useAction(api.gmailActions.getConnectUrl);
+  const syncOpenCrab = useAction(api.opencrabActions.syncJournalists);
 
   const [form, setForm] = useState({
     companyName: "",
@@ -41,6 +43,8 @@ function SettingsInner() {
   const [saved, setSaved] = useState(false);
   const [gmailBusy, setGmailBusy] = useState(false);
   const [gmailMsg, setGmailMsg] = useState<string | null>(null);
+  const [ocBusy, setOcBusy] = useState(false);
+  const [ocMsg, setOcMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (data?.profile) {
@@ -81,9 +85,91 @@ function SettingsInner() {
     }
   }
 
+  async function testOpenCrab() {
+    setOcBusy(true);
+    setOcMsg(null);
+    try {
+      const r = await syncOpenCrab({ topicTags: ["IT·스타트업"], topK: 10 });
+      setOcMsg(
+        r.message ??
+          `${r.mode}: synced=${r.synced} inserted=${r.inserted} updated=${r.updated}`,
+      );
+    } catch (e) {
+      setOcMsg(e instanceof Error ? e.message : "OpenCrab 동기화 실패");
+    } finally {
+      setOcBusy(false);
+    }
+  }
+
   return (
     <div className="max-w-3xl space-y-8">
       <PageHeader title="설정" description="발신 아이덴티티·요금제·연동·억제 리스트를 관리합니다." />
+
+      <section>
+        <h2 className="mb-3 flex items-center gap-2 text-lg font-bold">
+          <Plug className="h-5 w-5" /> 서버 연동 상태
+        </h2>
+        <Card>
+          <CardContent className="space-y-3 pt-6">
+            {integrations === undefined ? (
+              <div className="h-20 animate-pulse rounded-md bg-surface" />
+            ) : (
+              <ul className="space-y-2 text-sm">
+                <li className="flex items-center justify-between gap-2">
+                  <span>OpenCrab</span>
+                  <span className="flex items-center gap-2">
+                    {integrations.opencrabConfigured ? (
+                      <Badge variant="success">
+                        설정됨 · {integrations.opencrabTransport}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline">미설정 (시드 폴백)</Badge>
+                    )}
+                  </span>
+                </li>
+                <li className="flex items-center justify-between gap-2">
+                  <span>Gmail OAuth</span>
+                  {integrations.gmailOAuthConfigured ? (
+                    <Badge variant="success">
+                      설정됨 · {integrations.gmailOAuthSource}
+                    </Badge>
+                  ) : (
+                    <Badge variant="danger">미설정</Badge>
+                  )}
+                </li>
+                <li className="flex items-center justify-between gap-2">
+                  <span>Anthropic</span>
+                  {integrations.anthropicConfigured ? (
+                    <Badge variant="success">설정됨</Badge>
+                  ) : (
+                    <Badge variant="outline">미사용 (템플릿)</Badge>
+                  )}
+                </li>
+                <li className="flex items-center justify-between gap-2">
+                  <span>SITE_URL</span>
+                  {integrations.siteUrlSet ? (
+                    <Badge variant="success">설정됨</Badge>
+                  ) : (
+                    <Badge variant="warning">미설정</Badge>
+                  )}
+                </li>
+              </ul>
+            )}
+            <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+              <Button size="sm" variant="subtle" disabled={ocBusy} onClick={testOpenCrab}>
+                <RefreshCw className={`h-4 w-4 ${ocBusy ? "animate-spin" : ""}`} />
+                OpenCrab 동기화 테스트
+              </Button>
+              {ocMsg && <p className="text-xs text-foreground-muted">{ocMsg}</p>}
+            </div>
+            <p className="text-xs text-muted">
+              Convex 환경변수만 표시합니다. 키 값은 노출되지 않습니다. Google 콘솔에{" "}
+              <code className="rounded bg-surface px-1">/gmail/callback</code> 리디렉션이
+              등록돼 있어야 Gmail 연결이 됩니다.
+            </p>
+          </CardContent>
+        </Card>
+      </section>
 
       <section>
         <h2 className="mb-3 text-lg font-bold">발신 아이덴티티</h2>

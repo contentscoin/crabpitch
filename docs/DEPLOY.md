@@ -135,3 +135,7 @@ Agency REST (Agency 플랜 + `/agency`에서 `cp_live_…` 키 발급):
 - [ ] `npx @convex-dev/auth --prod` + `AUTH_GOOGLE_*` (prod) + prod 콜백 URI 등록
 - [ ] Vercel `CONVEX_DEPLOY_KEY` 환경변수 + Deploy
 - [ ] `convex env set SITE_URL <vercel-domain> --prod`
+- [ ] `OPENCRAB_API_URL` / `OPENCRAB_API_KEY` (prod) — `scripts/set-prod-integrations.sh` 또는 PowerShell `$env:…`
+- [ ] Google OAuth에 `https://<prod>.convex.site/gmail/callback` 추가 (`AUTH_GOOGLE_*` 폴백 사용 시)
+- [ ] `curl https://<prod>.convex.site/health` → `opencrab`/`gmailOAuth` 확인
+- [ ] 앱 설정 → 서버 연동 상태 · OpenCrab 동기화 테스트

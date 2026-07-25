@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "크랩피치(CrabPitch) — OpenCrab 기자 온톨로지 + Gmail 기반 보도자료 배포 SaaS",
+  "packageManager": "pnpm@10.33.3",
   "scripts": {
     "dev": "next dev",
     "dev:convex": "convex dev",
