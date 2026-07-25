@@ -67,6 +67,7 @@ export const COMPARE_ROWS = [
   { feat: "메일 작성", agency: "일괄 작성·형식적", us: "기자별 최근 기사 반영 AI 개인화" },
   { feat: "진행 투명성", agency: "결과 보고서로만 확인", us: "매칭·발송·회신 실시간 대시보드" },
   { feat: "발송 주체", agency: "대행사 명의", us: "내 Gmail(BYO-Email)" },
+  { feat: "내 AI 플러그인", agency: "대행사 툴에 종속", us: "Claude/ChatGPT/Gemini MCP 키(유료)" },
   { feat: "기자 관계 소유", agency: "대행사가 보유", us: "관계·데이터 모두 내가 소유" },
   { feat: "적합 대상", agency: "예산 있는 기업", us: "1인 창업가·소상공인" },
 ];

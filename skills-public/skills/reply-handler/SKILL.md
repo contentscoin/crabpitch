@@ -23,6 +23,8 @@ license: MIT · CrabPitch Skills (public). 범용(Codex/Claude/Gemini) 호환.
 3. 분류 후 `mcp__Gmail__label_thread` — `언론홍보/회신`·`언론홍보/인터뷰`·`언론홍보/수신거부` 재분류.
 4. 유형별 `mcp__Gmail__create_draft`(`replyToMessageId`) 답장 초안 → 사용자 검토 후 발송.
 
+**CrabPitch MCP 연결 시** 분류에 `crabpitch_classify`를 먼저 호출해도 된다(동일 7유형). 최종 발송·실명 주입은 Gmail에서만.
+
 ## 7유형 분류
 | 유형 | 신호 | 우선순위 | 액션 |
 |---|---|---|---|

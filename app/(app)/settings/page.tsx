@@ -283,6 +283,11 @@ function SettingsInner() {
         </div>
         <p className="mt-2 text-xs text-muted">
           * 데모 환경에서는 결제 없이 플랜을 전환해 한도 동작을 확인할 수 있습니다.
+          Solo·Growth·Agency는{" "}
+          <Link href="/ai" className="underline underline-offset-2">
+            내 AI 연동
+          </Link>
+          에서 Claude/ChatGPT/Gemini용 MCP 키를 발급할 수 있습니다(Free 제외).
         </p>
       </section>
 

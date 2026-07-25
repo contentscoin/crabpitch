@@ -120,6 +120,18 @@ Agency REST (Agency 플랜 + `/agency`에서 `cp_live_…` 키 발급):
 | GET | `…/api/v1/campaigns?clientId=` | 캠페인 목록 |
 | POST | `…/api/v1/press-releases` | 보도자료+캠페인 (`clientId`, `title`, `body`) |
 
+### 유저 MCP (유료 Solo/Growth/Agency)
+
+앱 `/ai`에서 `cp_mcp_…` 키 발급. Free는 발급·호출 거부.
+
+| Method | Path | 설명 |
+|---|---|---|
+| GET/POST/OPTIONS | `https://<deployment>.convex.site/api/mcp` | Bearer `cp_mcp_…` JSON-RPC |
+| GET/POST/OPTIONS | `…/api/mcp/cp_mcp_…` | URL에 키 포함 (Cursor/Claude Desktop) |
+
+도구: `crabpitch_status`, `crabpitch_match_journalists`, `crabpitch_email_template`, `crabpitch_classify`.  
+설정 가이드: `docs/MCP-SETUP.md`
+
 > Convex 액션에서 쓰는 서버 시크릿은 `npx convex env set KEY value --prod` 로 Convex 배포에 설정합니다.
 
 ---
@@ -137,5 +149,6 @@ Agency REST (Agency 플랜 + `/agency`에서 `cp_live_…` 키 발급):
 - [ ] `convex env set SITE_URL <vercel-domain> --prod`
 - [ ] `OPENCRAB_API_URL` / `OPENCRAB_API_KEY` (prod) — `scripts/set-prod-integrations.sh` 또는 PowerShell `$env:…`
 - [ ] Google OAuth에 `https://<prod>.convex.site/gmail/callback` 추가 (`AUTH_GOOGLE_*` 폴백 사용 시)
-- [ ] `curl https://<prod>.convex.site/health` → `opencrab`/`gmailOAuth` 확인
+- [ ] `curl https://<prod>.convex.site/health` → `opencrab`/`gmailOAuth`/`mcp` 확인
+- [ ] 유료 플랜 → `/ai` MCP 키 발급 → Cursor `mcp.json` 연결 스모크
 - [ ] 앱 설정 → 서버 연동 상태 · OpenCrab 동기화 테스트
