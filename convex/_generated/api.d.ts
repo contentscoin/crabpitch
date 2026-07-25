@@ -1,22 +1,48 @@
 /* eslint-disable */
 /**
- * Generated API types.
+ * Generated `api` utility.
  *
- * NOTE: `npx convex dev` 실행 시 실제 함수 기준으로 재생성됩니다.
+ * THIS CODE IS AUTOMATICALLY GENERATED.
+ *
+ * To regenerate, run `npx convex dev`.
+ * @module
  */
-import type { ApiFromModules, FilterApi, FunctionReference } from "convex/server";
+
 import type * as agency from "../agency.js";
+import type * as agencyHttp from "../agencyHttp.js";
 import type * as aiActions from "../aiActions.js";
 import type * as auth from "../auth.js";
 import type * as byoAi from "../byoAi.js";
 import type * as campaigns from "../campaigns.js";
+import type * as crons from "../crons.js";
 import type * as drafts from "../drafts.js";
 import type * as gmailAccounts from "../gmailAccounts.js";
 import type * as gmailActions from "../gmailActions.js";
+import type * as gmailHttp from "../gmailHttp.js";
+import type * as http from "../http.js";
 import type * as integrations from "../integrations.js";
 import type * as journalists from "../journalists.js";
+import type * as lib_agencyAuth from "../lib/agencyAuth.js";
+import type * as lib_anthropicEnhance from "../lib/anthropicEnhance.js";
+import type * as lib_byoAi from "../lib/byoAi.js";
+import type * as lib_byoCli from "../lib/byoCli.js";
+import type * as lib_emailTemplate from "../lib/emailTemplate.js";
+import type * as lib_gmailMime from "../lib/gmailMime.js";
+import type * as lib_googleOAuthEnv from "../lib/googleOAuthEnv.js";
+import type * as lib_http from "../lib/http.js";
+import type * as lib_interviewSlots from "../lib/interviewSlots.js";
+import type * as lib_mask from "../lib/mask.js";
+import type * as lib_mcpAuth from "../lib/mcpAuth.js";
+import type * as lib_mcpHttpAuth from "../lib/mcpHttpAuth.js";
+import type * as lib_opencrabClient from "../lib/opencrabClient.js";
+import type * as lib_opencrabMap from "../lib/opencrabMap.js";
+import type * as lib_plans from "../lib/plans.js";
+import type * as lib_replyClassifier from "../lib/replyClassifier.js";
+import type * as lib_scoring from "../lib/scoring.js";
+import type * as mcpHttp from "../mcpHttp.js";
 import type * as mcpInternal from "../mcpInternal.js";
 import type * as mediaKits from "../mediaKits.js";
+import type * as model from "../model.js";
 import type * as opencrab from "../opencrab.js";
 import type * as opencrabActions from "../opencrabActions.js";
 import type * as pressReleases from "../pressReleases.js";
@@ -27,19 +53,48 @@ import type * as suppression from "../suppression.js";
 import type * as usage from "../usage.js";
 import type * as userMcpKeys from "../userMcpKeys.js";
 
+import type {
+  ApiFromModules,
+  FilterApi,
+  FunctionReference,
+} from "convex/server";
+
 declare const fullApi: ApiFromModules<{
   agency: typeof agency;
+  agencyHttp: typeof agencyHttp;
   aiActions: typeof aiActions;
   auth: typeof auth;
   byoAi: typeof byoAi;
   campaigns: typeof campaigns;
+  crons: typeof crons;
   drafts: typeof drafts;
   gmailAccounts: typeof gmailAccounts;
   gmailActions: typeof gmailActions;
+  gmailHttp: typeof gmailHttp;
+  http: typeof http;
   integrations: typeof integrations;
   journalists: typeof journalists;
+  "lib/agencyAuth": typeof lib_agencyAuth;
+  "lib/anthropicEnhance": typeof lib_anthropicEnhance;
+  "lib/byoAi": typeof lib_byoAi;
+  "lib/byoCli": typeof lib_byoCli;
+  "lib/emailTemplate": typeof lib_emailTemplate;
+  "lib/gmailMime": typeof lib_gmailMime;
+  "lib/googleOAuthEnv": typeof lib_googleOAuthEnv;
+  "lib/http": typeof lib_http;
+  "lib/interviewSlots": typeof lib_interviewSlots;
+  "lib/mask": typeof lib_mask;
+  "lib/mcpAuth": typeof lib_mcpAuth;
+  "lib/mcpHttpAuth": typeof lib_mcpHttpAuth;
+  "lib/opencrabClient": typeof lib_opencrabClient;
+  "lib/opencrabMap": typeof lib_opencrabMap;
+  "lib/plans": typeof lib_plans;
+  "lib/replyClassifier": typeof lib_replyClassifier;
+  "lib/scoring": typeof lib_scoring;
+  mcpHttp: typeof mcpHttp;
   mcpInternal: typeof mcpInternal;
   mediaKits: typeof mediaKits;
+  model: typeof model;
   opencrab: typeof opencrab;
   opencrabActions: typeof opencrabActions;
   pressReleases: typeof pressReleases;
@@ -50,5 +105,31 @@ declare const fullApi: ApiFromModules<{
   usage: typeof usage;
   userMcpKeys: typeof userMcpKeys;
 }>;
-export declare const api: FilterApi<typeof fullApi, FunctionReference<any, "public">>;
-export declare const internal: FilterApi<typeof fullApi, FunctionReference<any, "internal">>;
+
+/**
+ * A utility for referencing Convex functions in your app's public API.
+ *
+ * Usage:
+ * ```js
+ * const myFunctionReference = api.myModule.myFunction;
+ * ```
+ */
+export declare const api: FilterApi<
+  typeof fullApi,
+  FunctionReference<any, "public">
+>;
+
+/**
+ * A utility for referencing Convex functions in your app's internal API.
+ *
+ * Usage:
+ * ```js
+ * const myFunctionReference = internal.myModule.myFunction;
+ * ```
+ */
+export declare const internal: FilterApi<
+  typeof fullApi,
+  FunctionReference<any, "internal">
+>;
+
+export declare const components: {};

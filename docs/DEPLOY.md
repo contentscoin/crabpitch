@@ -77,8 +77,9 @@ npx convex env set AUTH_GOOGLE_SECRET <client-secret> --prod
 2. **Environment Variables**에 추가 (Production + Preview 권장):
    - `CONVEX_DEPLOY_KEY` = Convex 대시보드 → Settings → **URL & Deploy Keys** → **Production Deploy Key**
 3. Build Command는 `vercel.json`에 설정됨:
-   `npx convex deploy --cmd 'pnpm build'`
-   → 빌드 시 Convex 프로덕션 배포 + 올바른 `NEXT_PUBLIC_CONVEX_URL` 자동 주입.
+   - `CONVEX_DEPLOY_KEY` 있음 → `npx convex deploy --cmd 'pnpm build'`
+   - 없음(Preview 등) → `pnpm build` 만 (Convex는 이미 배포된 프로덕션 URL 사용)
+   → Production/Preview 환경변수에 `CONVEX_DEPLOY_KEY`를 넣으면 빌드마다 Convex도 갱신됩니다.
 4. **Deploy**.
 
 ### Cursor Cloud Agent용

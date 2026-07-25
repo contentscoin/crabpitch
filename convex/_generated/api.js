@@ -1,11 +1,23 @@
 /* eslint-disable */
 /**
- * Generated API accessors.
+ * Generated `api` utility.
  *
- * NOTE: `npx convex dev` 실행 시 실제 함수 기준으로 재생성됩니다.
- * 런타임에서는 anyApi 프록시가 함수 참조를 문자열 경로로 해석합니다.
+ * THIS CODE IS AUTOMATICALLY GENERATED.
+ *
+ * To regenerate, run `npx convex dev`.
+ * @module
  */
-import { anyApi } from "convex/server";
 
+import { anyApi, componentsGeneric } from "convex/server";
+
+/**
+ * A utility for referencing Convex functions in your app's API.
+ *
+ * Usage:
+ * ```js
+ * const myFunctionReference = api.myModule.myFunction;
+ * ```
+ */
 export const api = anyApi;
 export const internal = anyApi;
+export const components = componentsGeneric();
