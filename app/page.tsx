@@ -8,9 +8,12 @@ import {
   PenLine,
   Send,
   Check,
+  Plug,
+  KeyRound,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PLANS, COMPARE_ROWS, STEPS } from "@/lib/brand";
+import { MCP_TOOLS } from "@/lib/mcpGuide";
 import { cn } from "@/lib/utils";
 
 export default function LandingPage() {
@@ -24,6 +27,7 @@ export default function LandingPage() {
           </div>
           <div className="hidden items-center gap-7 text-sm font-medium text-foreground-muted md:flex">
             <a href="#how" className="hover:text-brand">작동 방식</a>
+            <a href="#mcp" className="hover:text-brand">MCP</a>
             <a href="#compare" className="hover:text-brand">대행사 비교</a>
             <a href="#price" className="hover:text-brand">요금제</a>
             <a href="#platform" className="hover:text-brand">플랫폼</a>
@@ -44,7 +48,7 @@ export default function LandingPage() {
       <header className="hero-glow">
         <div className="mx-auto max-w-6xl px-6 pb-16 pt-20 sm:pt-24">
           <span className="inline-flex items-center gap-2 rounded-full border border-brand/20 bg-brand-soft px-3.5 py-1.5 text-[13px] font-bold text-brand">
-            🦀 OpenCrab 기자 온톨로지 기반 · 매일 갱신
+            🦀 OpenCrab 기자 온톨로지 · 내 AI MCP 플러그인
           </span>
           <h1 className="mt-5 max-w-3xl text-4xl font-extrabold leading-[1.15] sm:text-5xl md:text-[3.4rem]">
             말만 하면,<br />
@@ -52,7 +56,7 @@ export default function LandingPage() {
           </h1>
           <p className="mt-5 max-w-2xl text-lg text-foreground-muted">
             홍보팀도, 월 수백만 원 대행사도 없이. 1인 창업가와 소상공인을 위한 AI 언론 배포 도구.
-            보도자료 작성부터 기자 매칭·개인화 메일·답장 응대까지, 대화 한 번으로 끝냅니다.
+            웹앱에서 배포하거나, 이미 쓰는 Claude·ChatGPT·Gemini에 MCP로 붙여 같은 워크플로를 돌립니다.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Link
@@ -62,14 +66,14 @@ export default function LandingPage() {
               무료로 첫 배포 시작
             </Link>
             <a
-              href="#how"
+              href="#mcp"
               className="rounded-md border border-border bg-card px-6 py-3.5 text-base font-bold text-foreground transition-colors hover:bg-surface"
             >
-              작동 방식 보기
+              MCP 플러그인 보기
             </a>
           </div>
           <p className="mt-4 text-[13px] text-muted">
-            ✓ 신용카드 불필요 &nbsp;·&nbsp; ✓ 내 Gmail로 직접 발송 &nbsp;·&nbsp; ✓ 수신거부·승인 게이트 기본 탑재
+            ✓ 신용카드 불필요 &nbsp;·&nbsp; ✓ 내 Gmail로 직접 발송 &nbsp;·&nbsp; ✓ MCP는 Solo부터
           </p>
         </div>
       </header>
@@ -121,8 +125,78 @@ export default function LandingPage() {
         </div>
       </Section>
 
+      {/* MCP */}
+      <Section id="mcp">
+        <Eyebrow>내 AI에 플러그인</Eyebrow>
+        <SecTitle>이미 쓰는 Claude·ChatGPT·Gemini에 MCP로 붙입니다</SecTitle>
+        <SecDesc>
+          크랩피치가 대신 AI를 돌리는 방식이 아닙니다. 유료 플랜에서{" "}
+          <code className="rounded bg-surface px-1.5 py-0.5 text-[15px]">cp_mcp_…</code> 키를
+          발급해 본인 AI에 등록하면, 그 채팅에서 기자 매칭·메일 템플릿·회신 분류 도구를 호출합니다.
+        </SecDesc>
+
+        <div className="mt-8 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="space-y-3">
+            {MCP_TOOLS.map((tool) => (
+              <div
+                key={tool.name}
+                className="rounded-lg border border-border bg-card px-5 py-4 shadow-card"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <code className="text-sm font-bold text-foreground">{tool.name}</code>
+                  <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold text-foreground-muted">
+                    {tool.title}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-foreground-muted">{tool.description}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <div className="rounded-xl border border-border bg-surface p-6">
+              <div className="flex items-center gap-2 text-brand">
+                <KeyRound className="h-5 w-5" />
+                <span className="text-sm font-extrabold">등록 한 줄</span>
+              </div>
+              <p className="mt-3 text-sm text-foreground-muted">
+                로그인 → <b className="text-foreground">내 AI</b>에서 키 발급 → Cursor/Claude
+                Desktop <code className="rounded bg-card px-1">mcp.json</code> 또는
+                ChatGPT·Gemini 커넥터에 URL을 붙입니다.
+              </p>
+              <pre className="mt-4 overflow-x-auto rounded-md border border-border bg-card p-3 text-[11px] leading-relaxed text-foreground-muted">
+{`{
+  "mcpServers": {
+    "crabpitch": {
+      "url": "https://….convex.site/api/mcp/cp_mcp_…"
+    }
+  }
+}`}
+              </pre>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-6 shadow-card">
+              <div className="flex items-center gap-2 text-brand">
+                <Plug className="h-5 w-5" />
+                <span className="text-sm font-extrabold">지킨 약속</span>
+              </div>
+              <ul className="mt-3 space-y-2 text-sm text-foreground-muted">
+                <li>기자 실명·이메일은 MCP 응답에 없음 — <b className="text-foreground">기자 #코드</b>만</li>
+                <li>실제 발송·실명 주입은 <b className="text-foreground">웹앱 + 내 Gmail</b>에서만</li>
+                <li>MCP는 <b className="text-foreground">Solo / Growth / Agency</b> 유료 전용</li>
+              </ul>
+              <Link
+                href="/signin"
+                className="mt-5 inline-flex rounded-md bg-brand px-4 py-2.5 text-sm font-bold text-brand-foreground hover:bg-brand-hover"
+              >
+                로그인 후 MCP 키 발급
+              </Link>
+            </div>
+          </div>
+        </div>
+      </Section>
+
       {/* COMPARE */}
-      <Section id="compare">
+      <Section id="compare" muted>
         <Eyebrow>포지셔닝</Eyebrow>
         <SecTitle>홍보 대행사와 무엇이 다른가</SecTitle>
         <SecDesc>
@@ -154,7 +228,7 @@ export default function LandingPage() {
       </Section>
 
       {/* PRICING */}
-      <Section id="price" muted>
+      <Section id="price">
         <Eyebrow>요금제</Eyebrow>
         <SecTitle>첫 성공은 무료로, 규모는 합리적으로</SecTitle>
         <SecDesc>
@@ -216,8 +290,8 @@ export default function LandingPage() {
             <p className="mt-2 max-w-3xl text-[15px] leading-relaxed text-deep-foreground/80">
               모든 발송은 <b>사용자 승인 게이트</b>를 거치고, 메일에는 <b>수신거부 문구</b>가 기본 삽입됩니다.
               동일 기자 7일 내 재발송을 막고, 수신거부 회신은 <b>억제 리스트</b>에 영구 등록됩니다. 발송은
-              회사 서버가 아닌 <b>당신의 Gmail(BYO-Email)</b>로 나가 신뢰를 지킵니다. 무작위 대량발송보다
-              근거 있는 소량 정밀 발송이 실제로 더 잘 실립니다.
+              회사 서버가 아닌 <b>당신의 Gmail(BYO-Email)</b>로 나가 신뢰를 지킵니다. MCP 플러그인도
+              기자 실명·이메일을 반환하지 않으며, 무작위 대량발송보다 근거 있는 소량 정밀 발송이 실제로 더 잘 실립니다.
             </p>
           </div>
         </div>
@@ -226,22 +300,48 @@ export default function LandingPage() {
       {/* PLATFORMS */}
       <Section id="platform" muted>
         <Eyebrow>어디서든</Eyebrow>
-        <SecTitle>Claude · ChatGPT · Gemini 어디서나</SecTitle>
+        <SecTitle>웹앱이든, 내 AI든 — 같은 피치</SecTitle>
         <SecDesc>
-          특정 앱에 종속되지 않습니다. 스킬은 마크다운 하나로 세 플랫폼 공용, 자동화 깊이만 다릅니다.
+          대시보드에서 끝까지 돌리거나, 스킬+MCP로 본인 AI 채팅에서 초안을 잡고 웹앱에서만 발송하세요.
+          스킬은 마크다운 하나로 Claude·ChatGPT·Gemini 공용입니다.
         </SecDesc>
         <div className="mt-8 grid gap-4 sm:grid-cols-3">
           {[
-            { i: <Sparkles className="h-5 w-5" />, t: "🤖 Claude / Cowork", d: "스킬 + CrabPitch MCP(유료 cp_mcp_…)·Gmail 연동. 매칭부터 발송·응대까지 대화로." },
-            { i: <MessageSquareReply className="h-5 w-5" />, t: "💬 ChatGPT 웹", d: "커스텀 GPT + CrabPitch MCP 커넥터. 웹 로그인 상태로 피치·메일링." },
-            { i: <Target className="h-5 w-5" />, t: "✨ Gemini 웹", d: "동일 스킬·MCP를 Gem/프롬프트로, Google Workspace로 Gmail 발송." },
+            {
+              i: <Sparkles className="h-5 w-5 text-brand" />,
+              t: "Claude / Cowork",
+              d: "스킬 설치 + CrabPitch MCP. 매칭·템플릿·분류를 대화로 호출하고, 발송은 웹앱 Gmail로.",
+            },
+            {
+              i: <MessageSquareReply className="h-5 w-5 text-brand" />,
+              t: "ChatGPT",
+              d: "Custom GPT Instructions에 스킬을 넣고 MCP 커넥터로 cp_mcp 키를 연결합니다.",
+            },
+            {
+              i: <Target className="h-5 w-5 text-brand" />,
+              t: "Gemini",
+              d: "Gem/프롬프트에 동일 스킬·MCP URL. Workspace Gmail과 웹앱 발송을 이어 씁니다.",
+            },
           ].map((p) => (
             <div key={p.t} className="rounded-lg border border-border bg-card p-6 shadow-card">
+              <div className="mb-3">{p.i}</div>
               <b className="text-base">{p.t}</b>
               <p className="mt-2 text-sm text-foreground-muted">{p.d}</p>
             </div>
           ))}
         </div>
+        <p className="mt-6 text-center text-sm text-foreground-muted">
+          자세한 등록 절차는 로그인 후 <b>내 AI</b> 화면, 또는{" "}
+          <a
+            href="https://github.com/contentscoin/crabpitch/blob/main/docs/MCP-SETUP.md"
+            className="underline underline-offset-2 hover:text-brand"
+            target="_blank"
+            rel="noreferrer"
+          >
+            MCP 설정 가이드
+          </a>
+          를 보세요.
+        </p>
       </Section>
 
       {/* FINAL CTA */}
@@ -267,8 +367,9 @@ export default function LandingPage() {
           <div>
             <div className="flex items-center gap-2 text-base font-extrabold text-foreground">🦀 크랩피치</div>
             <p className="mt-2 max-w-xl text-xs leading-relaxed">
-              &lsquo;크랩피치&rsquo;는 작업용 가칭입니다. OpenCrab 기자 온톨로지 + Gmail 기반 보도자료 배포 SaaS.
-              기자 연락처는 공개된 직무 정보이며, 실제 발송은 사용자 승인·수신거부 절차를 준수합니다.
+              &lsquo;크랩피치&rsquo;는 작업용 가칭입니다. OpenCrab 기자 온톨로지 + Gmail + 유저 MCP
+              기반 보도자료 배포 SaaS. 기자 연락처는 공개된 직무 정보이며, MCP·화면에는 실명·이메일을
+              노출하지 않고 실제 발송은 사용자 승인·수신거부 절차를 준수합니다.
             </p>
           </div>
           <div className="shrink-0">© 2026 CrabPitch · 1인·소상공인을 위한 언론 배포</div>
