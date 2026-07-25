@@ -17,11 +17,13 @@
 
 ## 플랫폼별 사용법
 
-- **Claude / Cowork** — 각 `skills/<name>/SKILL.md`를 스킬로 추가하면 트리거로 자동 로드. Gmail MCP 연결 시 라벨·초안까지 자동화.
-- **ChatGPT / Codex** — `SKILL.md` 본문을 커스텀 GPT Instructions(또는 Codex 시스템 프롬프트)에 붙여넣기. Gmail 연동으로 발송.
-- **Gemini** — 동일 `SKILL.md`를 Gem/프롬프트로 사용, Google Workspace 연동으로 Gmail 발송.
+- **Claude / Cowork** — 각 `skills/<name>/SKILL.md`를 스킬로 추가하면 트리거로 자동 로드. **CrabPitch MCP**(유료 `cp_mcp_…`) 연결 시 매칭·템플릿 도구까지 사용. Gmail MCP는 라벨·초안 자동화용.
+- **ChatGPT / Codex** — `SKILL.md` 본문을 커스텀 GPT Instructions(또는 Codex 시스템 프롬프트)에 붙여넣기. CrabPitch MCP 커넥터 + Gmail 연동으로 발송.
+- **Gemini** — 동일 `SKILL.md`를 Gem/프롬프트로 사용, CrabPitch MCP + Google Workspace 연동으로 Gmail 발송.
+- **Cursor** — `docs/MCP-SETUP.md`의 `mcp.json` 스니펫으로 CrabPitch MCP 등록.
 
 > 스킬은 **마크다운 하나로 세 플랫폼 공용**입니다. 자동화 깊이(MCP/커넥터 연결 여부)만 다릅니다.
+> MCP 키 발급·등록 → [`docs/MCP-SETUP.md`](./docs/MCP-SETUP.md) (CrabPitch 유료 플랜 전용).
 
 ## 두 가지 필수 원칙
 

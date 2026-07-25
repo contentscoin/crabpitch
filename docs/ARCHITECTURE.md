@@ -1,5 +1,7 @@
 # 크랩피치 아키텍처 (Convex + Next.js + Vercel)
 
+현황·성숙도·후속 작업 범위는 **[PROJECT_ANALYSIS.md](./PROJECT_ANALYSIS.md)** 를 본다.
+
 마크다운 스킬 묶음이던 크랩피치를 **실제 풀스택 SaaS**로 고도화한 구조 문서입니다.
 스킬 4종(press-distribution / journalist-outreach-email / reply-handler / media-kit-builder)의
 로직은 폐기되지 않고 **Convex 백엔드의 순수 라이브러리**로 흡수되었습니다.
@@ -21,15 +23,17 @@ app/                      Next.js App Router
   page.tsx                마케팅 랜딩
   signin/                 로그인·가입
   (app)/                  인증 보호 그룹 (미들웨어 가드)
-    dashboard/ campaigns/ journalists/ replies/ media-kit/ settings/
+    dashboard/ campaigns/ journalists/ replies/ media-kit/ agency/ settings/
 convex/                   백엔드
-  schema.ts               도메인 스키마(11 테이블 + auth)
-  auth.ts http.ts         Convex Auth
+  schema.ts               도메인 스키마(+ agency 테이블 + auth)
+  auth.ts http.ts         Convex Auth + Agency REST
+  agency.ts agencyHttp.ts 멀티테넌트·API 키
   lib/                    ★ 스킬 로직 흡수(순수 TS)
     scoring.ts            기자 매칭 적합도(press-distribution 랭킹 규칙)
     emailTemplate.ts      기자 배포 메일 6블록(journalist-outreach-email)
     replyClassifier.ts    회신 7유형 분류·답장 초안(reply-handler)
     plans.ts mask.ts      요금 한도 · 이메일 블러
+    agencyAuth.ts         Agency 플랜·멤버·API 키 해시
   campaigns/ drafts/ journalists/ replies/ ... 함수 모듈
   seed.ts                 데모 기자 온톨로지 + 데모 캠페인
 components/ui|app         디자인 시스템 · 앱 셸
@@ -39,7 +43,8 @@ skills/ dist/ demo/       기존 스킬 패키지(범용 Claude/GPT/Gemini, 그�
 ## 도메인 모델 (Convex 스키마)
 
 `profiles · journalists · pressReleases · campaigns · matches · emailDrafts ·
-replies · suppressionList · mediaKits · usage` (+ Convex Auth `users`/`authSessions` 등)
+replies · suppressionList · mediaKits · usage · agencies · agencyMembers ·
+agencyClients · agencyApiKeys` (+ Convex Auth `users`/`authSessions` 등)
 
 ## 실행 루프 (매칭 → 작성 → 발송 → 응대)
 
@@ -66,9 +71,39 @@ replies · suppressionList · mediaKits · usage` (+ Convex Auth `users`/`authSe
 
 | 기능 | 현재(데모) | 실 배선 |
 |---|---|---|
-| 기자 매칭 | `seed.ts` 시드 기자 DB | OpenCrab MCP/HTTP → `journalists` 업서트 (`OPENCRAB_API_*`) |
-| 보도자료·메일 생성 | 템플릿(`emailTemplate.ts`) | Anthropic API로 개인화 강화 (`ANTHROPIC_API_KEY`) |
-| Gmail 발송/초안 | 상태 기록만 | Google OAuth + Gmail API (`GOOGLE_CLIENT_*`, BYO-Email) |
+| 기자 매칭 | `seed.ts` 시드 기자 DB | `opencrabActions.syncJournalists` → `OPENCRAB_API_*` 업서트 (실패/미설정 시 시드 폴백) |
+| 보도자료·메일 생성 | 템플릿(`emailTemplate.ts`) + 선택 AI | `aiActions.*` + `ANTHROPIC_API_KEY` (없으면 템플릿 유지) |
+| Gmail 발송/초안 | 상태 기록만 (`drafts.sendCampaign`) | 설정에서 BYO OAuth → `gmailActions.pushCampaignToGmail` (`언론홍보` 라벨 초안) |
+| 예약 발송 | `drafts.scheduleCampaign` + `crons.ts` (1분) | `scheduledSendAt` 시점에 queued→sent |
+| 분석 | `usage.getAnalytics` | 게재율·회신 유형·미처리·예약 |
+| 인터뷰 일정 | `replies.confirmInterviewSlot` | KST 슬롯 3안 제안·확정 |
+| Agency API | `/agency` UI + `agencyApiKeys` | `Bearer cp_live_…` → `/api/v1/clients|campaigns|press-releases` |
+| 유저 MCP (유료) | `/ai` + `userMcpKeys` | `cp_mcp_…` → `/api/mcp` JSON-RPC (`mcpHttp` / `mcpInternal`) |
+
+Agency REST (Convex site URL):
+
+| Method | Path | 설명 |
+|---|---|---|
+| GET/POST | `/api/v1/clients` | 클라이언트 목록 / 생성 |
+| GET | `/api/v1/campaigns?clientId=` | 캠페인 목록 |
+| POST | `/api/v1/press-releases` | 보도자료+캠페인 생성 (`clientId`, `title`, `body`) |
+
+유저 MCP (Solo/Growth/Agency, Free 거부) — 스니펫 URL은 **`CONVEX_SITE_URL`** (`.convex.site`) 기준:
+
+| Method | Path | 설명 |
+|---|---|---|
+| GET/POST/OPTIONS | `/api/mcp` | Bearer `cp_mcp_…` |
+| GET/POST/OPTIONS | `/api/mcp/cp_mcp_…` | URL에 키 포함 |
+
+도구: `crabpitch_status`, `crabpitch_match_journalists`, `crabpitch_email_template`, `crabpitch_classify`.  
+상세: `docs/MCP-SETUP.md`
+
+OpenCrab HTTP 계약: `POST OPENCRAB_API_URL` + Bearer 키, body `{ query, pack_query, top_k }`,
+응답 `{ journalists: [{ reporter_name, outlet_name, email, beat_primary, ... }] }`
+(변형 형태는 `convex/lib/opencrabMap.ts` 가 정규화).
+
+Gmail 콜백: `https://<deployment>.convex.site/gmail/callback`
+(`GMAIL_OAUTH_*` 는 로그인용 `AUTH_GOOGLE_*` 와 별도 클라이언트 권장).
 
 ## 로컬 실행
 

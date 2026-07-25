@@ -1,22 +1,40 @@
-# 공개 저장소로 게시하기 (contentscoin/crabpitch-skills)
+# 공개 저장소로 게시하기 (contentscoin/crabpitch-skill)
 
-이 폴더(`skills-public/`)는 그대로 **공개 저장소 `contentscoin/crabpitch-skills`** 가 되도록 준비돼 있습니다.
-(세션 통합 토큰은 새 repo 생성 권한이 없어 자동 생성이 안 됩니다. 아래 중 하나로 게시하세요.)
+이 폴더(`skills-public/`)는 **공개 저장소 [`contentscoin/crabpitch-skill`](https://github.com/contentscoin/crabpitch-skill)** 의 소스입니다.
+(과거 문서의 `crabpitch-skills` 표기는 폐기 — 실제 remote는 **단수** `crabpitch-skill`.)
 
-## 방법 A — GitHub에서 빈 repo 만들고 푸시 (권장)
-1. github.com → **New repository** → 이름 `crabpitch-skills`, **Public**, README/gitignore/license **추가 안 함**.
-2. 로컬에서 이 폴더만 새 저장소로 푸시:
+## 동기화 (권장)
+
+모노레포에서 공개 팩을 갱신한 뒤:
+
 ```bash
-cd skills-public
-git init -b main
-git add -A
-git commit -m "feat: 크랩피치 공개 스킬 팩 (보도문·미디어킷·기자배포·회신 + Gmail 언론홍보 + PII 보호)"
-git remote add origin https://github.com/contentscoin/crabpitch-skills.git
-git push -u origin main
+# crabpitch 루트에서
+pnpm sync:skills-public
 ```
 
-## 방법 B — 빈 repo만 만들어 두고 알려주기
-github.com에서 위처럼 빈 public repo만 만들고 알려주시면, 세션에서 `add_repo`로 붙여 파일을 대신 푸시해 드립니다.
+스크립트가 `skills-public/` 내용을 형제 체크아웃된 `../crabpitch-skill` 로 복사합니다
+(`PUBLISH.md` 는 공개 repo에 포함하지 않음).
+
+수동 동기화:
+```bash
+# PUBLISH.md 제외하고 복사
+cp -a skills-public/README.md skills-public/LICENSE ../crabpitch-skill/
+cp -a skills-public/skills ../crabpitch-skill/
+cp -a skills-public/docs ../crabpitch-skill/
+```
+또는 `pnpm sync:skills-public`
+
+## 최초 게시 / 재푸시
+
+공개 repo가 이미 있으면:
+```bash
+cd ../crabpitch-skill
+git add -A
+git commit -m "chore: sync skills-public from crabpitch"
+git push origin main
+```
+
+새 repo를 만들 경우 이름은 반드시 **`crabpitch-skill`**(단수)로 맞춥니다.
 
 ## 구성
 ```

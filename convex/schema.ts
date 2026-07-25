@@ -53,6 +53,12 @@ export default defineSchema({
     contactEmail: v.optional(v.string()),
     plan: planValidator,
     gmailConnected: v.optional(v.boolean()),
+    activeAgencyId: v.optional(v.id("agencies")),
+    activeClientId: v.optional(v.id("agencyClients")),
+    /** BYO AI: 사용자가 스킬을 실행할 기본 제공자 */
+    preferredAiProvider: v.optional(
+      v.union(v.literal("claude"), v.literal("chatgpt"), v.literal("gemini")),
+    ),
   }).index("by_user", ["userId"]),
 
   // OpenCrab 기자 온톨로지 캐시 (mailing_status: candidate)
@@ -85,7 +91,8 @@ export default defineSchema({
     quote: v.optional(v.string()),
     links: v.optional(v.array(v.string())),
     status: v.union(v.literal("draft"), v.literal("ready")),
-  }).index("by_user", ["userId"]),
+    agencyClientId: v.optional(v.id("agencyClients")),
+  }).index("by_user", ["userId"]).index("by_client", ["agencyClientId"]),
 
   // 배포 캠페인
   campaigns: defineTable({
@@ -93,7 +100,12 @@ export default defineSchema({
     pressReleaseId: v.id("pressReleases"),
     name: v.string(),
     status: campaignStatusValidator,
-  }).index("by_user", ["userId"]),
+    scheduledSendAt: v.optional(v.number()), // 예약 발송 시각(ms)
+    agencyClientId: v.optional(v.id("agencyClients")),
+  })
+    .index("by_user", ["userId"])
+    .index("by_scheduled", ["scheduledSendAt"])
+    .index("by_client", ["agencyClientId"]),
 
   // 기자 매칭 결과 (적합도 점수 + 근거)
   matches: defineTable({
@@ -120,9 +132,11 @@ export default defineSchema({
       v.literal("published"),
     ),
     sentAt: v.optional(v.number()),
+    scheduledSendAt: v.optional(v.number()),
   })
     .index("by_campaign", ["campaignId"])
-    .index("by_campaign_journalist", ["campaignId", "journalistId"]),
+    .index("by_campaign_journalist", ["campaignId", "journalistId"])
+    .index("by_status_scheduled", ["status", "scheduledSendAt"]),
 
   // 기자 회신 + 7유형 분류 + 답장 초안
   replies: defineTable({
@@ -132,6 +146,9 @@ export default defineSchema({
     rawBody: v.string(),
     draftResponse: v.string(),
     handled: v.boolean(),
+    interviewSlots: v.optional(v.array(v.string())), // 인터뷰 제안 3안
+    interviewPickedSlot: v.optional(v.string()),
+    interviewConfirmedAt: v.optional(v.number()),
   }).index("by_campaign", ["campaignId"]),
 
   // 억제 리스트(수신거부 영구 제외)
@@ -164,4 +181,70 @@ export default defineSchema({
     sendsUsed: v.number(),
     pressReleasesUsed: v.number(),
   }).index("by_user_month", ["userId", "month"]),
+
+  // BYO Gmail OAuth 토큰 (로그인용 AUTH_GOOGLE_* 와 별개)
+  gmailAccounts: defineTable({
+    userId: v.id("users"),
+    email: v.string(),
+    accessToken: v.string(),
+    refreshToken: v.optional(v.string()),
+    expiryDate: v.optional(v.number()),
+    scope: v.optional(v.string()),
+  }).index("by_user", ["userId"]),
+
+  // Gmail OAuth state (CSRF 방지)
+  gmailOauthStates: defineTable({
+    userId: v.id("users"),
+    state: v.string(),
+    createdAt: v.number(),
+  }).index("by_state", ["state"]),
+
+  // Agency 멀티테넌트 — PR 대행사 워크스페이스
+  agencies: defineTable({
+    name: v.string(),
+    ownerUserId: v.id("users"),
+    createdAt: v.number(),
+  }).index("by_owner", ["ownerUserId"]),
+
+  agencyMembers: defineTable({
+    agencyId: v.id("agencies"),
+    userId: v.id("users"),
+    role: v.union(v.literal("owner"), v.literal("admin"), v.literal("member")),
+  })
+    .index("by_agency", ["agencyId"])
+    .index("by_user", ["userId"])
+    .index("by_agency_user", ["agencyId", "userId"]),
+
+  agencyClients: defineTable({
+    agencyId: v.id("agencies"),
+    name: v.string(),
+    contactEmail: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_agency", ["agencyId"]),
+
+  // Agency REST API 키 (원문은 생성 시 1회만 반환, 해시만 저장)
+  agencyApiKeys: defineTable({
+    agencyId: v.id("agencies"),
+    name: v.string(),
+    keyPrefix: v.string(),
+    keyHash: v.string(),
+    createdAt: v.number(),
+    revoked: v.boolean(),
+  })
+    .index("by_agency", ["agencyId"])
+    .index("by_hash", ["keyHash"]),
+
+  // 유저별 MCP 키 (유료 플랜 전용) — Claude/ChatGPT/Gemini 플러그인 등록용
+  userMcpKeys: defineTable({
+    userId: v.id("users"),
+    name: v.string(),
+    keyPrefix: v.string(),
+    keyHash: v.string(),
+    createdAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    revoked: v.boolean(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_hash", ["keyHash"]),
 });

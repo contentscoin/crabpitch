@@ -2,11 +2,27 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireUser, getProfile, bumpPressReleases } from "./model";
 import { PLAN_LIMITS, currentMonth, type Plan } from "./lib/plans";
+import { canAccessClientScoped, getMembership } from "./lib/agencyAuth";
 
 export const list = query({
   args: {},
   handler: async (ctx) => {
     const userId = await requireUser(ctx);
+    const profile = await getProfile(ctx, userId);
+    if (profile?.activeClientId) {
+      const client = await ctx.db.get(profile.activeClientId);
+      const member =
+        client && (await getMembership(ctx, client.agencyId, userId));
+      if (member) {
+        return ctx.db
+          .query("pressReleases")
+          .withIndex("by_client", (q) =>
+            q.eq("agencyClientId", profile.activeClientId!),
+          )
+          .order("desc")
+          .collect();
+      }
+    }
     return ctx.db
       .query("pressReleases")
       .withIndex("by_user", (q) => q.eq("userId", userId))
@@ -20,7 +36,9 @@ export const get = query({
   handler: async (ctx, { id }) => {
     const userId = await requireUser(ctx);
     const pr = await ctx.db.get(id);
-    if (!pr || pr.userId !== userId) return null;
+    if (!pr || !(await canAccessClientScoped(ctx, userId, pr.userId, pr.agencyClientId))) {
+      return null;
+    }
     return pr;
   },
 });
@@ -66,6 +84,7 @@ export const create = mutation({
       quote: args.quote,
       links: args.links,
       status: "ready",
+      agencyClientId: profile?.activeClientId,
     });
     await bumpPressReleases(ctx, userId, 1);
     return id;
