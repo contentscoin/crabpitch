@@ -1,8 +1,10 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireUser } from "./model";
+import { requireUser, getProfile } from "./model";
 import { scoreJournalist } from "./lib/scoring";
 import { journalistCode } from "./lib/mask";
+import { applyMatchReveal } from "./lib/matchGate";
+import { PLAN_LIMITS, type Plan } from "./lib/plans";
 
 /**
  * 기자 디렉터리.
@@ -65,6 +67,17 @@ export const matchForCampaign = mutation({
       .sort((a, b) => b.score - a.score)
       .slice(0, topK ?? 15);
 
+    // 플랜별 발송 후보 한도 — 초과분은 잠금(included=false). 신뢰도 low는 한도와 무관하게 제외.
+    const profile = await getProfile(ctx, userId);
+    const plan: Plan = (profile?.plan as Plan) ?? "free";
+    const { flags, result: gate } = applyMatchReveal(
+      scored.map((x) => ({
+        score: x.score,
+        lowConfidence: x.j.contactConfidence === "low",
+      })),
+      PLAN_LIMITS[plan].matchReveal,
+    );
+
     // 기존 매칭 초기화 후 재기록
     const old = await ctx.db
       .query("matches")
@@ -73,19 +86,25 @@ export const matchForCampaign = mutation({
     await Promise.all(old.map((m) => ctx.db.delete(m._id)));
 
     await Promise.all(
-      scored.map((x) =>
+      scored.map((x, i) =>
         ctx.db.insert("matches", {
           campaignId,
           journalistId: x.j._id,
           score: x.score,
           reason: x.reason,
-          included: x.j.contactConfidence !== "low", // low 신뢰도는 기본 제외
+          included: flags[i],
         }),
       ),
     );
 
     await ctx.db.patch(campaignId, { status: "matched" });
-    return scored.length;
+    return {
+      matched: scored.length,
+      included: gate.includedCount,
+      locked: gate.lockedCount,
+      matchReveal: PLAN_LIMITS[plan].matchReveal,
+      plan,
+    };
   },
 });
 
@@ -103,15 +122,31 @@ export const listMatches = query({
       .collect();
     matches.sort((a, b) => b.score - a.score);
 
+    // 플랜 한도로 잠긴 후보를 표시하기 위해 동일 규칙을 재적용한다.
+    const profile = await getProfile(ctx, userId);
+    const plan: Plan = (profile?.plan as Plan) ?? "free";
+    const journalistDocs = await Promise.all(
+      matches.map((m) => ctx.db.get(m.journalistId)),
+    );
+    const { flags: allowedFlags } = applyMatchReveal(
+      matches.map((m, i) => ({
+        score: m.score,
+        lowConfidence: journalistDocs[i]?.contactConfidence === "low",
+      })),
+      PLAN_LIMITS[plan].matchReveal,
+    );
+
     return Promise.all(
       matches.map(async (m, idx) => {
-        const j = await ctx.db.get(m.journalistId);
+        const j = journalistDocs[idx];
         return {
           _id: m._id,
           journalistId: m.journalistId,
           score: m.score,
           reason: m.reason,
           included: m.included,
+          /** 플랜 후보 한도로 잠긴 후보 (신뢰도 low 제외와 구분) */
+          lockedByPlan: !m.included && !allowedFlags[idx] && j?.contactConfidence !== "low",
           rank: idx + 1,
           code: journalistCode(m.journalistId),
           outlet: j?.outlet ?? "?",
@@ -132,6 +167,25 @@ export const toggleInclude = mutation({
     if (!m) throw new Error("매칭을 찾을 수 없습니다.");
     const campaign = await ctx.db.get(m.campaignId);
     if (!campaign || campaign.userId !== userId) throw new Error("권한이 없습니다.");
+
+    // 켜는 방향이면 플랜 후보 한도를 다시 확인한다 (토글로 한도를 우회할 수 없게).
+    if (!m.included) {
+      const profile = await getProfile(ctx, userId);
+      const plan: Plan = (profile?.plan as Plan) ?? "free";
+      const limit = PLAN_LIMITS[plan].matchReveal;
+      const includedNow = (
+        await ctx.db
+          .query("matches")
+          .withIndex("by_campaign", (q) => q.eq("campaignId", m.campaignId))
+          .collect()
+      ).filter((x) => x.included).length;
+      if (includedNow >= limit) {
+        throw new Error(
+          `${PLAN_LIMITS[plan].label} 플랜은 발송 후보 ${limit}명까지입니다. 다른 후보를 먼저 해제하거나 플랜을 업그레이드하세요.`,
+        );
+      }
+    }
+
     await ctx.db.patch(matchId, { included: !m.included });
   },
 });

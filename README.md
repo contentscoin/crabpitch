@@ -99,6 +99,10 @@ OpenCrab 기자 데이터는 모두 `mailing_status: candidate` (발송 미승�
 - 동일 기자 7일 내 재발송 금지
 - 발송은 **사용자 본인 Gmail(BYO-Email)** 로
 
+웹 앱은 이 중 **수신거부·7일 재발송 금지를 서버에서 강제**합니다(`convex/lib/sendGuard.ts`,
+`convex/lib/cooldown.ts`). 초안 생성 시 쿨다운 대상은 제외되고, 발송 직전 한 번 더 대조하며,
+차단된 건은 발송되지 않고 초안으로 남아 월 발송 한도도 소모하지 않습니다.
+
 ## 개발 메모: `.skill` 빌드 (재생성)
 
 `dist/*.skill`는 각 `skills/<name>/SKILL.md`(및 `skills-pro/<name>/SKILL.md`)를

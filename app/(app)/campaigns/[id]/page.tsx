@@ -153,6 +153,14 @@ export default function CampaignDetailPage() {
                       <div className="mt-1 flex items-center gap-1.5">
                         <span className="text-xs text-muted">{m.beatPrimary}</span>
                         <ConfidenceBadge level={m.contactConfidence as "high" | "medium" | "low"} />
+                        {m.lockedByPlan && (
+                          <span
+                            className="rounded-full bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-muted"
+                            title="현재 플랜의 발송 후보 한도를 넘은 후보입니다. 플랜을 올리면 포함할 수 있습니다."
+                          >
+                            🔒 플랜 한도
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-3 py-3">
@@ -166,9 +174,17 @@ export default function CampaignDetailPage() {
           </div>
         )}
         {matches && matches.length > 0 && (
-          <p className="mt-3 text-xs text-muted">
-            🔒 기자 실명·이메일·연락처는 표시하지 않습니다(익명 코드). 실제 연락처는 발송 시점에만 사용됩니다.
-          </p>
+          <>
+            <p className="mt-3 text-xs text-muted">
+              🔒 기자 실명·이메일·연락처는 표시하지 않습니다(익명 코드). 실제 연락처는 발송 시점에만 사용됩니다.
+            </p>
+            {matches.some((m) => m.lockedByPlan) && (
+              <p className="mt-1 text-xs text-muted">
+                현재 플랜의 발송 후보 한도를 넘은 {matches.filter((m) => m.lockedByPlan).length}명은
+                잠겨 있습니다. <a className="underline" href="/settings">플랜 변경</a>
+              </p>
+            )}
+          </>
         )}
       </StepSection>
 
@@ -179,9 +195,15 @@ export default function CampaignDetailPage() {
             variant={drafts && drafts.length ? "subtle" : "brand"}
             onClick={() =>
               wrap("gen", async () => {
-                await genDrafts({ campaignId: id });
+                const gen = await genDrafts({ campaignId: id });
                 const enhanced = await enhanceDrafts({ campaignId: id });
-                if (enhanced.message) setDraftNote(enhanced.message);
+                const cooldownNote =
+                  gen.skippedCooldown > 0
+                    ? `7일 내 이미 발송한 기자 ${gen.skippedCooldown}명은 재발송 금지 규칙으로 제외했습니다.`
+                    : null;
+                setDraftNote(
+                  [cooldownNote, enhanced.message].filter(Boolean).join(" ") || null,
+                );
               })
             }
             disabled={busy === "gen" || includedCount === 0}

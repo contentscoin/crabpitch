@@ -11,6 +11,14 @@
 pnpm install
 ```
 
+> **스키마 변경 후 1회 필요 — 7일 쿨다운 backfill**
+> `emailDrafts.userId` + `by_user_journalist` 인덱스가 추가됐습니다. 배포 뒤 아래를 한 번 실행해야
+> 기존 발송 기록이 7일 재발송 금지 판정에 포함됩니다(생략 시 과거 발송분이 규칙에서 빠집니다).
+> ```bash
+> npx convex deploy
+> npx convex run drafts:backfillDraftUserIds '{}' --prod
+> ```
+
 ## 1. Convex 백엔드 연결 ⭐
 
 ```bash
