@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalQuery, mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { planValidator } from "./schema";
 import { currentMonth, PLAN_LIMITS, type Plan } from "./lib/plans";
@@ -284,5 +284,118 @@ export const planLimits = query({
   handler: async (ctx) => {
     await requirePlatformAdmin(ctx);
     return PLAN_LIMITS;
+  },
+});
+
+/* ── 오픈크랩 팩 동기화 (트랙 A) ──────────────────────────────
+ * ⚠️ PII 무노출 원칙: 이 영역의 모든 쿼리는 **집계·메타만** 돌려준다.
+ *    기자 이름·이메일·연락처를 열람하는 UI를 만들지 않는다.
+ */
+
+/** 액션에서 관리자 권한을 확인할 때 사용(액션은 ctx.db가 없다). */
+export const assertPlatformAdminInternal = internalQuery({
+  args: { userId: v.id("users") },
+  returns: v.boolean(),
+  handler: async (ctx, { userId }) => await isPlatformAdmin(ctx, userId),
+});
+
+/** 팩 동기화 현황 — 배치별 상태·소스별 카운트·데이터 기준일·신규 시리즈·stale 카운트. */
+export const packSyncOverview = query({
+  args: {},
+  handler: async (ctx) => {
+    await requirePlatformAdmin(ctx);
+
+    const packs = await ctx.db.query("opencrabPacks").collect();
+    const runs = await ctx.db
+      .query("packSyncRuns")
+      .withIndex("by_startedAt")
+      .order("desc")
+      .take(200);
+    const journalists = await ctx.db.query("journalists").collect();
+
+    // 팩별 최신 run
+    const latestRun = new Map<string, (typeof runs)[number]>();
+    for (const r of runs) {
+      if (!latestRun.has(r.packageId)) latestRun.set(r.packageId, r);
+    }
+
+    const bySource: Record<string, number> = {};
+    let latestArticleAt: number | undefined;
+    let staleCount = 0;
+    let missingCategory = 0;
+    const now = Date.now();
+    const STALE_MS = 30 * 24 * 60 * 60 * 1000;
+
+    for (const j of journalists) {
+      const src = j.source ?? "unknown";
+      bySource[src] = (bySource[src] ?? 0) + 1;
+      if (j.latestArticleAt && (!latestArticleAt || j.latestArticleAt > latestArticleAt)) {
+        latestArticleAt = j.latestArticleAt;
+      }
+      if (j.source === "opencrab") {
+        const seen = j.lastSeenInPackAt;
+        if (seen === undefined || now - seen > STALE_MS) staleCount += 1;
+        if (!j.outletCategory) missingCategory += 1;
+      }
+    }
+
+    return {
+      journalistTotal: journalists.length,
+      bySource,
+      /** 근거 기사 최신일 — "데이터 기준일" */
+      latestArticleAt,
+      /** 팩에서 최근 확인되지 않은 레코드 수(이직·퇴사 추정) */
+      staleCount,
+      missingCategory,
+      packs: packs
+        .map((p) => {
+          const run = latestRun.get(p.packageId);
+          return {
+            packageId: p.packageId,
+            series: p.series,
+            batch: p.batch,
+            name: p.name,
+            syncEnabled: p.syncEnabled,
+            recordCount: p.recordCount,
+            capturedAt: p.capturedAt,
+            lastSyncedAt: p.lastSyncedAt,
+            lastStatus: run?.status,
+            lastFetched: run?.fetched,
+            lastError: run?.error,
+          };
+        })
+        .sort((a, b) => (a.batch ?? a.series).localeCompare(b.batch ?? b.series)),
+      /** 자동 동기화 대상이 아닌(승인 대기) 신규·파생 시리즈 */
+      pendingApproval: packs
+        .filter((p) => !p.syncEnabled)
+        .map((p) => ({ packageId: p.packageId, name: p.name, series: p.series })),
+      recentRuns: runs.slice(0, 30).map((r) => ({
+        packageId: r.packageId,
+        status: r.status,
+        startedAt: r.startedAt,
+        fetched: r.fetched,
+        recordCount: r.recordCount,
+        inserted: r.inserted,
+        updated: r.updated,
+        error: r.error,
+        trigger: r.trigger,
+      })),
+    };
+  },
+});
+
+/** 신규·파생 시리즈 팩의 자동 동기화 여부를 관리자가 승인/해제한다(자동 전환 금지). */
+export const setPackSyncEnabled = mutation({
+  args: { packageId: v.string(), enabled: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, { packageId, enabled }) => {
+    await requirePlatformAdmin(ctx);
+    const pack = await ctx.db
+      .query("opencrabPacks")
+      .withIndex("by_packageId", (q) => q.eq("packageId", packageId))
+      .unique();
+    if (!pack) throw new Error("팩을 찾을 수 없습니다.");
+    await ctx.db.patch(pack._id, { syncEnabled: enabled });
+    return null;
   },
 });

@@ -5,6 +5,7 @@ import { requireUser, getProfile, bumpSends } from "./model";
 import {
   buildEmailDraftWithPreset,
   renderCustomTemplate,
+  type JournalistContext,
 } from "./lib/emailTemplate";
 
 const emailTemplatePresetValidator = v.union(
@@ -15,7 +16,13 @@ const emailTemplatePresetValidator = v.union(
 );
 import { journalistCode } from "./lib/mask";
 import { PLAN_LIMITS, currentMonth, type Plan } from "./lib/plans";
-import { partitionBySuppression, suppressedEmailSet } from "./lib/sendGuard";
+import {
+  cooldownReason,
+  partitionByCooldown,
+  partitionBySuppression,
+  suppressedEmailSet,
+} from "./lib/sendGuard";
+import { checkEmailCompliance } from "./lib/emailCompliance";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 
@@ -42,6 +49,160 @@ async function filterSuppressed(
   }
   const { sendable, blocked } = partitionBySuppression(withEmail, suppressed);
   return { sendable: sendable.map((x) => x.draft), blocked: blocked.length };
+}
+
+/* ── 발송 확정 공통 경로 ─────────────────────────────────────
+ * 즉시(sendCampaign) · 예약(executeScheduledSend) · 크론 백업(processDueSends)이
+ * **모두 이 함수를 통과**한다. 경로마다 게이트를 따로 두면 하나가 반드시 샌다
+ * (실제로 processDueSends가 수신거부 재대조를 빠뜨리고 있었다).
+ */
+
+/**
+ * 이 사용자가 해당 기자에게 마지막으로 발송한 시각.
+ *
+ * ⚠️ 스코프는 사용자 단위다 — `by_user_journalist` 인덱스로 **자기 초안만** 본다.
+ *    교차 사용자 발송 이력은 판정에도, 표시에도 쓰지 않는다.
+ * ⚠️ `userId`는 이번 릴리스부터 기록된다. 그 이전에 발송된 초안은 userId가 없어
+ *    이 조회에 잡히지 않는다(쿨다운은 이번 릴리스 이후 이력부터 완전해진다).
+ *    발송을 확정할 때 userId를 함께 채워 이력이 쌓이도록 한다.
+ */
+async function lastSentAtForJournalist(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  journalistId: Id<"journalists">,
+): Promise<number | undefined> {
+  const rows = await ctx.db
+    .query("emailDrafts")
+    .withIndex("by_user_journalist", (q) =>
+      q.eq("userId", userId).eq("journalistId", journalistId),
+    )
+    .collect();
+  let max: number | undefined;
+  for (const r of rows) {
+    if (r.status !== "sent" && r.status !== "published") continue;
+    if (r.sentAt === undefined) continue;
+    if (max === undefined || r.sentAt > max) max = r.sentAt;
+  }
+  return max;
+}
+
+export interface FinalizeSendResult {
+  sent: number;
+  blockedSuppressed: number;
+  blockedCooldown: number;
+  blockedCompliance: number;
+  /** 캠페인당 상한을 넘겨 이번 회차에 나가지 않은 초안 수 */
+  overCap: number;
+  /** 월 한도를 넘겨 나가지 않은 초안 수 */
+  overMonthly: number;
+}
+
+/**
+ * 발송 확정 — suppression 재대조 → 쿨다운 → 컴플라이언스 critical 차단 →
+ * 캠페인당 상한 → 월 한도 순으로 거르고 통과분만 sent로 확정한다.
+ * 제외된 초안은 **삭제하지 않고** 사유(`complianceNotes`)를 남긴 채 초안으로 유지한다.
+ */
+async function finalizeCampaignSend(
+  ctx: MutationCtx,
+  campaignId: Id<"campaigns">,
+  userId: Id<"users">,
+): Promise<FinalizeSendResult> {
+  const result: FinalizeSendResult = {
+    sent: 0,
+    blockedSuppressed: 0,
+    blockedCooldown: 0,
+    blockedCompliance: 0,
+    overCap: 0,
+    overMonthly: 0,
+  };
+
+  const all = await ctx.db
+    .query("emailDrafts")
+    .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
+    .collect();
+  const queued = all.filter((d) => d.status === "draft" || d.status === "queued");
+  if (queued.length === 0) return result;
+
+  // ① 수신거부 재대조
+  const { sendable: notSuppressed, blocked: suppressedCount } = await filterSuppressed(
+    ctx,
+    userId,
+    queued,
+  );
+  result.blockedSuppressed = suppressedCount;
+
+  // ② 7일 쿨다운 (사용자 단위)
+  const withHistory = [];
+  for (const d of notSuppressed) {
+    withHistory.push({
+      draft: d,
+      lastSentAt: await lastSentAtForJournalist(ctx, userId, d.journalistId),
+    });
+  }
+  const now = Date.now();
+  const { sendable: offCooldown, blocked: onCooldown } = partitionByCooldown(withHistory, now);
+  result.blockedCooldown = onCooldown.length;
+  for (const b of onCooldown) {
+    await ctx.db.patch(b.draft._id, {
+      complianceLevel: "blocked",
+      complianceNotes: [cooldownReason(b.daysRemaining)],
+    });
+  }
+
+  // ③ 컴플라이언스 게이트 — critical 1건이면 차단
+  const compliant: Array<Doc<"emailDrafts">> = [];
+  for (const { draft } of offCooldown) {
+    const check = checkEmailCompliance(draft.subject, draft.body);
+    if (check.status === "fail") {
+      result.blockedCompliance += 1;
+      await ctx.db.patch(draft._id, {
+        complianceLevel: "fail",
+        complianceNotes: check.notes,
+      });
+      continue;
+    }
+    await ctx.db.patch(draft._id, {
+      complianceLevel: check.status,
+      complianceNotes: check.notes.length ? check.notes : undefined,
+    });
+    compliant.push(draft);
+  }
+
+  // ④ 캠페인당 통수 상한 (월 한도와 별개)
+  const profile = await getProfile(ctx, userId);
+  const plan: Plan = (profile?.plan as Plan) ?? "free";
+  const cap = PLAN_LIMITS[plan].campaignSendCap;
+  const alreadySent = all.filter((d) => d.status === "sent" || d.status === "published").length;
+  const capRoom = Math.max(0, cap - alreadySent);
+  let allowed = compliant.slice(0, capRoom);
+  result.overCap = compliant.length - allowed.length;
+
+  // ⑤ 월 발송 한도
+  const month = currentMonth();
+  const usage = await ctx.db
+    .query("usage")
+    .withIndex("by_user_month", (q) => q.eq("userId", userId).eq("month", month))
+    .unique();
+  const monthlyRoom = Math.max(0, PLAN_LIMITS[plan].sends - (usage?.sendsUsed ?? 0));
+  if (allowed.length > monthlyRoom) {
+    result.overMonthly = allowed.length - monthlyRoom;
+    allowed = allowed.slice(0, monthlyRoom);
+  }
+
+  for (const d of allowed) {
+    await ctx.db.patch(d._id, {
+      status: "sent",
+      sentAt: now,
+      scheduledSendAt: undefined,
+      // 쿨다운 판정 축을 채운다(레거시 초안 백필 겸용)
+      userId,
+    });
+  }
+  if (allowed.length > 0) await bumpSends(ctx, userId, allowed.length);
+  result.sent = allowed.length;
+
+  await ctx.db.patch(campaignId, { status: "sent", scheduledSendAt: undefined });
+  return result;
 }
 
 /** 포함된 매칭 기자 각각에 개인화 메일 초안 생성. 템플릿(프리셋/커스텀) 선택 가능. */
@@ -104,20 +265,31 @@ export const generateForCampaign = mutation({
         quote: pr.quote,
         links: pr.links,
         contact: profile?.contactEmail,
+        embargoAt: pr.embargoAt,
+        topicTags: pr.topicTags,
       };
       const jCtx = {
         beatPrimary: j.beatPrimary,
         topReferenceTitle: j.topReferenceTitle,
+        beatSecondary: j.beatSecondary,
+        beatDistribution: j.beatDistribution,
+        outletCategory: j.outletCategory as JournalistContext["outletCategory"],
+        referenceArticles: j.referenceArticles,
       };
       const { subject, body } = custom
         ? renderCustomTemplate(custom.subject, custom.body, emailCtx, jCtx)
         : buildEmailDraftWithPreset(presetId, emailCtx, jCtx);
+      // 생성 시점에 미리 검증해 승인 화면에서 바로 보이게 한다(발송 시 다시 검증한다).
+      const check = checkEmailCompliance(subject, body);
       await ctx.db.insert("emailDrafts", {
         campaignId,
         journalistId: j._id,
+        userId,
         subject,
         body,
         status: "draft",
+        complianceLevel: check.status,
+        ...(check.notes.length ? { complianceNotes: check.notes } : {}),
       });
       created += 1;
     }
@@ -192,19 +364,21 @@ export const sendCampaign = mutation({
     // 발송 직전 수신거부 재대조 (차단분은 초안으로 남기고 한도에서도 제외)
     const { sendable: pending } = await filterSuppressed(ctx, userId, queued);
 
+    // 사용자 대면 경로에서는 한도 초과를 조용히 자르지 않고 명확히 알린다.
     if (pending.length > remaining) {
       throw new Error(
         `발송 한도 초과: 이번 달 잔여 ${remaining}통, 요청 ${pending.length}통. 플랜 업그레이드 또는 수신자 축소가 필요합니다.`,
       );
     }
-
-    const now = Date.now();
-    for (const d of pending) {
-      await ctx.db.patch(d._id, { status: "sent", sentAt: now });
+    const cap = PLAN_LIMITS[plan].campaignSendCap;
+    if (pending.length > cap) {
+      throw new Error(
+        `캠페인당 발송 상한(${cap}통)을 초과했습니다. 요청 ${pending.length}통 — 수신자를 나눠 보내세요.`,
+      );
     }
-    await bumpSends(ctx, userId, pending.length);
-    await ctx.db.patch(campaignId, { status: "sent", scheduledSendAt: undefined });
-    return pending.length;
+
+    const res = await finalizeCampaignSend(ctx, campaignId, userId);
+    return res.sent;
   },
 });
 
@@ -250,6 +424,12 @@ export const scheduleCampaign = mutation({
         `발송 한도 초과: 이번 달 잔여 ${remaining}통, 요청 ${pending.length}통.`,
       );
     }
+    const cap = PLAN_LIMITS[plan].campaignSendCap;
+    if (pending.length > cap) {
+      throw new Error(
+        `캠페인당 발송 상한(${cap}통)을 초과했습니다. 요청 ${pending.length}통 — 수신자를 나눠 예약하세요.`,
+      );
+    }
 
     for (const d of pending) {
       await ctx.db.patch(d._id, { status: "queued", scheduledSendAt });
@@ -265,7 +445,10 @@ export const scheduleCampaign = mutation({
   },
 });
 
-/** scheduler / cron 에서 호출 — queued 초안을 sent 로 확정. */
+/**
+ * scheduler / cron 에서 호출 — queued 초안을 sent 로 확정.
+ * 예약 시점 ~ 실행 시점 사이의 창이 가장 넓은 경로라 게이트가 특히 중요하다.
+ */
 export const executeScheduledSend = internalMutation({
   args: {
     campaignId: v.id("campaigns"),
@@ -276,36 +459,17 @@ export const executeScheduledSend = internalMutation({
     if (!campaign || campaign.userId !== userId) return 0;
     if (campaign.status === "sent" || campaign.status === "done") return 0;
 
-    const queued = (
-      await ctx.db
-        .query("emailDrafts")
-        .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
-        .collect()
-    ).filter((d) => d.status === "queued" || d.status === "draft");
-
-    // 예약 시점 ~ 실행 시점 사이에 수신거부한 기자를 제외한다 (창이 가장 넓은 경로)
-    const { sendable: pending } = await filterSuppressed(ctx, userId, queued);
-
-    if (pending.length === 0) {
-      await ctx.db.patch(campaignId, { status: "sent", scheduledSendAt: undefined });
-      return 0;
-    }
-
-    const now = Date.now();
-    for (const d of pending) {
-      await ctx.db.patch(d._id, {
-        status: "sent",
-        sentAt: now,
-        scheduledSendAt: undefined,
-      });
-    }
-    await bumpSends(ctx, userId, pending.length);
-    await ctx.db.patch(campaignId, { status: "sent", scheduledSendAt: undefined });
-    return pending.length;
+    const res = await finalizeCampaignSend(ctx, campaignId, userId);
+    return res.sent;
   },
 });
 
-/** cron 백업: 기한 지난 queued 캠페인 일괄 처리. */
+/**
+ * cron 백업: 기한 지난 queued 캠페인 일괄 처리.
+ *
+ * ⚠️ 이 경로는 예전에 수신거부 재대조를 하지 않아 억제된 기자에게 그대로 나갔다.
+ *    이제 다른 두 경로와 **동일한 공통 함수**를 통과한다.
+ */
 export const processDueSends = internalMutation({
   args: {},
   handler: async (ctx) => {
@@ -314,29 +478,8 @@ export const processDueSends = internalMutation({
     let processed = 0;
     for (const c of campaigns) {
       if (c.status !== "sending" || !c.scheduledSendAt || c.scheduledSendAt > now) continue;
-
-      const pending = (
-        await ctx.db
-          .query("emailDrafts")
-          .withIndex("by_campaign", (q) => q.eq("campaignId", c._id))
-          .collect()
-      ).filter((d) => d.status === "queued" || d.status === "draft");
-
-      if (pending.length === 0) {
-        await ctx.db.patch(c._id, { status: "sent", scheduledSendAt: undefined });
-        continue;
-      }
-
-      for (const d of pending) {
-        await ctx.db.patch(d._id, {
-          status: "sent",
-          sentAt: now,
-          scheduledSendAt: undefined,
-        });
-      }
-      await bumpSends(ctx, c.userId, pending.length);
-      await ctx.db.patch(c._id, { status: "sent", scheduledSendAt: undefined });
-      processed += pending.length;
+      const res = await finalizeCampaignSend(ctx, c._id, c.userId);
+      processed += res.sent;
     }
     return processed;
   },
@@ -363,6 +506,7 @@ export const listDraftsForEnhance = internalQuery({
       companyName: v.string(),
       senderName: v.string(),
       headline: v.string(),
+      embargoAt: v.optional(v.number()),
       drafts: v.array(
         v.object({
           draftId: v.id("emailDrafts"),
@@ -370,6 +514,22 @@ export const listDraftsForEnhance = internalQuery({
           body: v.string(),
           beatPrimary: v.string(),
           topReferenceTitle: v.optional(v.string()),
+          beatSecondary: v.optional(v.array(v.string())),
+          beatDistribution: v.optional(
+            v.array(v.object({ beat: v.string(), weight: v.number() })),
+          ),
+          outletCategory: v.optional(v.string()),
+          referenceArticles: v.optional(
+            v.array(
+              v.object({
+                title: v.string(),
+                url: v.optional(v.string()),
+                topic: v.optional(v.string()),
+                publishedAtText: v.optional(v.string()),
+                publishedAt: v.optional(v.number()),
+              }),
+            ),
+          ),
         }),
       ),
     }),
@@ -390,18 +550,24 @@ export const listDraftsForEnhance = internalQuery({
       if (d.status !== "draft" && d.status !== "queued") continue;
       const j = await ctx.db.get(d.journalistId);
       if (!j) continue;
+      // ⚠️ 기자 실명·이메일은 포함하지 않는다(AI 경로에도 PII를 넘기지 않는다).
       rows.push({
         draftId: d._id,
         subject: d.subject,
         body: d.body,
         beatPrimary: j.beatPrimary,
         topReferenceTitle: j.topReferenceTitle,
+        beatSecondary: j.beatSecondary,
+        beatDistribution: j.beatDistribution,
+        outletCategory: j.outletCategory,
+        referenceArticles: j.referenceArticles,
       });
     }
     return {
       companyName: profile?.companyName ?? pr.who ?? "회사",
       senderName: profile?.senderName ?? "담당자",
       headline: pr.headlines[0] ?? pr.title,
+      embargoAt: pr.embargoAt,
       drafts: rows,
     };
   },

@@ -8,6 +8,7 @@ import {
   personalizeForSend,
   renderCustomTemplate,
   type EmailTemplatePresetId,
+  type JournalistContext,
 } from "./emailTemplate";
 
 const EMAIL = {
@@ -19,7 +20,7 @@ const EMAIL = {
   links: ["https://example.com/kit"],
   contact: "pr@example.com",
 };
-const JOURNALIST = { beatPrimary: "벤처투자", topReferenceTitle: "시드 투자 동향" };
+const JOURNALIST: JournalistContext = { beatPrimary: "벤처투자", topReferenceTitle: "시드 투자 동향" };
 
 describe("emailTemplate", () => {
   it("수신거부 문구를 본문에 포함한다", () => {
@@ -165,5 +166,146 @@ describe("hasOptOut", () => {
     expect(hasOptOut("수신거부 요청은 받지 않습니다.")).toBe(false);
     expect(hasOptOut("{{수신거부}}")).toBe(false);
     expect(hasOptOut("본문에 아무 안내 없음")).toBe(false);
+  });
+});
+
+describe("7블록 컴플라이언스 승계", () => {
+  const NOW = Date.UTC(2026, 6, 26, 12, 0, 0);
+  const DAY = 24 * 60 * 60 * 1000;
+
+  const withArticles = {
+    ...JOURNALIST,
+    outletCategory: "newswire" as const,
+    referenceArticles: [
+      { title: "최근 투자 동향", url: "https://www.etnews.com/20260715000123", topic: "투자", publishedAt: Date.UTC(2026, 6, 15, 12) },
+    ],
+  };
+
+  it("엠바고가 있으면 모든 프리셋의 최상단에 표기된다", () => {
+    for (const p of EMAIL_TEMPLATE_PRESETS) {
+      const { body } = buildEmailDraftWithPreset(
+        p.id as EmailTemplatePresetId,
+        { ...EMAIL, embargoAt: Date.UTC(2026, 6, 30, 0, 0), now: NOW },
+        withArticles,
+      );
+      expect(body.startsWith("[엠바고]"), p.id).toBe(true);
+      expect(body, p.id).toContain("엠바고 해제 시각 이후 사용 가능");
+    }
+  });
+
+  it("엠바고가 없으면 표기 자체가 없다", () => {
+    const { body } = buildEmailDraftWithPreset("standard", { ...EMAIL, now: NOW }, withArticles);
+    expect(body).not.toContain("[엠바고]");
+  });
+
+  it("모든 프리셋이 매체 유형별 CTA를 정확히 1개 포함한다", () => {
+    for (const p of EMAIL_TEMPLATE_PRESETS) {
+      const { body } = buildEmailDraftWithPreset(
+        p.id as EmailTemplatePresetId,
+        { ...EMAIL, now: NOW },
+        withArticles,
+      );
+      // 통신사 CTA(자료 즉시 송부)만 있고 기본 CTA(인터뷰 제안)는 없어야 한다
+      expect(body, p.id).toContain("회신 주시면 바로 송부드리겠습니다");
+      expect(body, p.id).not.toContain("대표 인터뷰를 원하시면");
+    }
+  });
+
+  it("미등록 매체는 기본 CTA(인터뷰 제안)로 폴백한다", () => {
+    const { body } = buildEmailDraftWithPreset("standard", { ...EMAIL, now: NOW }, JOURNALIST);
+    expect(body).toContain("대표 인터뷰를 원하시면");
+  });
+
+  it("수신거부 문구는 언제나 마지막 블록이다", () => {
+    for (const p of EMAIL_TEMPLATE_PRESETS) {
+      const { body } = buildEmailDraftWithPreset(
+        p.id as EmailTemplatePresetId,
+        { ...EMAIL, embargoAt: Date.UTC(2026, 6, 30), now: NOW },
+        withArticles,
+      );
+      expect(hasOptOut(body), p.id).toBe(true);
+      expect(body.trimEnd().endsWith("즉시 명단에서 제외하겠습니다."), p.id).toBe(true);
+    }
+  });
+});
+
+describe("후킹 기사 선택과 신선도 강등", () => {
+  const NOW = Date.UTC(2026, 6, 26, 12, 0, 0);
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it("발행일을 알면 날짜까지 인용한다", () => {
+    const { body } = buildEmailDraft(
+      { ...EMAIL, now: NOW },
+      { ...JOURNALIST, referenceArticles: [{ title: "AI 투자 확대", publishedAt: Date.UTC(2026, 6, 15, 12) }] },
+    );
+    expect(body).toContain("지난 7월 15일 'AI 투자 확대' 기사");
+  });
+
+  it("발행일을 모르면 날짜를 주장하지 않고 제목만 인용한다", () => {
+    const { body } = buildEmailDraft(
+      { ...EMAIL, now: NOW },
+      { ...JOURNALIST, referenceArticles: [{ title: "AI 투자 확대" }] },
+    );
+    expect(body).toContain("'AI 투자 확대' 기사");
+    expect(body).not.toContain("지난");
+  });
+
+  it("신선도 상한을 넘긴 기사는 generic 후킹으로 강등한다", () => {
+    const { body } = buildEmailDraft(
+      { ...EMAIL, now: NOW },
+      { ...JOURNALIST, topReferenceTitle: undefined, referenceArticles: [{ title: "오래된 기사", publishedAt: NOW - 400 * DAY }] },
+    );
+    expect(body).not.toContain("오래된 기사");
+    expect(body).toContain("벤처투자 분야를 취재하시는 기자님께");
+  });
+
+  it("캠페인 태그와 겹치는 기사를 우선 고른다", () => {
+    const { body } = buildEmailDraft(
+      { ...EMAIL, topicTags: ["핀테크"], now: NOW },
+      {
+        ...JOURNALIST,
+        referenceArticles: [
+          { title: "일반 산업 동향", publishedAt: NOW - 2 * DAY },
+          { title: "핀테크 규제 완화", publishedAt: NOW - 20 * DAY },
+        ],
+      },
+    );
+    expect(body).toContain("핀테크 규제 완화");
+  });
+});
+
+describe("커스텀 템플릿 신규 자리표시자", () => {
+  const NOW = Date.UTC(2026, 6, 26, 12, 0, 0);
+
+  it("{{엠바고}}·{{매체CTA}}를 렌더링한다", () => {
+    const { body } = renderCustomTemplate(
+      "제목",
+      "기자님, {{엠바고}}\n\n{{핵심수치}}\n\n{{매체CTA}}\n\n{{수신거부}}",
+      { ...EMAIL, embargoAt: Date.UTC(2026, 6, 30, 9, 0), now: NOW },
+      { ...JOURNALIST, outletCategory: "it" },
+    );
+    expect(body).toContain("[엠바고] 2026년 7월 30일");
+    expect(body).toContain("기술 구조와 실측 데이터");
+    expect(hasOptOut(body)).toBe(true);
+  });
+
+  it("엠바고가 없으면 {{엠바고}}는 빈칸으로 사라진다", () => {
+    const { body } = renderCustomTemplate(
+      "제목",
+      "기자님, {{엠바고}}{{핵심수치}} {{수신거부}}",
+      { ...EMAIL, now: NOW },
+      JOURNALIST,
+    );
+    expect(body).not.toContain("[엠바고]");
+  });
+
+  it("{{최근기사}}는 후킹이 실제로 고른 기사와 일치한다", () => {
+    const { body } = renderCustomTemplate(
+      "제목",
+      "기자님, {{후킹}}\n최근기사={{최근기사}}\n{{수신거부}}",
+      { ...EMAIL, now: NOW },
+      { ...JOURNALIST, topReferenceTitle: undefined, referenceArticles: [{ title: "선택된 기사", publishedAt: NOW - 3 * 24 * 3600 * 1000 }] },
+    );
+    expect(body).toContain("최근기사=선택된 기사");
   });
 });

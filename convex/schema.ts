@@ -80,9 +80,90 @@ export default defineSchema({
     topReferenceUrl: v.optional(v.string()),
     mailingStatus: v.string(), // 항상 "candidate"
     source: v.optional(v.string()), // "opencrab" | "seed" | "manual"
+
+    /* ── 오픈크랩 기자단 팩 동기화 필드 (전부 optional — 기존 seed/manual 레코드 호환) ── */
+    /** 네이버 뉴스 언론사 OID — 매체 유형(outletCategory) 도출 키 */
+    naverOid: v.optional(v.string()),
+    /** 연락처 검증 상태(팩 원문): "verified" | "inferred" 등 */
+    contactVerification: v.optional(v.string()),
+    /** 연락처 근거 개수 — 신뢰도 가중(S4) 입력 */
+    contactEvidenceCount: v.optional(v.number()),
+    /** ⚠️ 감사 전용 — UI·MCP 응답에 절대 노출하지 않는다 */
+    contactSourceUrls: v.optional(v.array(v.string())),
+    /** beat 분포(합 1.0 근사) — 매칭·개인화 앵글 선택에 사용 */
+    beatDistribution: v.optional(
+      v.array(v.object({ beat: v.string(), weight: v.number() })),
+    ),
+    /** 팩의 beat 분류 신뢰도: "high" | "medium" | "low" */
+    classificationConfidence: v.optional(v.string()),
+    /** 근거 기사 최대 3건 — topReferenceTitle/Url은 첫 항목(하위 호환) */
+    referenceArticles: v.optional(
+      v.array(
+        v.object({
+          title: v.string(),
+          url: v.optional(v.string()),
+          topic: v.optional(v.string()),
+          publishedAtText: v.optional(v.string()),
+          publishedAt: v.optional(v.number()),
+        }),
+      ),
+    ),
+    /** referenceArticles의 publishedAt 최댓값 — 데이터 신선도 기준 */
+    latestArticleAt: v.optional(v.number()),
+    /** naverOid 정적 매핑 결과: "newswire" | "it" | "economy" | "general" */
+    outletCategory: v.optional(v.string()),
+
+    /* 동기화 메타 */
+    packPackageId: v.optional(v.string()),
+    packBatch: v.optional(v.string()),
+    /** 이 레코드를 팩에서 마지막으로 반입한 시각 */
+    packSyncedAt: v.optional(v.number()),
+    /** 팩 목록에서 마지막으로 확인된 시각 — stale(이직·퇴사 추정) 판정 기준 */
+    lastSeenInPackAt: v.optional(v.number()),
   })
     .index("by_email", ["email"])
     .index("by_beat", ["beatPrimary"]),
+
+  /** 오픈크랩 팩 레지스트리 — 목록 완주 결과(진실 원천). packRegistry 상수는 부트스트랩·폴백. */
+  opencrabPacks: defineTable({
+    packageId: v.string(),
+    /** "journalist-contacts" | "journalist-reference" | "pr-presskit" | "other" */
+    series: v.string(),
+    /** batch-001 … batch-026 (기자단 배치 팩만) */
+    batch: v.optional(v.string()),
+    name: v.optional(v.string()),
+    /** 팩이 선언한 레코드 수 — 결손(partial) 판정 기준 */
+    recordCount: v.optional(v.number()),
+    /** 팩 스냅샷 시각(원문 문자열) */
+    capturedAt: v.optional(v.string()),
+    /** content_bytes + record_count 기반 지문 — 변경 감지(version 필드는 1.0.0 고정이라 신뢰하지 않음) */
+    fingerprint: v.optional(v.string()),
+    /** 동기화 대상 여부 — 신규 시리즈는 기본 false(관리자 승인 후 전환) */
+    syncEnabled: v.boolean(),
+    firstSeenAt: v.number(),
+    lastSeenAt: v.number(),
+    lastSyncedAt: v.optional(v.number()),
+  }).index("by_packageId", ["packageId"]).index("by_series", ["series"]),
+
+  /** 팩 동기화 실행 기록 — 팩 1개 단위 커밋(실패 격리)의 감사 로그. */
+  packSyncRuns: defineTable({
+    packageId: v.string(),
+    /** "ok" | "partial" | "failed" */
+    status: v.string(),
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+    /** 팩이 선언한 레코드 수 */
+    recordCount: v.optional(v.number()),
+    /** 실제 파싱 성공 건수 */
+    fetched: v.number(),
+    inserted: v.number(),
+    updated: v.number(),
+    /** ⚠️ 저장 전 이메일 마스킹 필수(F6) */
+    error: v.optional(v.string()),
+    trigger: v.string(), // "cron" | "manual"
+  })
+    .index("by_packageId", ["packageId"])
+    .index("by_startedAt", ["startedAt"]),
 
   // 보도자료
   pressReleases: defineTable({
@@ -98,6 +179,8 @@ export default defineSchema({
     links: v.optional(v.array(v.string())),
     status: v.union(v.literal("draft"), v.literal("ready")),
     agencyClientId: v.optional(v.id("agencyClients")),
+    /** 엠바고 해제 시각(ms) — 있으면 메일 최상단·자료 블록에 이중 표기 */
+    embargoAt: v.optional(v.number()),
   }).index("by_user", ["userId"]).index("by_client", ["agencyClientId"]),
 
   // 배포 캠페인
@@ -128,6 +211,13 @@ export default defineSchema({
   emailDrafts: defineTable({
     campaignId: v.id("campaigns"),
     journalistId: v.id("journalists"),
+    /**
+     * 캠페인에서 비정규화한 소유자 — 쿨다운을 **사용자 단위**로 판정하기 위한 축.
+     * 사용자 축 없는 전역 by_journalist 인덱스는 만들지 않는다(교차 테넌트 스캔·
+     * "다른 누군가가 이 기자에게 최근 발송했다" 사이드채널을 구조적으로 차단).
+     * 기존 레코드는 undefined 허용 — 조회 측에서 캠페인 조인으로 폴백한다.
+     */
+    userId: v.optional(v.id("users")),
     subject: v.string(),
     body: v.string(),
     gmailDraftId: v.optional(v.string()),
@@ -139,9 +229,14 @@ export default defineSchema({
     ),
     sentAt: v.optional(v.number()),
     scheduledSendAt: v.optional(v.number()),
+    /** 메일 컴플라이언스 게이트 판정: "pass" | "warn" | "fail" */
+    complianceLevel: v.optional(v.string()),
+    /** 위반 요약(사용자 노출용 한글 문구) + 발송 제외 사유 */
+    complianceNotes: v.optional(v.array(v.string())),
   })
     .index("by_campaign", ["campaignId"])
     .index("by_campaign_journalist", ["campaignId", "journalistId"])
+    .index("by_user_journalist", ["userId", "journalistId"])
     .index("by_status_scheduled", ["status", "scheduledSendAt"]),
 
   // 기자 회신 + 7유형 분류 + 답장 초안
@@ -157,6 +252,10 @@ export default defineSchema({
     interviewSlots: v.optional(v.array(v.string())), // 인터뷰 제안 3안
     interviewPickedSlot: v.optional(v.string()),
     interviewConfirmedAt: v.optional(v.number()),
+    /** question 하위 5분류: "numbers" | "competitor" | "intent" | "roadmap" | "negative" */
+    questionSubtype: v.optional(v.string()),
+    /** complaint·negative 등 담당자 직접 확인이 필요한 회신 */
+    needsEscalation: v.optional(v.boolean()),
   }).index("by_campaign", ["campaignId"]),
 
   // 억제 리스트(수신거부 영구 제외)
