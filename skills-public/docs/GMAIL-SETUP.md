@@ -25,7 +25,8 @@
 - ⚠️ 자동 발송 도구는 없다 → 초안까지 만들고 **사용자 승인 후 발송**(각 플랫폼 커넥터 또는 Gmail에서 직접)
 
 **회신 모니터링**
-- `mcp__Gmail__search_threads` 로 `label:언론홍보` 미응답 스레드 수집
+- `mcp__Gmail__list_labels`로 `언론홍보` **라벨 ID** 조회 → `mcp__Gmail__search_threads`에
+  `label:{라벨ID}`로 미응답 스레드 수집 (`label:`은 표시명이 아닌 라벨 ID를 받는다)
 - `mcp__Gmail__get_thread` 로 원문 확인 → `reply-handler`로 7유형 분류
 - 유형에 따라 `언론홍보/회신` · `언론홍보/인터뷰` · `언론홍보/수신거부` 라벨 재분류
   (`mcp__Gmail__label_thread` / `mcp__Gmail__unlabel_thread`)

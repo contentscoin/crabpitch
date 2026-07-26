@@ -1,4 +1,4 @@
-/** 요금제별 한도 — 기획서 6.3 요금제 표. (무료: 월 10통, 보도자료 3건, 매칭 이메일 3명 공개) */
+/** 요금제별 한도 — 기획서 6.3 요금제 표. (무료: 월 10통, 보도자료 3건, 매칭 발송 후보 3명) */
 
 export type Plan = "free" | "solo" | "growth" | "agency";
 
@@ -7,7 +7,7 @@ export interface PlanLimits {
   price: number; // 원/월
   sends: number; // 월 발송 통수
   pressReleases: number; // 월 보도자료 작성 건수
-  matchReveal: number; // 매칭 결과 이메일 공개 인원 (초과분 블러)
+  matchReveal: number; // 매칭 결과 발송 후보 인원 (초과분 잠금 — 이메일·실명은 어느 플랜에서도 비노출)
   mediaKits: number;
   /** Claude/ChatGPT/Gemini MCP 플러그인 키 발급·호출 */
   mcp: boolean;

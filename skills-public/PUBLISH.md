@@ -1,7 +1,10 @@
 # 공개 저장소로 게시하기 (contentscoin/crabpitch-skill)
 
-이 폴더(`skills-public/`)는 **공개 저장소 [`contentscoin/crabpitch-skill`](https://github.com/contentscoin/crabpitch-skill)** 의 소스입니다.
+이 폴더(`skills-public/`)는 **공개 저장소 [`contentscoin/crabpitch-skill`](https://github.com/contentscoin/crabpitch-skill)** 의 소스이며,
+**이미 게시돼 있습니다** (PUBLISH.md 자신은 게시 대상에서 제외).
 (과거 문서의 `crabpitch-skills` 표기는 폐기 — 실제 remote는 **단수** `crabpitch-skill`.)
+
+> ⚠️ **Pro 스킬 팩(`skills-pro/`)은 유료 구독자 전용 — 절대 이 공개 repo에 올리지 않습니다.**
 
 ## 동기화 (권장)
 
@@ -11,6 +14,7 @@
 # crabpitch 루트에서
 pnpm sync:skills-public
 ```
+(Claude 세션에서는 `add_repo`로 붙여 대신 푸시할 수 있습니다.)
 
 스크립트가 `skills-public/` 내용을 형제 체크아웃된 `../crabpitch-skill` 로 복사합니다
 (`PUBLISH.md` 는 공개 repo에 포함하지 않음).
