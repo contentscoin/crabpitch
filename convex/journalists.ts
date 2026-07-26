@@ -35,6 +35,11 @@ export const list = query({
   },
 });
 
+/** 팩에서 이 기간 이상 확인되지 않으면 stale로 본다(승인 화면 배지와 같은 기준). */
+export const STALE_MATCH_DAYS = 30;
+/** 관리자 스위치 키 — platformSettings. */
+export const EXCLUDE_STALE_KEY = "excludeStaleMatches";
+
 /** 캠페인 보도자료 주제로 기자 매칭 실행(적합도 점수 + 근거 기록). */
 export const matchForCampaign = mutation({
   args: { campaignId: v.id("campaigns"), topK: v.optional(v.number()) },
@@ -55,9 +60,22 @@ export const matchForCampaign = mutation({
       ).map((s) => s.email),
     );
 
-    const journalists = (await ctx.db.query("journalists").collect()).filter(
-      (j) => !suppressed.has(j.email),
-    );
+    // 팩에서 오래 확인되지 않은 레코드(이직·퇴사 추정)를 매칭에서 뺄지 — 관리자 스위치.
+    // 완전한 stale 마킹·감점은 2차. 여기서는 "기본 제외" 여부만 다룬다.
+    const staleSetting = await ctx.db
+      .query("platformSettings")
+      .withIndex("by_key", (q) => q.eq("key", EXCLUDE_STALE_KEY))
+      .unique();
+    const excludeStale = staleSetting?.boolValue === true;
+    const staleBefore = Date.now() - STALE_MATCH_DAYS * 24 * 60 * 60 * 1000;
+
+    const journalists = (await ctx.db.query("journalists").collect()).filter((j) => {
+      if (suppressed.has(j.email)) return false;
+      if (!excludeStale) return true;
+      // 팩 유래가 아닌 레코드(seed·manual)는 이 판정 대상이 아니다.
+      if (j.source !== "opencrab") return true;
+      return j.lastSeenInPackAt !== undefined && j.lastSeenInPackAt >= staleBefore;
+    });
 
     const scored = journalists
       .map((j) => ({ j, ...scoreJournalist(j, pr.topicTags) }))

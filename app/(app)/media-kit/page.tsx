@@ -266,6 +266,19 @@ function MediaKitEditor({ id }: { id: Id<"mediaKits"> }) {
 
   const companyName = seed.companyName.trim() || (form.name === DEFAULT_KIT_NAME ? "" : form.name.trim());
 
+  /** `skipped`(AI 미연결)·`error`면 폼을 건드리지 않는다. */
+  function accepted(mode: string, message?: string): boolean {
+    if (mode === "skipped") {
+      setAiError(message ?? "연결된 AI가 없습니다. 「내 AI」에서 본인 키를 등록하세요.");
+      return false;
+    }
+    if (mode === "error") {
+      setAiError(message ?? "AI 호출에 실패했습니다.");
+      return false;
+    }
+    return true;
+  }
+
   async function runAi(kind: "gen" | "enh") {
     if (!companyName) {
       setAiError("회사명을 입력하세요.");
@@ -275,28 +288,25 @@ function MediaKitEditor({ id }: { id: Id<"mediaKits"> }) {
     setAiNote(null);
     setAiError(null);
     try {
-      const res =
-        kind === "gen"
-          ? await generateKit({
-              companyName,
-              industry: seed.industry.trim() || undefined,
-              oneLiner: seed.oneLiner.trim() || undefined,
-              numbers: seed.numbers.trim() || undefined,
-              contact: form.contact.trim() || undefined,
-            })
-          : await enhanceKit({ companyName, kit: formToKit(form) });
-
-      if (res.mode === "skipped") {
-        setAiError(res.message ?? "연결된 AI가 없습니다. 「내 AI」에서 본인 키를 등록하세요.");
-        return;
+      if (kind === "gen") {
+        const res = await generateKit({
+          companyName,
+          industry: seed.industry.trim() || undefined,
+          oneLiner: seed.oneLiner.trim() || undefined,
+          numbers: seed.numbers.trim() || undefined,
+          contact: form.contact.trim() || undefined,
+        });
+        if (!accepted(res.mode, res.message)) return;
+        applyKit(res.kit);
+        setGaps([]);
+        setAiNote(res.message ?? "초안을 폼에 채웠습니다. 확인 후 저장하세요.");
+      } else {
+        const res = await enhanceKit({ companyName, kit: formToKit(form) });
+        if (!accepted(res.mode, res.message)) return;
+        applyKit(res.kit);
+        setGaps(res.gaps);
+        setAiNote(res.message ?? "보강안을 폼에 채웠습니다. 확인 후 저장하세요.");
       }
-      if (res.mode === "error") {
-        setAiError(res.message ?? "AI 호출에 실패했습니다.");
-        return;
-      }
-      applyKit(res.kit);
-      setGaps(kind === "enh" && "gaps" in res ? res.gaps : []);
-      setAiNote(res.message ?? "결과를 폼에 채웠습니다. 확인 후 저장하세요.");
     } catch (e) {
       setAiError(e instanceof Error ? e.message : "AI 호출에 실패했습니다.");
     } finally {

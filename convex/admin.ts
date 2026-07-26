@@ -8,6 +8,7 @@ import {
   requirePlatformAdmin,
 } from "./lib/platformAdmin";
 import { requireUser, getProfile } from "./model";
+import { EXCLUDE_STALE_KEY, STALE_MATCH_DAYS } from "./journalists";
 
 export const getAccess = query({
   args: {},
@@ -396,6 +397,45 @@ export const setPackSyncEnabled = mutation({
       .unique();
     if (!pack) throw new Error("팩을 찾을 수 없습니다.");
     await ctx.db.patch(pack._id, { syncEnabled: enabled });
+    return null;
+  },
+});
+
+/** 팩 미확인(stale) 기자를 매칭에서 기본 제외할지 — 관리자 스위치. */
+export const getMatchingPolicy = query({
+  args: {},
+  returns: v.object({ excludeStaleMatches: v.boolean(), staleDays: v.number() }),
+  handler: async (ctx) => {
+    await requirePlatformAdmin(ctx);
+    const row = await ctx.db
+      .query("platformSettings")
+      .withIndex("by_key", (q) => q.eq("key", EXCLUDE_STALE_KEY))
+      .unique();
+    return {
+      excludeStaleMatches: row?.boolValue === true,
+      staleDays: STALE_MATCH_DAYS,
+    };
+  },
+});
+
+export const setMatchingPolicy = mutation({
+  args: { excludeStaleMatches: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, { excludeStaleMatches }) => {
+    await requirePlatformAdmin(ctx);
+    const row = await ctx.db
+      .query("platformSettings")
+      .withIndex("by_key", (q) => q.eq("key", EXCLUDE_STALE_KEY))
+      .unique();
+    if (row) {
+      await ctx.db.patch(row._id, { boolValue: excludeStaleMatches, updatedAt: Date.now() });
+    } else {
+      await ctx.db.insert("platformSettings", {
+        key: EXCLUDE_STALE_KEY,
+        boolValue: excludeStaleMatches,
+        updatedAt: Date.now(),
+      });
+    }
     return null;
   },
 });

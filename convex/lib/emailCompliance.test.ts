@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { blocksSend, checkEmailCompliance } from "./emailCompliance";
+import {
+  buildEmailDraftWithPreset,
+  EMAIL_TEMPLATE_PRESETS,
+  type EmailTemplatePresetId,
+} from "./emailTemplate";
 
 const OPT_OUT =
   "본 메일 수신을 원치 않으시면 회신으로 '수신거부'라 남겨주세요. 즉시 명단에서 제외하겠습니다.";
@@ -72,4 +77,33 @@ describe("emailCompliance 게이트", () => {
     );
     expect(["warn", "fail"]).toContain(r.status);
   });
+});
+
+/**
+ * 자기검사 — 크랩피치가 만든 초안이 크랩피치 자신의 발송 게이트를 통과해야 한다.
+ * (실제로 기본 매체 CTA가 "CTA 중복"으로 걸리는 오탐이 이 검사로 잡혔다.)
+ */
+describe("자체 템플릿이 자기 게이트를 통과한다", () => {
+  const EMAIL = {
+    companyName: "크랩피치",
+    senderName: "홍길동",
+    headline: "시드 투자 유치",
+    bodyFact: "시드 5억 원 유치 (출처: 투자사 발표자료)",
+    contact: "pr@example.com",
+  };
+
+  for (const category of ["newswire", "it", "economy", undefined] as const) {
+    for (const preset of EMAIL_TEMPLATE_PRESETS) {
+      it(`${preset.id} / ${category ?? "general"}`, () => {
+        const { subject, body } = buildEmailDraftWithPreset(
+          preset.id as EmailTemplatePresetId,
+          EMAIL,
+          { beatPrimary: "벤처투자", outletCategory: category },
+        );
+        const r = checkEmailCompliance(subject, body);
+        expect(r.violations.map((v) => v.label)).toEqual([]);
+        expect(r.status).toBe("pass");
+      });
+    }
+  }
 });

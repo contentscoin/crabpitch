@@ -44,14 +44,23 @@ export interface ComplianceResult {
 export const EMAIL_BODY_CHAR_MIN = 600;
 export const EMAIL_BODY_CHAR_MAX = 800;
 
-/** CTA(행동 요청) 신호 — 정확히 1개여야 한다. */
-const CTA_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
-  { label: "인터뷰 제안", pattern: /인터뷰(를)?\s*(원하시|필요하시|가능하시|제안)/ },
-  { label: "자료 요청 안내", pattern: /(자료|보도자료|프레스킷)(를)?\s*(바로\s*)?(보내|송부|전달)(드리|해\s*드리)/ },
-  { label: "회신 요청", pattern: /회신\s*(부탁|주세요|주시면)/ },
-  { label: "연락 요청", pattern: /연락\s*(부탁|주세요|주시면)/ },
-  { label: "통화 제안", pattern: /통화\s*(가능|원하시|괜찮으시)/ },
+/**
+ * CTA(행동 요청)는 **무엇을 요청하는가**로 센다.
+ *
+ * "인터뷰를 원하시면 회신 주세요"는 요청 하나(인터뷰)에 응답 방법(회신)이 붙은 것이지
+ * 요청 두 개가 아니다. 둘을 같은 층위에서 세면 정상 문장이 "CTA 중복"으로 걸린다
+ * (실제로 기본 템플릿이 걸렸다). 그래서 요청 종류와 응답 경로를 분리한다.
+ */
+const ASK_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
+  { label: "인터뷰·취재 제안", pattern: /인터뷰|취재\s*요청|미팅|통화\s*(가능|원하시|괜찮으시)/ },
+  {
+    label: "자료 송부 제안",
+    pattern: /(자료|이미지|프레스킷|팩트시트|원문)[^.\n]{0,20}(보내|송부|전달)(드리|해\s*드리)?/,
+  },
 ];
+
+/** 응답 경로 — 그 자체로는 요청이 아니지만, 요청이 하나도 없을 때는 CTA로 인정한다. */
+const RESPONSE_REQUEST = /(회신|연락)\s*(부탁|주세요|주시면|바랍니다)/;
 
 function countMatches(text: string, pattern: RegExp): number {
   // 전역 정규식을 재사용하면 lastIndex가 남으므로 매번 새로 만든다.
@@ -151,8 +160,9 @@ export function checkEmailCompliance(
   }
 
   // 구조 ② CTA 개수 — 정확히 1개
-  const ctaHits = CTA_PATTERNS.filter((c) => c.pattern.test(body));
-  if (ctaHits.length === 0) {
+  const asks = ASK_PATTERNS.filter((c) => c.pattern.test(body));
+  const ctaCount = asks.length > 0 ? asks.length : RESPONSE_REQUEST.test(body) ? 1 : 0;
+  if (ctaCount === 0) {
     violations.push({
       level: "structure",
       severity: "medium",
@@ -160,12 +170,12 @@ export function checkEmailCompliance(
       detail: "기자가 무엇을 하면 되는지 명시되지 않았습니다.",
       suggestion: "인터뷰 제안 또는 자료 송부 중 하나만 넣으세요.",
     });
-  } else if (ctaHits.length > 1) {
+  } else if (ctaCount > 1) {
     violations.push({
       level: "structure",
       severity: "medium",
       label: "행동 요청(CTA) 중복",
-      detail: `${ctaHits.map((c) => c.label).join(", ")} — ${ctaHits.length}개`,
+      detail: `${asks.map((c) => c.label).join(", ")} — ${ctaCount}개`,
       suggestion: "요청은 하나만 남기세요. 선택지가 많을수록 회신율이 떨어집니다.",
     });
   }

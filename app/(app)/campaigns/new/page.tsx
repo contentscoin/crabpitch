@@ -291,6 +291,9 @@ export default function NewCampaignPage() {
             </div>
 
             {note && <p className="text-xs text-muted">{note}</p>}
+
+            {lint && <LintPanel lint={lint} stale={lintStale} />}
+
             {error && <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}
 
             <div className="flex flex-wrap justify-end gap-2 pt-2">
@@ -309,15 +312,27 @@ export default function NewCampaignPage() {
                   {polishing ? "AI 다듬는 중…" : "AI로 다듬기"}
                 </Button>
               ) : (
-                <Link href="/ai">
+                <>
                   <Button
                     type="button"
                     variant="ghost"
-                    title="내 AI에서 GPT·Claude·Gemini API 키를 등록하면 웹에서 바로 다듬을 수 있습니다."
+                    disabled={polishing || !form.headline}
+                    onClick={onPolish}
+                    title="AI 없이도 도는 문구 규칙 점검입니다. 결과는 경고만 표시합니다."
                   >
-                    <Wand2 className="h-4 w-4" /> AI 연결하고 다듬기
+                    <ListChecks className="h-4 w-4" />
+                    {polishing ? "점검 중…" : "문구 점검"}
                   </Button>
-                </Link>
+                  <Link href="/ai">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      title="내 AI에서 GPT·Claude·Gemini API 키를 등록하면 웹에서 바로 다듬을 수 있습니다."
+                    >
+                      <Wand2 className="h-4 w-4" /> AI 연결하고 다듬기
+                    </Button>
+                  </Link>
+                </>
               )}
               <Button type="submit" disabled={loading}>
                 <Sparkles className="h-4 w-4" /> {loading ? "생성 중…" : "저장하고 기자 매칭"}
@@ -326,6 +341,53 @@ export default function NewCampaignPage() {
           </form>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+/**
+ * 문구 점검 결과 — warn-only.
+ * 저장·기자 매칭을 막지 않으며, 차단 문구도 쓰지 않는다(게이트화는 2차).
+ */
+function LintPanel({ lint, stale }: { lint: PressLintResult; stale: boolean }) {
+  const { critical, high, medium } = lint.summary;
+  return (
+    <div className="space-y-3 rounded-md border border-border bg-surface/50 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-semibold text-foreground">문구 점검</span>
+        {lint.violations.length === 0 ? (
+          <Badge variant="success">걸린 항목 없음</Badge>
+        ) : (
+          <>
+            {critical > 0 && <Badge variant="danger">먼저 확인 {critical}</Badge>}
+            {high > 0 && <Badge variant="warning">확인 권장 {high}</Badge>}
+            {medium > 0 && <Badge variant="outline">참고 {medium}</Badge>}
+          </>
+        )}
+      </div>
+
+      <p className="text-xs text-muted">
+        규칙에 걸린 표현을 알려 줄 뿐입니다. 저장과 기자 매칭은 그대로 진행되고, 근거가 있는 표현이면 두어도 됩니다.
+      </p>
+      {stale && <p className="text-xs text-muted">점검 이후 문구를 고쳤습니다. 다시 점검하면 최신 결과를 볼 수 있습니다.</p>}
+
+      {lint.violations.length > 0 && (
+        <ul className="space-y-2">
+          {lint.violations.map((v, i) => (
+            <li key={`${v.ruleId}-${i}`} className="rounded-md border border-border bg-card p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={SEVERITY_BADGE[v.severity].variant}>{SEVERITY_BADGE[v.severity].label}</Badge>
+                <span className="text-sm font-semibold text-foreground">{v.label}</span>
+                <span className="text-xs text-muted">
+                  {v.level} · {v.ruleId}
+                </span>
+              </div>
+              <p className="mt-2 text-sm text-foreground-muted">“{v.span}”</p>
+              <p className="mt-1 text-xs text-muted">{v.suggestion}</p>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

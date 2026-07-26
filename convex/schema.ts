@@ -145,6 +145,14 @@ export default defineSchema({
     lastSyncedAt: v.optional(v.number()),
   }).index("by_packageId", ["packageId"]).index("by_series", ["series"]),
 
+  /** 플랫폼 운영 설정 — 관리자가 UI에서 바꾸는 소수의 전역 스위치. */
+  platformSettings: defineTable({
+    key: v.string(),
+    boolValue: v.optional(v.boolean()),
+    numberValue: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
+
   /** 팩 동기화 실행 기록 — 팩 1개 단위 커밋(실패 격리)의 감사 로그. */
   packSyncRuns: defineTable({
     packageId: v.string(),

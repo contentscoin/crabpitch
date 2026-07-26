@@ -121,7 +121,15 @@ async function finalizeCampaignSend(
     .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
     .collect();
   const queued = all.filter((d) => d.status === "draft" || d.status === "queued");
-  if (queued.length === 0) return result;
+  if (queued.length === 0) {
+    // 보낼 게 없으면 예약만 해제한다. 이미 나간 게 있으면 발송 완료로 정리한다.
+    const anySent = all.some((d) => d.status === "sent" || d.status === "published");
+    await ctx.db.patch(campaignId, {
+      ...(anySent ? { status: "sent" as const } : {}),
+      scheduledSendAt: undefined,
+    });
+    return result;
+  }
 
   // ① 수신거부 재대조
   const { sendable: notSuppressed, blocked: suppressedCount } = await filterSuppressed(
@@ -201,7 +209,14 @@ async function finalizeCampaignSend(
   if (allowed.length > 0) await bumpSends(ctx, userId, allowed.length);
   result.sent = allowed.length;
 
-  await ctx.db.patch(campaignId, { status: "sent", scheduledSendAt: undefined });
+  // 예약 시각은 결과와 무관하게 지운다 — 남겨 두면 크론 백업이 매분 같은 캠페인을
+  // 다시 집어 무한 재시도한다.
+  // 한 통도 못 나갔으면 "발송 완료"로 두지 않고 승인 단계로 되돌린다. 사용자가 사유를
+  // 확인하고 초안을 고쳐 다시 보낼 수 있어야 한다.
+  await ctx.db.patch(campaignId, {
+    status: allowed.length > 0 ? "sent" : "review",
+    scheduledSendAt: undefined,
+  });
   return result;
 }
 

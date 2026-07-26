@@ -115,6 +115,9 @@ export default function AdminPage() {
   const setAdmin = useMutation(api.admin.setPlatformAdminFlag);
   const revokeKey = useMutation(api.admin.revokeMcpKey);
   const setPackEnabled = useMutation(api.admin.setPackSyncEnabled);
+  const matchingPolicy = useQuery(api.admin.getMatchingPolicy);
+  const setMatchingPolicy = useMutation(api.admin.setMatchingPolicy);
+  const [policyBusy, setPolicyBusy] = useState(false);
   const syncPacks = useAction(api.opencrabActions.syncPacksManual);
 
   const [msg, setMsg] = useState<string | null>(null);
@@ -538,6 +541,40 @@ export default function AdminPage() {
                 </table>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="space-y-3 pt-5">
+            <div>
+              <div className="text-sm font-bold">매칭 정책</div>
+              <p className="mt-1 text-xs text-muted">
+                기자단 자료에서 오래 확인되지 않은 레코드는 이직·부서 이동으로 이메일이
+                유효하지 않을 수 있습니다. 켜 두면 매칭 후보에서 아예 빠집니다.
+              </p>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-brand"
+                checked={matchingPolicy?.excludeStaleMatches ?? false}
+                disabled={matchingPolicy === undefined || policyBusy}
+                onChange={async (e) => {
+                  setPolicyBusy(true);
+                  setPackError(null);
+                  try {
+                    await setMatchingPolicy({ excludeStaleMatches: e.target.checked });
+                  } catch (err) {
+                    setPackError(err instanceof Error ? err.message : "설정 변경 실패");
+                  } finally {
+                    setPolicyBusy(false);
+                  }
+                }}
+              />
+              <span>
+                팩에서 {matchingPolicy?.staleDays ?? 30}일 이상 확인되지 않은 기자를 매칭에서 제외
+              </span>
+            </label>
           </CardContent>
         </Card>
 
