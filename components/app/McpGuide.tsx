@@ -3,15 +3,7 @@
 import { useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import {
-  BookOpen,
-  Check,
-  Copy,
-  Plug,
-  Shield,
-  Sparkles,
-  Wrench,
-} from "lucide-react";
+import { Check, Copy, Plug, Shield } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
@@ -20,9 +12,6 @@ import {
   MCP_PLATFORMS,
   MCP_PRIVACY_RULES,
   MCP_TOOLS,
-  MCP_VS_OPENCRAB,
-  CRABPITCH_MCP_DOCS_URL,
-  CRABPITCH_SKILL_REPO_URL,
 } from "@/lib/mcpGuide";
 
 async function copyText(text: string) {
@@ -33,22 +22,11 @@ export function McpGuidePanel() {
   const access = useQuery(api.userMcpKeys.getAccess);
   const [copiedPrompt, setCopiedPrompt] = useState<string | null>(null);
   const [platform, setPlatform] = useState<(typeof MCP_PLATFORMS)[number]["id"]>(
-    "cursor",
+    "claude",
   );
 
-  const active = MCP_PLATFORMS.find((p) => p.id === platform) ?? MCP_PLATFORMS[0]!;
-  const siteUrl = access?.siteUrl ?? "https://YOUR_DEPLOYMENT.convex.site";
-  const sampleSnippet = JSON.stringify(
-    {
-      mcpServers: {
-        crabpitch: {
-          url: `${siteUrl}/api/mcp/cp_mcp_YOUR_KEY`,
-        },
-      },
-    },
-    null,
-    2,
-  );
+  const active =
+    MCP_PLATFORMS.find((p) => p.id === platform) ?? MCP_PLATFORMS[0]!;
 
   async function copyPrompt(name: string, prompt: string) {
     await copyText(prompt);
@@ -61,44 +39,27 @@ export function McpGuidePanel() {
       <Card>
         <CardContent className="space-y-3 pt-5">
           <div className="flex flex-wrap items-center gap-2">
-            <BookOpen className="h-4 w-4 text-brand" />
-            <span className="text-sm font-semibold">CrabPitch MCP란?</span>
+            <Plug className="h-4 w-4 text-brand" />
+            <span className="text-sm font-semibold">내 AI에 붙이기</span>
             {access && (
               <Badge variant={access.allowed ? "brand" : "outline"}>
-                {access.allowed ? `${access.plan} · 사용 가능` : `${access.plan} · 유료 전용`}
+                {access.allowed
+                  ? "사용 가능"
+                  : "Solo 이상에서 사용"}
               </Badge>
             )}
           </div>
           <p className="text-sm text-foreground-muted">
-            본인 ChatGPT·Claude·Gemini·Cursor에{" "}
-            <code className="rounded bg-surface px-1">cp_mcp_…</code> 키를
-            등록하면, 그 AI가 CrabPitch 도구(기자 매칭·메일 템플릿·회신 분류)를
-            호출할 수 있습니다. 서비스가 대신 AI를 돌리는 것이 아니라,{" "}
-            <strong className="font-semibold text-foreground">
-              사용자가 이미 쓰는 AI
-            </strong>
-            에 플러그인으로 붙는 방식입니다.
+            이미 쓰는 Claude·ChatGPT·Gemini·Cursor 채팅에서 기자 찾기, 메일 초안,
+            회신 분류를 바로 요청할 수 있습니다. 연결 키만 한 번 등록하면 됩니다.
           </p>
-          <ul className="list-disc space-y-1 pl-5 text-xs text-muted">
-            <li>
-              엔드포인트:{" "}
-              <code className="rounded bg-surface px-1">{siteUrl}/api/mcp</code>
-            </li>
-            <li>
-              URL 방식:{" "}
-              <code className="rounded bg-surface px-1">
-                {siteUrl}/api/mcp/cp_mcp_…
-              </code>
-            </li>
-            <li>인증: Bearer 헤더 또는 URL에 키 포함</li>
-          </ul>
           {!access?.allowed && (
             <p className="text-xs text-foreground-muted">
-              현재 Free 플랜입니다.{" "}
+              지금 Free 플랜입니다.{" "}
               <Link href="/settings" className="underline underline-offset-2">
-                설정에서 Solo 이상으로 전환
-              </Link>
-              하면 키를 발급할 수 있습니다.
+                설정에서 Solo 이상으로 바꾸면
+              </Link>{" "}
+              연결 키를 만들 수 있습니다.
             </p>
           )}
         </CardContent>
@@ -106,43 +67,33 @@ export function McpGuidePanel() {
 
       <Card>
         <CardContent className="space-y-4 pt-5">
-          <div className="flex items-center gap-2">
-            <Wrench className="h-4 w-4 text-brand" />
-            <span className="text-sm font-semibold">제공 도구 4종</span>
-          </div>
-          <div className="space-y-3">
+          <span className="text-sm font-semibold">무엇을 할 수 있나요</span>
+          <div className="grid gap-3 sm:grid-cols-2">
             {MCP_TOOLS.map((tool) => (
               <div
                 key={tool.name}
                 className="rounded-md border border-border px-3 py-3"
               >
-                <div className="flex flex-wrap items-center gap-2">
-                  <code className="text-xs font-semibold text-foreground">
-                    {tool.name}
-                  </code>
-                  <Badge variant="outline">{tool.title}</Badge>
+                <div className="text-sm font-semibold text-foreground">
+                  {tool.title}
                 </div>
-                <p className="mt-1.5 text-xs text-foreground-muted">
+                <p className="mt-1 text-xs text-foreground-muted">
                   {tool.description}
                 </p>
-                <pre className="mt-2 overflow-x-auto rounded bg-surface p-2 text-[11px] text-muted">
-                  args: {tool.exampleArgs}
-                </pre>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="subtle"
-                    onClick={() => copyPrompt(tool.name, tool.examplePrompt)}
-                  >
-                    {copiedPrompt === tool.name ? (
-                      <Check className="h-4 w-4" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
-                    예시 프롬프트 복사
-                  </Button>
-                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="subtle"
+                  className="mt-2"
+                  onClick={() => copyPrompt(tool.name, tool.examplePrompt)}
+                >
+                  {copiedPrompt === tool.name ? (
+                    <Check className="h-4 w-4" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                  이렇게 말해보세요
+                </Button>
               </div>
             ))}
           </div>
@@ -151,10 +102,7 @@ export function McpGuidePanel() {
 
       <Card>
         <CardContent className="space-y-3 pt-5">
-          <div className="flex items-center gap-2">
-            <Plug className="h-4 w-4 text-brand" />
-            <span className="text-sm font-semibold">플랫폼별 등록</span>
-          </div>
+          <span className="text-sm font-semibold">어디에 연결하나요</span>
           <div className="grid gap-2 sm:grid-cols-2">
             {MCP_PLATFORMS.map((p) => {
               const selected = platform === p.id;
@@ -181,31 +129,11 @@ export function McpGuidePanel() {
               <li key={step}>{step}</li>
             ))}
           </ol>
-          <div className="space-y-1">
-            <div className="text-xs font-medium text-muted">
-              샘플 mcp.json (키는 위에서 발급 후 교체)
-            </div>
-            <pre className="overflow-x-auto rounded-md bg-surface p-3 text-xs">
-              {sampleSnippet}
-            </pre>
-            <Button
-              type="button"
-              size="sm"
-              variant="subtle"
-              onClick={async () => {
-                await copyText(sampleSnippet);
-                setCopiedPrompt("snippet");
-                window.setTimeout(() => setCopiedPrompt(null), 2000);
-              }}
-            >
-              {copiedPrompt === "snippet" ? (
-                <Check className="h-4 w-4" />
-              ) : (
-                <Copy className="h-4 w-4" />
-              )}
-              샘플 JSON 복사
-            </Button>
-          </div>
+          <p className="text-xs text-muted">
+            {active.copyHint === "json"
+              ? "키를 만든 뒤 「설정 복사」를 쓰면 됩니다."
+              : "키를 만든 뒤 「연결 주소 복사」를 쓰면 됩니다."}
+          </p>
         </CardContent>
       </Card>
 
@@ -213,7 +141,7 @@ export function McpGuidePanel() {
         <CardContent className="space-y-3 pt-5">
           <div className="flex items-center gap-2">
             <Shield className="h-4 w-4 text-brand" />
-            <span className="text-sm font-semibold">개인정보·컴플라이언스</span>
+            <span className="text-sm font-semibold">알아두면 좋아요</span>
           </div>
           <ul className="list-disc space-y-1.5 pl-5 text-sm text-foreground-muted">
             {MCP_PRIVACY_RULES.map((rule) => (
@@ -222,68 +150,11 @@ export function McpGuidePanel() {
           </ul>
         </CardContent>
       </Card>
-
-      <Card>
-        <CardContent className="space-y-3 pt-5">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-brand" />
-            <span className="text-sm font-semibold">OpenCrab MCP와 차이</span>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {MCP_VS_OPENCRAB.map((row) => (
-              <div
-                key={row.label}
-                className="rounded-md border border-border px-3 py-3 text-sm"
-              >
-                <div className="font-semibold">{row.label}</div>
-                <dl className="mt-2 space-y-1 text-xs text-muted">
-                  <div>
-                    <dt className="inline font-medium text-foreground-muted">
-                      키:{" "}
-                    </dt>
-                    <dd className="inline">
-                      <code className="rounded bg-surface px-1">{row.key}</code>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="inline font-medium text-foreground-muted">
-                      용도:{" "}
-                    </dt>
-                    <dd className="inline">{row.use}</dd>
-                  </div>
-                  <div>
-                    <dt className="inline font-medium text-foreground-muted">
-                      플랜:{" "}
-                    </dt>
-                    <dd className="inline">{row.plan}</dd>
-                  </div>
-                </dl>
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-muted">
-            일상적인 보도자료·피치 워크플로는 <strong>CrabPitch MCP</strong>를
-            쓰고, 서버가 기자 DB를 동기화할 때만 OpenCrab을 사용합니다.
-          </p>
-          <div className="flex flex-wrap gap-2 pt-1">
-            <a href={CRABPITCH_SKILL_REPO_URL} target="_blank" rel="noreferrer">
-              <Button type="button" size="sm" variant="subtle">
-                공개 스킬 GitHub
-              </Button>
-            </a>
-            <a href={CRABPITCH_MCP_DOCS_URL} target="_blank" rel="noreferrer">
-              <Button type="button" size="sm" variant="ghost">
-                MCP 설정 가이드
-              </Button>
-            </a>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }
 
-/** 대시보드용 요약 카드 */
+/** 대시보드·설정용 요약 */
 export function McpDashboardCard() {
   const access = useQuery(api.userMcpKeys.getAccess);
   const keys = useQuery(api.userMcpKeys.list);
@@ -300,51 +171,26 @@ export function McpDashboardCard() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Plug className="h-4 w-4 text-brand" />
-            <span className="text-sm font-semibold">CrabPitch MCP</span>
+            <span className="text-sm font-semibold">내 AI 연결</span>
             <Badge variant={access.allowed ? "brand" : "outline"}>
-              {access.allowed ? "유료 활성" : "유료 전용"}
+              {access.allowed ? "사용 가능" : "Solo 이상"}
             </Badge>
           </div>
           <Link href="/ai">
             <Button type="button" size="sm" variant="subtle">
-              자세히 · 키 관리
+              {access.allowed ? "연결 관리" : "자세히 보기"}
             </Button>
           </Link>
         </div>
         <p className="text-sm text-foreground-muted">
-          Claude · ChatGPT · Gemini · Cursor에 플러그인으로 붙여 기자 매칭·메일
-          템플릿·회신 분류를 실행합니다. 도구 {MCP_TOOLS.length}종 · 현재 플랜{" "}
-          <strong className="text-foreground">{access.plan}</strong>
-          {access.allowed ? ` · 활성 키 ${activeCount}개` : ""}.
+          Claude·ChatGPT·Gemini·Cursor에서 기자 찾기·메일 초안·회신 분류를
+          요청할 수 있습니다.
+          {access.allowed
+            ? activeCount > 0
+              ? ` 연결 ${activeCount}개.`
+              : " 아직 연결 키가 없습니다."
+            : " Solo 이상에서 연결할 수 있습니다."}
         </p>
-        <ul className="grid gap-1 text-xs text-muted sm:grid-cols-2">
-          {MCP_TOOLS.map((t) => (
-            <li key={t.name}>
-              <code className="rounded bg-surface px-1">{t.name}</code> —{" "}
-              {t.title}
-            </li>
-          ))}
-        </ul>
-        <p className="text-xs text-muted">{access.message}</p>
-        <div className="flex flex-wrap gap-2">
-          <a
-            href={CRABPITCH_SKILL_REPO_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="text-xs font-semibold text-brand underline underline-offset-2"
-          >
-            공개 스킬 GitHub
-          </a>
-          <span className="text-xs text-muted">·</span>
-          <a
-            href={CRABPITCH_MCP_DOCS_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="text-xs underline underline-offset-2 hover:text-brand"
-          >
-            MCP 가이드
-          </a>
-        </div>
       </CardContent>
     </Card>
   );

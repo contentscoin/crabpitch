@@ -102,7 +102,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="mt-6">
-        <h2 className="mb-3 text-lg font-bold">내 AI · MCP</h2>
+        <h2 className="mb-3 text-lg font-bold">내 AI</h2>
         <McpDashboardCard />
       </div>
 
