@@ -103,9 +103,16 @@ export const listMatches = query({
       .collect();
     matches.sort((a, b) => b.score - a.score);
 
+    const now = Date.now();
     return Promise.all(
       matches.map(async (m, idx) => {
         const j = await ctx.db.get(m.journalistId);
+        // 팩에서 마지막으로 확인된 지 며칠 지났는지 — 이직·퇴사로 팩에서 사라진 기자의
+        // 낡은 이메일로 발송되는 걸 사용자가 알아채게 하는 신호(집계값이라 PII 무관).
+        const packAgeDays =
+          j?.lastSeenInPackAt !== undefined
+            ? Math.floor((now - j.lastSeenInPackAt) / (24 * 60 * 60 * 1000))
+            : undefined;
         return {
           _id: m._id,
           journalistId: m.journalistId,
@@ -118,6 +125,8 @@ export const listMatches = query({
           beatPrimary: j?.beatPrimary ?? "",
           contactConfidence: j?.contactConfidence ?? "low",
           topReferenceTitle: j?.topReferenceTitle,
+          outletCategory: j?.outletCategory,
+          packAgeDays,
         };
       }),
     );

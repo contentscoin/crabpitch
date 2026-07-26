@@ -5,12 +5,27 @@ import Link from "next/link";
 import { useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { Sparkles, Wand2 } from "lucide-react";
+import type { PressLintResult, PressViolation } from "@/convex/lib/pressLint";
+import { FileText, ListChecks, Sparkles, Wand2 } from "lucide-react";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Input, Label, Textarea } from "@/components/ui/Input";
 import { PageHeader } from "@/components/app/bits";
 import { ByoAiConnectPanel } from "@/components/app/ByoAiConnect";
+
+/**
+ * severity → 배지. 1차 정책은 warn-only라 색만 나누고 표현은 "확인" 계열로 통일한다.
+ * (차단 문구를 쓰지 않는다 — 저장·매칭은 어떤 결과에서도 그대로 진행된다.)
+ */
+const SEVERITY_BADGE: Record<
+  PressViolation["severity"],
+  { variant: React.ComponentProps<typeof Badge>["variant"]; label: string }
+> = {
+  critical: { variant: "danger", label: "먼저 확인" },
+  high: { variant: "warning", label: "확인 권장" },
+  medium: { variant: "outline", label: "참고" },
+};
 
 export default function NewCampaignPage() {
   const router = useRouter();
@@ -18,6 +33,7 @@ export default function NewCampaignPage() {
   const createCampaign = useMutation(api.campaigns.create);
   const polish = useAction(api.aiActions.polishPressRelease);
   const aiStatus = useQuery(api.aiKeys.status);
+  const mediaKits = useQuery(api.mediaKits.list);
 
   const [form, setForm] = useState({
     who: "",
@@ -27,14 +43,35 @@ export default function NewCampaignPage() {
     quote: "",
     topicTags: "",
     links: "",
+    boilerplate: "",
   });
   const [loading, setLoading] = useState(false);
   const [polishing, setPolishing] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [kitId, setKitId] = useState<string>("");
+  const [kitNote, setKitNote] = useState<string | null>(null);
+  const [lint, setLint] = useState<PressLintResult | null>(null);
+  /** 점검이 돌던 시점의 제목·본문 — 이후 수정되면 결과가 낡았음을 알린다. */
+  const [lintedText, setLintedText] = useState<string>("");
 
   function set<K extends keyof typeof form>(k: K, v: string) {
     setForm((f) => ({ ...f, [k]: v }));
+  }
+
+  const kits = mediaKits ?? [];
+  const selectedKitId = kitId || kits[0]?._id || "";
+
+  function loadBoilerplateFromKit() {
+    const kit = kits.find((k) => k._id === selectedKitId);
+    if (!kit) return;
+    const bp = (kit.boilerplate ?? "").trim();
+    if (!bp) {
+      setKitNote(`「${kit.name}」에 회사 소개가 아직 비어 있습니다. 미디어킷에서 먼저 채워 주세요.`);
+      return;
+    }
+    set("boilerplate", bp);
+    setKitNote(`「${kit.name}」의 회사 소개를 불러왔습니다.`);
   }
 
   async function onPolish() {
@@ -54,6 +91,7 @@ export default function NewCampaignPage() {
         quote: form.quote || undefined,
         bodyHint: form.body || undefined,
         newsValue: form.headline || undefined,
+        boilerplate: form.boilerplate || undefined,
       });
       // skipped/error 폴백은 입력값 그대로라 폼을 덮어쓰지 않는다.
       if (result.mode !== "skipped" && result.mode !== "error") {
@@ -62,8 +100,17 @@ export default function NewCampaignPage() {
           headline: result.headlines[0] ?? result.title,
           body: result.body,
         }));
+        setLintedText(`${result.headlines[0] ?? result.title}\n${result.body}`);
+      } else {
+        setLintedText(`${form.headline}\n${form.body}`);
       }
-      setNote(result.message ?? null);
+      // AI 미연결이어도 규칙 점검 결과는 온다 — 실패가 아니라 "점검만 돌았다"로 알린다.
+      setLint(result.lint);
+      setNote(
+        result.mode === "skipped"
+          ? "문구 점검만 실행했습니다. AI 다듬기는 「내 AI」에서 키를 연결하면 함께 실행됩니다."
+          : (result.message ?? null),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "AI 다듬기에 실패했습니다.");
     } finally {
@@ -109,6 +156,8 @@ export default function NewCampaignPage() {
     .split(/[,\s]+/)
     .map((t) => t.trim())
     .filter(Boolean);
+
+  const lintStale = lint !== null && lintedText !== `${form.headline}\n${form.body}`;
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -186,6 +235,48 @@ export default function NewCampaignPage() {
                 onChange={(e) => set("quote", e.target.value)}
                 placeholder="바로 인용 가능한 구체적 코멘트"
               />
+            </div>
+
+            <div>
+              <div className="mb-1.5 flex flex-wrap items-end justify-between gap-2">
+                <Label htmlFor="boilerplate" className="mb-0">
+                  회사 소개 (보일러플레이트)
+                </Label>
+                {mediaKits === undefined ? null : kits.length > 0 ? (
+                  <div className="flex items-center gap-2">
+                    <select
+                      aria-label="미디어킷 선택"
+                      value={selectedKitId}
+                      onChange={(e) => setKitId(e.target.value)}
+                      className="h-9 rounded-md border border-input bg-card px-2 text-xs text-foreground"
+                    >
+                      {kits.map((k) => (
+                        <option key={k._id} value={k._id}>
+                          {k.name}
+                        </option>
+                      ))}
+                    </select>
+                    <Button type="button" variant="subtle" size="sm" onClick={loadBoilerplateFromKit}>
+                      <FileText className="h-3.5 w-3.5" /> 미디어킷에서 불러오기
+                    </Button>
+                  </div>
+                ) : (
+                  <Link href="/media-kit" className="text-xs font-semibold text-brand hover:underline">
+                    미디어킷에서 회사 소개 만들기
+                  </Link>
+                )}
+              </div>
+              <Textarea
+                id="boilerplate"
+                value={form.boilerplate}
+                onChange={(e) => set("boilerplate", e.target.value)}
+                rows={2}
+                placeholder="○○는 …하는 회사로, 2024년 설립되어 …"
+              />
+              <p className="mt-1 text-xs text-muted">
+                보도자료 하단 회사 소개입니다. AI 다듬기에 함께 전달돼 미디어킷과 같은 문장을 유지합니다.
+              </p>
+              {kitNote && <p className="mt-1 text-xs text-muted">{kitNote}</p>}
             </div>
 
             <div>

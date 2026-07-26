@@ -89,6 +89,8 @@ license: MIT · CrabPitch Skills (public). 범용(Codex/Claude/Gemini) 호환.
 
 [`references/compliance.md`](./references/compliance.md)의 L1·L2·L4를 순서대로 훑고 결과를 표로 보고한다.
 크랩피치 웹앱을 쓰는 경우 같은 상수를 쓰는 결정적 lint(`convex/lib/pressLint.ts`)가 폼에서 배지로 표시한다.
+CrabPitch MCP(유료 키)가 연결돼 있으면 `crabpitch_press_guide`로 가이드 원문 조회와 초안 검사를 함께
+받을 수 있다(`section`: structure / writing / geo / adlaw / presskit / all, `draft`·`title` 선택).
 
 **판정** (`GATE_THRESHOLDS`)
 

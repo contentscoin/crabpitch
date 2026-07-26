@@ -82,6 +82,10 @@ export default function CampaignDetailPage() {
   const aiLoading = aiStatus === undefined;
   const aiConnected = !!aiStatus?.activeProvider;
 
+  const blockedCount =
+    drafts?.filter((d) => d.complianceLevel === "fail" || d.complianceLevel === "blocked").length ?? 0;
+  const warnCount = drafts?.filter((d) => d.complianceLevel === "warn").length ?? 0;
+
   function templateArgs(): {
     preset?: EmailTemplatePresetId;
     customTemplateId?: Id<"userEmailTemplates">;
@@ -189,15 +193,23 @@ export default function CampaignDetailPage() {
                       <div className="font-semibold tabular-nums">
                         {m.code} <span className="text-xs font-normal text-muted">· {m.outlet}</span>
                       </div>
-                      <div className="mt-1 flex items-center gap-1.5">
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         <span className="text-xs text-muted">{m.beatPrimary}</span>
                         <ConfidenceBadge level={m.contactConfidence as "high" | "medium" | "low"} />
+                        <StaleBadge days={m.packAgeDays} />
                       </div>
                     </td>
                     <td className="px-3 py-3">
                       <ScoreBar score={m.score} />
                     </td>
-                    <td className="hidden max-w-xs px-3 py-3 text-xs text-foreground-muted lg:table-cell">{m.reason}</td>
+                    <td className="hidden max-w-xs px-3 py-3 text-xs text-foreground-muted lg:table-cell">
+                      {m.reason}
+                      {m.packAgeDays !== undefined && m.packAgeDays >= STALE_PACK_DAYS && (
+                        <span className="block text-warning">
+                          · 기자단 자료에서 {m.packAgeDays}일째 확인되지 않았습니다(이직·부서 이동 가능).
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -282,6 +294,18 @@ export default function CampaignDetailPage() {
               <li>· 발송 대상: <b className="text-foreground">{drafts?.length ?? 0}명</b> (매칭 포함 기준)</li>
               <li>· 이번 달 잔여: <b className="text-foreground">{usage ? `${usage.sendsRemaining}통` : "…"}</b> / {usage?.limits.label}</li>
               <li>· 모든 메일에 <b className="text-foreground">수신거부 문구</b> 자동 삽입 · 수신거부 회신은 억제 리스트 등록</li>
+              <li>
+                · 발송 시점에 <b className="text-foreground">수신거부·7일 쿨다운·표현 규정</b>을 서버가 다시 확인합니다.
+                걸린 초안은 삭제하지 않고 사유를 남긴 채 남겨 둡니다.
+              </li>
+              {blockedCount > 0 && (
+                <li className="text-danger">
+                  · 표현 규정 위반으로 <b>{blockedCount}건</b>이 발송에서 제외됩니다. 위 초안 목록에서 사유를 확인하세요.
+                </li>
+              )}
+              {warnCount > 0 && (
+                <li className="text-warning">· 확인이 필요한 초안 <b>{warnCount}건</b>이 있습니다(발송은 가능합니다).</li>
+              )}
             </ul>
 
             <label className="flex items-center gap-2 text-sm">
@@ -413,21 +437,62 @@ function StepSection({
   );
 }
 
+/** 팩에서 이 기간 이상 확인되지 않으면 배지를 띄운다. */
+const STALE_PACK_DAYS = 30;
+
+const QUESTION_SUBTYPE_LABELS: Record<string, string> = {
+  numbers: "수치 검증",
+  competitor: "경쟁사 비교",
+  intent: "전략 의도",
+  roadmap: "향후 계획",
+  negative: "부정적 맥락",
+};
+
+function StaleBadge({ days }: { days?: number }) {
+  if (days === undefined || days < STALE_PACK_DAYS) return null;
+  return (
+    <Badge variant="warning" title="기자단 자료에서 최근 확인되지 않았습니다. 이직·부서 이동 가능성이 있습니다.">
+      팩 확인 {days}일 경과
+    </Badge>
+  );
+}
+
 function DraftItem({
   draft,
 }: {
-  draft: { _id: string; subject: string; body: string; code: string; outlet: string; status: string };
+  draft: {
+    _id: string;
+    subject: string;
+    body: string;
+    code: string;
+    outlet: string;
+    status: string;
+    complianceLevel?: string;
+    complianceNotes?: string[];
+  };
 }) {
   const [open, setOpen] = useState(false);
   const hasOptOut = hasUsableOptOut(draft.body);
+  const level = draft.complianceLevel;
+  const notes = draft.complianceNotes ?? [];
+  // "blocked"는 쿨다운 등으로 이번 회차에 나가지 않은 초안(삭제하지 않고 사유만 남긴다).
+  const blocking = level === "fail" || level === "blocked";
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
+    <div
+      className={
+        "overflow-hidden rounded-lg border bg-card " +
+        (blocking ? "border-danger/60" : "border-border")
+      }
+    >
       <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-surface">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold">{draft.subject}</div>
           <div className="mt-0.5 text-xs text-muted">→ {draft.code} · {draft.outlet}</div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {level === "fail" && <Badge variant="danger">발송 차단</Badge>}
+          {level === "blocked" && <Badge variant="warning">이번 회차 제외</Badge>}
+          {level === "warn" && <Badge variant="warning">확인 필요</Badge>}
           {hasOptOut && (
             <Badge variant="success">
               <Check className="h-3 w-3" /> 수신거부 포함
@@ -436,6 +501,13 @@ function DraftItem({
           <ChevronDown className={"h-4 w-4 text-muted transition-transform " + (open ? "rotate-180" : "")} />
         </div>
       </button>
+      {notes.length > 0 && (
+        <ul className="border-t border-border bg-surface/30 px-4 py-2 text-xs text-foreground-muted">
+          {notes.map((n) => (
+            <li key={n}>· {n}</li>
+          ))}
+        </ul>
+      )}
       {open && (
         <pre className="whitespace-pre-wrap border-t border-border bg-surface/50 px-4 py-3 text-sm leading-relaxed text-foreground-muted">
           {draft.body}
@@ -733,6 +805,8 @@ function ReplyItem({
     outlet: string;
     interviewSlots?: string[];
     interviewPickedSlot?: string;
+    questionSubtype?: string;
+    needsEscalation?: boolean;
   };
 }) {
   const markHandled = useMutation(api.replies.markHandled);
@@ -762,6 +836,16 @@ function ReplyItem({
           <ReplyTypeBadge type={reply.type} />
           <span className="text-sm font-semibold tabular-nums">{reply.code}</span>
           <span className="text-xs text-muted">· {reply.outlet}</span>
+          {reply.questionSubtype && (
+            <span className="text-xs text-muted">
+              · {QUESTION_SUBTYPE_LABELS[reply.questionSubtype] ?? reply.questionSubtype}
+            </span>
+          )}
+          {reply.needsEscalation && (
+            <Badge variant="danger" title="초안을 그대로 보내지 말고 담당자가 사실관계를 확인하세요.">
+              담당자 확인 필요
+            </Badge>
+          )}
         </div>
         {reply.handled ? (
           <Badge variant="success">
