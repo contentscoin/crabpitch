@@ -1,8 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useState } from "react";
-import { useAction, useMutation } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Sparkles, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -16,6 +17,7 @@ export default function NewCampaignPage() {
   const createPR = useMutation(api.pressReleases.create);
   const createCampaign = useMutation(api.campaigns.create);
   const polish = useAction(api.aiActions.polishPressRelease);
+  const aiStatus = useQuery(api.aiKeys.status);
 
   const [form, setForm] = useState({
     who: "",
@@ -53,11 +55,14 @@ export default function NewCampaignPage() {
         bodyHint: form.body || undefined,
         newsValue: form.headline || undefined,
       });
-      setForm((f) => ({
-        ...f,
-        headline: result.headlines[0] ?? result.title,
-        body: result.body,
-      }));
+      // skipped/error 폴백은 입력값 그대로라 폼을 덮어쓰지 않는다.
+      if (result.mode !== "skipped" && result.mode !== "error") {
+        setForm((f) => ({
+          ...f,
+          headline: result.headlines[0] ?? result.title,
+          body: result.body,
+        }));
+      }
       setNote(result.message ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "AI 다듬기에 실패했습니다.");
@@ -201,16 +206,28 @@ export default function NewCampaignPage() {
               <Button type="button" variant="subtle" onClick={() => router.back()}>
                 취소
               </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                disabled={polishing || !form.headline}
-                onClick={onPolish}
-                title="서버 Anthropic 키가 있을 때만 동작 (기본은 내 AI 스킬 사용)"
-              >
-                <Wand2 className="h-4 w-4" />
-                {polishing ? "서버 AI…" : "서버 AI(선택)"}
-              </Button>
+              {aiStatus?.activeProvider ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={polishing || !form.headline}
+                  onClick={onPolish}
+                  title="내 AI에 연결한 GPT·Claude·Gemini로 웹에서 바로 다듬습니다."
+                >
+                  <Wand2 className="h-4 w-4" />
+                  {polishing ? "AI 다듬는 중…" : "AI로 다듬기"}
+                </Button>
+              ) : (
+                <Link href="/ai">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    title="내 AI에서 GPT·Claude·Gemini API 키를 등록하면 웹에서 바로 다듬을 수 있습니다."
+                  >
+                    <Wand2 className="h-4 w-4" /> AI 연결하고 다듬기
+                  </Button>
+                </Link>
+              )}
               <Button type="submit" disabled={loading}>
                 <Sparkles className="h-4 w-4" /> {loading ? "생성 중…" : "저장하고 기자 매칭"}
               </Button>

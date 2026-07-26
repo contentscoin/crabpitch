@@ -1,12 +1,59 @@
 # 크랩피치 스킬 팩 (CrabPitch Skills)
 
-**Codex · Claude · Gemini** 어디서나 쓰는 이식형 AI 스킬 묶음.
+**ChatGPT · Claude · Gemini** 어디서나 쓰는 이식형 AI 스킬 묶음.
 보도문 작성 → 미디어킷 → 기자 배포 메일(Gmail) → 회신 응대까지, 대화로 언론 홍보를 실행합니다.
 
 > 이 저장소는 **공개(public)** 이며 **기자 개인정보(실명·이메일·연락처)를 포함하지 않습니다.**
 > 스킬은 템플릿·지침일 뿐이고, 실제 기자 데이터는 사용자의 OpenCrab/연락처에서만 다룹니다.
 
-## 스킬 4종
+## ⚡ 3분 퀵스타트
+
+가장 빠른 방법은 **통합 프롬프트 한 개**를 복사해 쓰는 AI 채팅에 붙여넣는 것입니다.
+
+<details>
+<summary><b>📋 통합 부트스트랩 프롬프트 (복사해서 붙여넣기)</b></summary>
+
+```
+당신은 크랩피치(CrabPitch) 언론 홍보 어시스턴트입니다. 아래 4개 스킬 원문을 읽고
+(웹 접근이 안 되면 필요한 스킬의 SKILL.md 본문을 붙여달라고 요청하세요),
+지금부터 제 요청에 맞는 스킬을 골라 그 절차대로 진행하세요.
+
+- 보도자료 작성: https://raw.githubusercontent.com/contentscoin/crabpitch-skill/main/skills/press-release-writer/SKILL.md
+- 미디어킷 작성: https://raw.githubusercontent.com/contentscoin/crabpitch-skill/main/skills/media-kit-builder/SKILL.md
+- 기자 배포: https://raw.githubusercontent.com/contentscoin/crabpitch-skill/main/skills/journalist-outreach/SKILL.md
+- 회신 응대: https://raw.githubusercontent.com/contentscoin/crabpitch-skill/main/skills/reply-handler/SKILL.md
+
+규칙:
+1) 기자 실명·이메일은 출력에 넣지 말고 「기자 #XXXX」로 마스킹.
+2) 실제 발송은 제가 명시적으로 승인한 뒤에만, 제 Gmail 「언론홍보」 라벨 워크플로우로.
+3) 모든 메일에 수신거부 문구 포함. 한국어로 간결하게.
+
+준비되면 "어떤 소식을 알리고 싶으신가요?"라고 물어보세요.
+```
+
+</details>
+
+플랫폼별 설치(권장, 매번 붙여넣기 불필요):
+
+| 플랫폼 | 설치 방법 |
+|---|---|
+| **Claude** (웹/데스크톱) | 설정 → 기능(Capabilities) → 스킬 추가, 또는 프로젝트 지식에 `skills/<name>/SKILL.md` 4개 업로드. 이후 "보도자료 써줘"라고 말하면 자동 발동 |
+| **ChatGPT** | 커스텀 GPT 생성 → Instructions에 위 통합 프롬프트(또는 개별 SKILL.md 본문) 붙여넣기 → Knowledge에 SKILL.md 업로드 |
+| **Gemini** | Gem 만들기 → 지침에 통합 프롬프트 붙여넣기. Google Workspace 연동 시 Gmail 초안까지 |
+| **Cursor / Claude Code** | 저장소를 클론하고 `skills/`를 프로젝트 스킬로 등록. MCP는 [`docs/MCP-SETUP.md`](./docs/MCP-SETUP.md) |
+
+단계별 상세 절차 → [`docs/QUICKSTART.md`](./docs/QUICKSTART.md)
+
+## 스킬 4종과 사용 순서
+
+```
+① media-kit-builder ──(회사 기본 자료)──▶ ② press-release-writer
+        (처음 1회)                              (소식이 생길 때마다)
+                                                      │
+                                    ③ journalist-outreach (매칭→메일→승인→발송)
+                                                      │
+                                    ④ reply-handler (회신 오면 7유형 분류·응대)
+```
 
 | 스킬 | 하는 일 | 트리거 예시 |
 |---|---|---|
@@ -15,15 +62,17 @@
 | `journalist-outreach` | 주제-기자 매칭 + 개인화 메일 + Gmail '언론홍보' 라벨 초안 | "기자에게 뿌려줘", "언론 배포" |
 | `reply-handler` | 회신 7유형 분류·응대 + '언론홍보' 라벨 모니터링 | "기자 답장", "회신 왔어" |
 
-## 플랫폼별 사용법
+## 자동화 깊이 3단계
 
-- **Claude / Cowork** — 각 `skills/<name>/SKILL.md`를 스킬로 추가하면 트리거로 자동 로드. **CrabPitch MCP**(유료 `cp_mcp_…`) 연결 시 매칭·템플릿 도구까지 사용. Gmail MCP는 라벨·초안 자동화용.
-- **ChatGPT / Codex** — `SKILL.md` 본문을 커스텀 GPT Instructions(또는 Codex 시스템 프롬프트)에 붙여넣기. CrabPitch MCP 커넥터 + Gmail 연동으로 발송.
-- **Gemini** — 동일 `SKILL.md`를 Gem/프롬프트로 사용, CrabPitch MCP + Google Workspace 연동으로 Gmail 발송.
-- **Cursor** — `docs/MCP-SETUP.md`의 `mcp.json` 스니펫으로 CrabPitch MCP 등록.
+스킬 마크다운은 세 플랫폼 공용이고, 연결을 더할수록 자동화가 깊어집니다.
 
-> 스킬은 **마크다운 하나로 세 플랫폼 공용**입니다. 자동화 깊이(MCP/커넥터 연결 여부)만 다릅니다.
-> MCP 키 발급·등록 → [`docs/MCP-SETUP.md`](./docs/MCP-SETUP.md) (CrabPitch 유료 플랜 전용).
+1. **스킬만** — 보도문·미디어킷·메일 문안 작성 (복붙 워크플로우)
+2. **+ CrabPitch MCP** (유료 `cp_mcp_…` 키) — 채팅에서 기자 매칭·메일 템플릿·회신 분류 도구 직접 호출 → [`docs/MCP-SETUP.md`](./docs/MCP-SETUP.md)
+3. **+ Gmail 연동** — '언론홍보' 라벨에 초안 자동 생성, 회신 모니터링 → [`docs/GMAIL-SETUP.md`](./docs/GMAIL-SETUP.md)
+
+> 💡 **크랩피치 웹앱**([crabpitch](https://github.com/contentscoin/crabpitch))을 쓰면 반대 방향도 가능합니다 —
+> 웹앱 「내 AI」에 본인 GPT·Claude·Gemini **API 키(BYOK)** 를 등록하면 보도문 다듬기·메일
+> 개인화가 웹 화면 안에서 바로 실행됩니다. 스킬 복붙 없이 매칭→발송까지 한 화면에서 끝.
 
 ## 두 가지 필수 원칙
 

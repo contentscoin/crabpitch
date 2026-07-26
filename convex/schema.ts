@@ -59,6 +59,10 @@ export default defineSchema({
     preferredAiProvider: v.optional(
       v.union(v.literal("claude"), v.literal("chatgpt"), v.literal("gemini")),
     ),
+    /** 웹앱 안 AI 실행(보도문 다듬기·메일 개인화)에 쓸 기본 LLM 프로바이더 */
+    preferredLlmProvider: v.optional(
+      v.union(v.literal("anthropic"), v.literal("openai"), v.literal("gemini")),
+    ),
     /** 플랫폼 운영자 (에이전시 admin과 별개) */
     isPlatformAdmin: v.optional(v.boolean()),
   }).index("by_user", ["userId"]),
@@ -236,6 +240,25 @@ export default defineSchema({
   })
     .index("by_agency", ["agencyId"])
     .index("by_hash", ["keyHash"]),
+
+  // 사용자 본인 LLM API 키(BYOK) — GPT·Claude·Gemini를 웹앱에서 직접 실행
+  // 원문 키는 서버 함수에서만 사용하고 클라이언트에는 마스킹만 반환한다.
+  userAiKeys: defineTable({
+    userId: v.id("users"),
+    provider: v.union(
+      v.literal("anthropic"),
+      v.literal("openai"),
+      v.literal("gemini"),
+    ),
+    apiKey: v.string(),
+    model: v.optional(v.string()), // 미설정 시 프로바이더 기본 모델
+    createdAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    lastStatus: v.optional(v.union(v.literal("ok"), v.literal("error"))),
+    lastError: v.optional(v.string()),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_provider", ["userId", "provider"]),
 
   // 유저별 MCP 키 (유료 플랜 전용) — Claude/ChatGPT/Gemini 플러그인 등록용
   userMcpKeys: defineTable({

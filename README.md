@@ -94,15 +94,23 @@ OpenCrab 기자 데이터는 모두 `mailing_status: candidate` (발송 미승�
 for d in skills/*/; do n=$(basename "$d"); (cd "$d" && zip -q -j "../../dist/$n.skill" SKILL.md); done
 ```
 
-## 내 AI로 작성 (BYO)
+## 내 AI로 작성 (BYO) — 두 가지 방법
 
-웹앱은 서버 LLM API보다 **사용자 본인 ChatGPT · Claude · Gemini** + 공개 스킬 팩을 우선합니다.
-앱 메뉴 **내 AI** (`/ai`)에서:
+앱 메뉴 **내 AI** (`/ai`)에서 GPT·Claude·Gemini를 연결하는 방법은 두 가지입니다.
 
-1. **CLI 설치 스크립트** (`/crabpitch-byo-ai-setup.sh` · `.ps1`) 실행 → 브라우저 로그인 창
-2. 스킬 프롬프트 복사 → CLI/웹/앱 채팅에 붙여넣기
+### ① API 키 연결 (BYOK) — 웹에서 바로 실행 ★추천
+OpenAI·Anthropic·Google 중 **하나의 API 키만 등록**하면 보도자료 다듬기·메일 개인화가
+웹 화면 안에서 직접 작동합니다(복붙 불필요). 키는 서버에만 저장되고 화면에는 마스킹만
+표시되며, 「연결 테스트」로 즉시 확인할 수 있습니다.
+우선순위: **사용자 키 → 서버 환경변수**(`ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`GEMINI_API_KEY`).
+상세: **`docs/AI-PROVIDERS.md`**
 
-웹 페이지가 PC에 CLI를 자동 설치할 수는 없습니다(브라우저 보안). 스크립트를 받아 터미널에서 실행하세요.
+### ② 스킬·MCP 연결 — 쓰던 구독형 AI 채팅에서
+API 키 없이 ChatGPT·Claude·Gemini 구독만 있다면:
+
+1. `/ai`에서 스킬 프롬프트 복사 → 내 AI 채팅에 붙여넣기 (공개 스킬 팩 기준)
+2. (Solo 이상) MCP 연결 키 발급 → 채팅에서 「기자 찾아줘」 직접 호출
+3. (선택) **CLI 설치 스크립트** (`/crabpitch-byo-ai-setup.sh` · `.ps1`) — 터미널 사용자용
 
 ## 다음에 이어서 할 것
 
