@@ -49,6 +49,8 @@ export default function CampaignDetailPage() {
   const [optOutConfirmed, setOptOutConfirmed] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [syncNote, setSyncNote] = useState<string | null>(null);
+  const [draftNote, setDraftNote] = useState<string | null>(null);
+  const [sendNote, setSendNote] = useState<string | null>(null);
   const [scheduleLocal, setScheduleLocal] = useState("");
 
   if (data === undefined) {
@@ -179,7 +181,7 @@ export default function CampaignDetailPage() {
               wrap("gen", async () => {
                 await genDrafts({ campaignId: id });
                 const enhanced = await enhanceDrafts({ campaignId: id });
-                if (enhanced.message) setSyncNote(enhanced.message);
+                if (enhanced.message) setDraftNote(enhanced.message);
               })
             }
             disabled={busy === "gen" || includedCount === 0}
@@ -193,7 +195,7 @@ export default function CampaignDetailPage() {
               onClick={() =>
                 wrap("ai", async () => {
                   const enhanced = await enhanceDrafts({ campaignId: id });
-                  if (enhanced.message) setSyncNote(enhanced.message);
+                  if (enhanced.message) setDraftNote(enhanced.message);
                 })
               }
               disabled={busy === "ai"}
@@ -202,6 +204,7 @@ export default function CampaignDetailPage() {
             </Button>
           )}
           {includedCount === 0 && <p className="mt-2 w-full text-xs text-muted">먼저 매칭에서 발송할 기자를 포함하세요.</p>}
+          {draftNote && <p className="mt-2 w-full text-xs text-muted">{draftNote}</p>}
         </div>
 
         {drafts && drafts.length > 0 && (
@@ -259,14 +262,14 @@ export default function CampaignDetailPage() {
                         campaignId: id,
                         scheduledSendAt: at,
                       });
-                      setSyncNote(
+                      setSendNote(
                         `${result.count}통 예약됨 · ${new Date(result.scheduledSendAt).toLocaleString("ko-KR")}`,
                       );
                       return;
                     }
                     if (gmail?.connected) {
                       const result = await pushGmail({ campaignId: id });
-                      if (result.message) setSyncNote(result.message);
+                      if (result.message) setSendNote(result.message);
                     } else {
                       await sendCampaign({ campaignId: id });
                     }
@@ -291,6 +294,7 @@ export default function CampaignDetailPage() {
                     : "* Gmail 미연결 시 ‘발송됨’으로만 기록합니다. 설정에서 BYO Gmail을 연결하면 초안이 생성됩니다."}
               </span>
             </div>
+            {sendNote && <p className="text-xs text-muted">{sendNote}</p>}
             {campaign.scheduledSendAt && campaign.status === "sending" && (
               <p className="text-sm font-semibold text-brand">
                 예약됨 · {new Date(campaign.scheduledSendAt).toLocaleString("ko-KR")}
