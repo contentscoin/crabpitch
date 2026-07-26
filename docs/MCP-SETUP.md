@@ -65,7 +65,38 @@ Authorization: Bearer cp_mcp_…
 
 둘 다 등록해도 됩니다. 스킬 팩과 함께 쓰는 기본 경로는 **CrabPitch MCP**입니다.
 
-## 5. 보안
+## 5. 연결이 안 될 때 (트러블슈팅)
+
+### ① 먼저 브라우저로 확인 — 30초 진단
+MCP URL을 **브라우저 주소창에 그대로 붙여넣습니다**(엔드포인트는 GET도 지원).
+
+| 응답 | 의미 | 조치 |
+|---|---|---|
+| `{"ok":true,"server":{"name":"crabpitch"},"plan":"solo",…}` | 서버·키 모두 정상 | 클라이언트(② 이하) 문제 |
+| `{"error":"유효하지 않은 MCP 키이거나 유료 플랜이 아닙니다…"}` (401) | 키 폐기됨 · 오타 · **플랜이 Free로 내려감** | 설정에서 플랜 확인 후 `/ai`에서 재발급 |
+| `{"error":"Authorization: Bearer cp_mcp_... 가 필요합니다"}` (401) | URL에서 키 부분이 잘림 | 전체 URL 복사 확인 |
+| 404 / Convex 기본 페이지 | 배포에 MCP 라우트가 없음 | 저장소 루트에서 `npx convex deploy` |
+
+키는 `cp_mcp_` + **16진수 48자**입니다. 길이가 다르면 복사가 잘린 것입니다.
+
+### ② 클라이언트별 등록
+```bash
+# Claude Code (로컬 터미널)
+claude mcp add --transport http crabpitch "https://<DEPLOYMENT>.convex.site/api/mcp/<키>"
+claude mcp list        # 상태 확인
+```
+Cursor·Claude Desktop은 위 §2의 `mcp.json` 스니펫을 사용합니다.
+
+### ③ 방화벽·egress 정책
+사내망·CI·**Claude Code 웹(원격 컨테이너)** 처럼 아웃바운드가 허용 목록으로 제한된 환경에서는
+`*.convex.site` 연결이 프록시 단계에서 **403**으로 막힙니다. 이때 MCP 클라이언트는 흔히
+"Needs authentication"으로 표시하지만 **키 문제가 아닙니다.** 해당 호스트를 네트워크 정책에
+허용하거나, 로컬 머신에서 등록해 사용하세요.
+
+> 서버 응답 계약(JSON-RPC `initialize`·`tools/list`·`tools/call`, 401 분기, CORS)은
+> `convex/mcpHttp.test.ts`가 회귀 테스트로 고정합니다.
+
+## 6. 보안
 
 - 키를 채팅·이슈·커밋에 붙이지 마세요.
 - 유출 시 앱에서 즉시 **폐기** 후 재발급하세요.
