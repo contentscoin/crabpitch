@@ -189,6 +189,12 @@ export default defineSchema({
     agencyClientId: v.optional(v.id("agencyClients")),
     /** 엠바고 해제 시각(ms) — 있으면 메일 최상단·자료 블록에 이중 표기 */
     embargoAt: v.optional(v.number()),
+    /** GEO: 최상단 3줄 요약 */
+    keyTakeaways: v.optional(v.array(v.string())),
+    /** GEO: 하단 Q&A (문항 수 규정은 팩에 없다 — 개수를 강제하지 않는다) */
+    faq: v.optional(v.array(v.object({ q: v.string(), a: v.string() }))),
+    /** 부제 2개(각 40자 이내) */
+    subheads: v.optional(v.array(v.string())),
   }).index("by_user", ["userId"]).index("by_client", ["agencyClientId"]),
 
   // 배포 캠페인
@@ -287,6 +293,39 @@ export default defineSchema({
     quotes: v.array(v.string()),
     contact: v.optional(v.string()),
     completeness: v.number(), // 0~100
+    /** ① 한 문장 회사 정의 */
+    oneLiner: v.optional(v.string()),
+    /** ⑥ 비주얼 자산 — GEO 파일명·Alt·캡션 규칙을 따른다 */
+    visuals: v.optional(
+      v.array(
+        v.object({
+          label: v.string(),
+          url: v.optional(v.string()),
+          alt: v.optional(v.string()),
+          caption: v.optional(v.string()),
+        }),
+      ),
+    ),
+    /** ⑨ 자산 사용 규정 4항 */
+    assetPolicy: v.optional(
+      v.object({
+        usageScope: v.optional(v.string()),
+        modificationLimits: v.optional(v.string()),
+        credit: v.optional(v.string()),
+        trademarkContact: v.optional(v.string()),
+      }),
+    ),
+    /** ⑦ 최근 보도 */
+    coverage: v.optional(
+      v.array(
+        v.object({
+          outlet: v.string(),
+          title: v.string(),
+          url: v.optional(v.string()),
+          publishedAtText: v.optional(v.string()),
+        }),
+      ),
+    ),
   }).index("by_user", ["userId"]),
 
   // 사용량/요금 한도 (무료: 월 10통, 보도자료 3건 등)
