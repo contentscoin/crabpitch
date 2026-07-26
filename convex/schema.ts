@@ -127,6 +127,8 @@ export default defineSchema({
   // 기자별 개인화 메일 초안
   emailDrafts: defineTable({
     campaignId: v.id("campaigns"),
+    /** 7일 재발송 쿨다운을 사용자 단위로 조회하기 위한 비정규화 (기존 행은 backfill 대상) */
+    userId: v.optional(v.id("users")),
     journalistId: v.id("journalists"),
     subject: v.string(),
     body: v.string(),
@@ -142,7 +144,8 @@ export default defineSchema({
   })
     .index("by_campaign", ["campaignId"])
     .index("by_campaign_journalist", ["campaignId", "journalistId"])
-    .index("by_status_scheduled", ["status", "scheduledSendAt"]),
+    .index("by_status_scheduled", ["status", "scheduledSendAt"])
+    .index("by_user_journalist", ["userId", "journalistId"]),
 
   // 기자 회신 + 7유형 분류 + 답장 초안
   replies: defineTable({

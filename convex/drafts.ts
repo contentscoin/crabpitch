@@ -6,8 +6,54 @@ import { buildEmailDraft } from "./lib/emailTemplate";
 import { journalistCode } from "./lib/mask";
 import { PLAN_LIMITS, currentMonth, type Plan } from "./lib/plans";
 import { partitionBySuppression, suppressedEmailSet } from "./lib/sendGuard";
+import { COOLDOWN_DAYS, partitionByCooldown } from "./lib/cooldown";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+
+/**
+ * 이 사용자가 해당 기자에게 마지막으로 발송한 시각. (없으면 null)
+ * emailDrafts.userId 는 비정규화 필드 — 없는 레거시 행은 campaign 을 거쳐 확인한다.
+ */
+async function lastSentAtForJournalist(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  journalistId: Id<"journalists">,
+): Promise<number | null> {
+  const rows = await ctx.db
+    .query("emailDrafts")
+    .withIndex("by_user_journalist", (q) =>
+      q.eq("userId", userId).eq("journalistId", journalistId),
+    )
+    .collect();
+  let last: number | null = null;
+  for (const r of rows) {
+    if (r.status !== "sent" && r.status !== "published") continue;
+    if (r.sentAt != null && (last == null || r.sentAt > last)) last = r.sentAt;
+  }
+  return last;
+}
+
+/** 7일 쿨다운 대상 제외. 차단분은 발송하지 않고 초안으로 남긴다. */
+async function filterCooldown(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  drafts: Array<Doc<"emailDrafts">>,
+  now: number,
+): Promise<{ sendable: Array<Doc<"emailDrafts">>; blocked: number }> {
+  const withLast = [];
+  for (const d of drafts) {
+    withLast.push({
+      draft: d,
+      lastSentAt: await lastSentAtForJournalist(ctx, userId, d.journalistId),
+    });
+  }
+  const { sendable, blocked } = partitionByCooldown(
+    withLast,
+    (x) => x.lastSentAt,
+    now,
+  );
+  return { sendable: sendable.map((x) => x.draft), blocked: blocked.length };
+}
 
 /**
  * 발송 직전 억제 리스트 재대조 — 초안 생성 후 수신거부한 기자를 제외한다.
@@ -59,10 +105,18 @@ export const generateForCampaign = mutation({
       .collect();
     await Promise.all(old.map((d) => ctx.db.delete(d._id)));
 
+    const now = Date.now();
     let created = 0;
+    let skippedCooldown = 0;
     for (const m of matches) {
       const j = await ctx.db.get(m.journalistId);
       if (!j) continue;
+      // 7일 재발송 쿨다운: 초안 자체를 만들지 않는다(승인 화면에 올라오지 않게).
+      const lastSentAt = await lastSentAtForJournalist(ctx, userId, j._id);
+      if (lastSentAt != null && now - lastSentAt < COOLDOWN_DAYS * 24 * 60 * 60 * 1000) {
+        skippedCooldown += 1;
+        continue;
+      }
       // ⚠️ 초안 본문에 기자 실명을 넣지 않는다("기자님"). 실명은 발송 시점(Gmail)에만 주입.
       const { subject, body } = buildEmailDraft(
         {
@@ -81,6 +135,7 @@ export const generateForCampaign = mutation({
       );
       await ctx.db.insert("emailDrafts", {
         campaignId,
+        userId,
         journalistId: j._id,
         subject,
         body,
@@ -90,7 +145,7 @@ export const generateForCampaign = mutation({
     }
 
     await ctx.db.patch(campaignId, { status: "review" });
-    return created;
+    return { created, skippedCooldown };
   },
 });
 
@@ -153,8 +208,14 @@ export const sendCampaign = mutation({
         .collect()
     ).filter((d) => d.status === "draft" || d.status === "queued");
 
-    // 발송 직전 수신거부 재대조 (차단분은 초안으로 남기고 한도에서도 제외)
-    const { sendable: pending } = await filterSuppressed(ctx, userId, queued);
+    // 발송 직전 수신거부 + 7일 쿨다운 재대조 (차단분은 초안으로 남기고 한도에서도 제외)
+    const { sendable: notSuppressed } = await filterSuppressed(ctx, userId, queued);
+    const { sendable: pending } = await filterCooldown(
+      ctx,
+      userId,
+      notSuppressed,
+      Date.now(),
+    );
 
     if (pending.length > remaining) {
       throw new Error(
@@ -164,7 +225,8 @@ export const sendCampaign = mutation({
 
     const now = Date.now();
     for (const d of pending) {
-      await ctx.db.patch(d._id, { status: "sent", sentAt: now });
+      // userId 를 함께 기록해야 이후 7일 쿨다운 조회(by_user_journalist)에 잡힌다.
+      await ctx.db.patch(d._id, { status: "sent", sentAt: now, userId });
     }
     await bumpSends(ctx, userId, pending.length);
     await ctx.db.patch(campaignId, { status: "sent", scheduledSendAt: undefined });
@@ -247,8 +309,15 @@ export const executeScheduledSend = internalMutation({
         .collect()
     ).filter((d) => d.status === "queued" || d.status === "draft");
 
-    // 예약 시점 ~ 실행 시점 사이에 수신거부한 기자를 제외한다 (창이 가장 넓은 경로)
-    const { sendable: pending } = await filterSuppressed(ctx, userId, queued);
+    // 예약 시점 ~ 실행 시점 사이에 수신거부했거나 7일 쿨다운에 걸린 기자를 제외한다
+    // (창이 가장 넓은 경로 — 예약은 며칠 뒤 실행된다)
+    const { sendable: notSuppressed } = await filterSuppressed(ctx, userId, queued);
+    const { sendable: pending } = await filterCooldown(
+      ctx,
+      userId,
+      notSuppressed,
+      Date.now(),
+    );
 
     if (pending.length === 0) {
       await ctx.db.patch(campaignId, { status: "sent", scheduledSendAt: undefined });
@@ -261,6 +330,7 @@ export const executeScheduledSend = internalMutation({
         status: "sent",
         sentAt: now,
         scheduledSendAt: undefined,
+        userId,
       });
     }
     await bumpSends(ctx, userId, pending.length);
@@ -387,5 +457,27 @@ export const applyEnhancedDrafts = internalMutation({
       await ctx.db.patch(u.draftId, { subject: u.subject, body: u.body });
     }
     return updates.length;
+  },
+});
+
+/**
+ * 레거시 초안 backfill — `userId` 비정규화 필드가 없는 행을 campaign 소유자로 채운다.
+ * 7일 재발송 쿨다운(by_user_journalist)이 과거 발송 기록까지 보게 하려면 1회 실행 필요.
+ *   npx convex run drafts:backfillDraftUserIds '{}' --prod
+ */
+export const backfillDraftUserIds = internalMutation({
+  args: {},
+  returns: v.object({ scanned: v.number(), patched: v.number() }),
+  handler: async (ctx) => {
+    const all = await ctx.db.query("emailDrafts").collect();
+    let patched = 0;
+    for (const d of all) {
+      if (d.userId) continue;
+      const campaign = await ctx.db.get(d.campaignId);
+      if (!campaign) continue;
+      await ctx.db.patch(d._id, { userId: campaign.userId });
+      patched += 1;
+    }
+    return { scanned: all.length, patched };
   },
 });

@@ -186,6 +186,8 @@ export const markDraftsSentWithGmail = internalMutation({
       await ctx.db.patch(u.draftId, {
         status: "sent",
         sentAt: now,
+        // 7일 쿨다운 조회(by_user_journalist)에 잡히도록 발송자도 기록
+        userId: args.userId,
         ...(u.gmailDraftId ? { gmailDraftId: u.gmailDraftId } : {}),
       });
     }
