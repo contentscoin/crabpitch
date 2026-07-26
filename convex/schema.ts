@@ -59,6 +59,8 @@ export default defineSchema({
     preferredAiProvider: v.optional(
       v.union(v.literal("claude"), v.literal("chatgpt"), v.literal("gemini")),
     ),
+    /** 플랫폼 운영자 (에이전시 admin과 별개) */
+    isPlatformAdmin: v.optional(v.boolean()),
   }).index("by_user", ["userId"]),
 
   // OpenCrab 기자 온톨로지 캐시 (mailing_status: candidate)

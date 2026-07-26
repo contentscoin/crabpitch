@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   Send,
   Settings,
+  Shield,
   Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -26,3 +27,10 @@ export const NAV: NavItem[] = [
   { href: "/agency", label: "에이전시", icon: Building2 },
   { href: "/settings", label: "설정", icon: Settings },
 ];
+
+/** 플랫폼 관리자만 사이드바에 노출 */
+export const ADMIN_NAV: NavItem = {
+  href: "/admin",
+  label: "관리자",
+  icon: Shield,
+};
