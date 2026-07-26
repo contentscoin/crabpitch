@@ -5,6 +5,34 @@ import { requireUser, getProfile, bumpSends } from "./model";
 import { buildEmailDraft } from "./lib/emailTemplate";
 import { journalistCode } from "./lib/mask";
 import { PLAN_LIMITS, currentMonth, type Plan } from "./lib/plans";
+import { partitionBySuppression, suppressedEmailSet } from "./lib/sendGuard";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
+
+/**
+ * 발송 직전 억제 리스트 재대조 — 초안 생성 후 수신거부한 기자를 제외한다.
+ * (매칭 시점 필터만으로는 예약 발송처럼 시차가 있는 경로에서 샌다.)
+ */
+async function filterSuppressed(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  drafts: Array<Doc<"emailDrafts">>,
+): Promise<{ sendable: Array<Doc<"emailDrafts">>; blocked: number }> {
+  const rows = await ctx.db
+    .query("suppressionList")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  if (rows.length === 0) return { sendable: drafts, blocked: 0 };
+
+  const suppressed = suppressedEmailSet(rows.map((r) => r.email));
+  const withEmail = [];
+  for (const d of drafts) {
+    const j = await ctx.db.get(d.journalistId);
+    withEmail.push({ draft: d, email: j?.email ?? "" });
+  }
+  const { sendable, blocked } = partitionBySuppression(withEmail, suppressed);
+  return { sendable: sendable.map((x) => x.draft), blocked: blocked.length };
+}
 
 /** 포함된 매칭 기자 각각에 개인화 메일 초안 생성. */
 export const generateForCampaign = mutation({
@@ -118,12 +146,15 @@ export const sendCampaign = mutation({
     const used = usage?.sendsUsed ?? 0;
     const remaining = PLAN_LIMITS[plan].sends - used;
 
-    const pending = (
+    const queued = (
       await ctx.db
         .query("emailDrafts")
         .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
         .collect()
     ).filter((d) => d.status === "draft" || d.status === "queued");
+
+    // 발송 직전 수신거부 재대조 (차단분은 초안으로 남기고 한도에서도 제외)
+    const { sendable: pending } = await filterSuppressed(ctx, userId, queued);
 
     if (pending.length > remaining) {
       throw new Error(
@@ -209,12 +240,15 @@ export const executeScheduledSend = internalMutation({
     if (!campaign || campaign.userId !== userId) return 0;
     if (campaign.status === "sent" || campaign.status === "done") return 0;
 
-    const pending = (
+    const queued = (
       await ctx.db
         .query("emailDrafts")
         .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
         .collect()
     ).filter((d) => d.status === "queued" || d.status === "draft");
+
+    // 예약 시점 ~ 실행 시점 사이에 수신거부한 기자를 제외한다 (창이 가장 넓은 경로)
+    const { sendable: pending } = await filterSuppressed(ctx, userId, queued);
 
     if (pending.length === 0) {
       await ctx.db.patch(campaignId, { status: "sent", scheduledSendAt: undefined });

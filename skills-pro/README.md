@@ -28,6 +28,20 @@ press-distribution ┼─ 발송 ──→ reply-handler ─┬─ ①인터뷰 
 Agency 전체 운영 ←──────────────────────────── agency-multi-client (Agency)
 ```
 
+## CrabPitch MCP 연동 (선택 — Solo 이상)
+
+앱 `/ai`에서 발급한 **`cp_mcp_…` 키**를 Claude·ChatGPT·Gemini·Cursor에 등록하면
+아래 스킬이 붙여넣기 대신 **도구를 직접 호출**합니다(설정: `docs/MCP-SETUP.md`).
+
+| 도구 | 쓰는 Pro 스킬 |
+|---|---|
+| `crabpitch_status` | 전 스킬 — 플랜·연결 확인 |
+| `crabpitch_match_journalists` | `competitor-coverage`(신규 타깃 발굴) |
+| `crabpitch_email_template` | `follow-up-scheduler`(팔로업 문안 초안) |
+| `crabpitch_classify` | `campaign-report`(회신 7유형 집계) |
+
+MCP 응답도 **기자 코드만** 반환합니다(실명·이메일 없음). 실제 발송·실명 주입은 앱/Gmail에서만.
+
 ## 공통 원칙 (무료 팩과 동일 — Pro라고 예외 없음)
 
 1. **PII 비노출** — 기자 실명·이메일·연락처는 화면/리포트/캘린더 이벤트 **제목·설명**에 절대
