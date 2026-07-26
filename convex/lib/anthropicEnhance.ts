@@ -8,6 +8,9 @@ import { checkEmailCompliance } from "./emailCompliance";
 import {
   CRABPITCH_FORM_BODY_CHARS,
   compactRulesForPrompt,
+  GEO_RULES,
+  GEO_TARGETS,
+  PRESS_STRUCTURE,
   WRITING_RULES,
 } from "./pressGuide";
 import { EMAIL_BODY_CHAR_MAX, EMAIL_BODY_CHAR_MIN } from "./emailCompliance";
@@ -46,11 +49,44 @@ export interface PolishPressInput {
   boilerplate?: string;
 }
 
-export interface PolishPressResult {
+/** GEO 하단 Q&A 1문항. */
+export interface PressFaqItem {
+  q: string;
+  a: string;
+}
+
+/**
+ * GEO 확장 필드 — 전부 optional이다.
+ * 모델이 안 주거나 형태가 틀리면 **키 자체를 만들지 않는다**(기존 저장·표시 경로 무손상).
+ */
+export interface PressGeoFields {
+  /** 최상단 [3줄 요약] */
+  keyTakeaways?: string[];
+  /** 본문 하단 Q&A */
+  faq?: PressFaqItem[];
+  /** 부제 */
+  subheads?: string[];
+}
+
+export interface PolishPressResult extends PressGeoFields {
   title: string;
   headlines: string[];
   body: string;
 }
+
+/* ── GEO 확장 필드 규범 — 값의 정본은 `pressGuide`다(여기서 숫자를 만들지 않는다) ── */
+
+/** 부제 규범 원문 — `PRESS_STRUCTURE`의 "부제" 항목. 프롬프트·UI 안내에 그대로 쓴다. */
+export const SUBHEAD_HINT = PRESS_STRUCTURE.find((s) => s.name === "부제")?.lengthHint ?? "";
+
+/** 부제 개수 상한 — 위 원문에서 읽는다. 원문을 못 읽었을 때만 방어값 2를 쓴다. */
+export const SUBHEAD_MAX = Number(SUBHEAD_HINT.match(/(\d+)\s*개/)?.[1]) || 2;
+
+/**
+ * FAQ 방어 상한 — **규범이 아니다**. `GEO_TARGETS.faqCount`는 undefined이고(팩에 문항 수
+ * 규정 없음) 개수를 강제하지 않는다. 모델이 수십 개를 쏟아내 문서가 비대해지는 것만 막는다.
+ */
+const FAQ_DEFENSIVE_MAX = 12;
 
 /**
  * 메일 개인화 시스템 프롬프트 — 7규칙.
@@ -94,6 +130,7 @@ function articleLines(input: EnhanceEmailInput): string {
 
 const OUTLET_TONE: Record<OutletCategory, string> = {
   newswire: "통신사 — 사실과 자료 제공 가능 여부를 앞세운다. 서사보다 속도.",
+  broadcast: "방송 — 화면에 담을 수 있는 장면과 영상 자료(B-roll) 가용성을 앞세운다.",
   it: "IT 전문지 — 기술 구조·성능 수치·사용성 관점을 앞세운다.",
   economy: "경제지 — 시장 규모·성장률·재무 지표 관점을 앞세운다.",
   general: "일반 매체 — 왜 지금 중요한지 맥락을 먼저 설명한다.",
@@ -130,19 +167,30 @@ export function emailEnhanceUserPrompt(input: EnhanceEmailInput): string {
  *    `crabpitch_press_guide`로 분리한다 — 프롬프트가 비대해지면 모델이 규칙을 놓친다.
  * ⚠️ 출력 JSON 스키마와 산출 규격(300~500자)은 1차에서 유지한다. 폼·파서·DB가 이 규격을
  *    전제로 동작하고, 8단 풀 템플릿은 스킬 경로의 산출물이다.
+ * ⚠️ 2차에서 GEO 필드(keyTakeaways·faq·subheads)를 스키마에 더했다. 모델이 빼먹어도
+ *    파서가 조용히 넘어가므로(하위 호환) 규칙은 짧게만 덧붙인다.
  */
 export function pressPolishSystemPrompt(): string {
+  const geoDetail = (rule: string) => GEO_RULES.find((r) => r.rule === rule)?.detail ?? "";
   return [
     "당신은 한국 보도자료 에디터다. 역피라미드·5W1H 표준 보도문을 작성한다.",
     "",
     "[작성 규범]",
     compactRulesForPrompt(),
     "",
+    "[GEO 구조]",
+    `- keyTakeaways: ${geoDetail("Key Takeaways 배치")} ${GEO_TARGETS.keyTakeaways}개, 각 1문장으로 수치를 담는다.`,
+    `- faq: ${geoDetail("FAQ 꼬리말")} 문항 수 규정은 없다 — 기자가 실제로 물을 질문만 담고 억지로 채우지 않는다.`,
+    `- subheads: 제목을 보완하는 부제(${SUBHEAD_HINT}). 제목 문장을 그대로 반복하지 않는다.`,
+    "",
     "[출력 규격]",
     "1) headlines는 서로 다른 앵글 3개(사실/수치/트렌드).",
     `2) body는 ${CRABPITCH_FORM_BODY_CHARS.min}~${CRABPITCH_FORM_BODY_CHARS.max}자 내외로 쓰되, 리드 ${WRITING_RULES.leadSentences}문장 → 배경 → 인용 → 회사 소개 순서를 지킨다.`,
-    "3) 입력에 없는 사실·수치를 지어내지 않는다.",
-    '4) JSON만 출력: {"title":"...","headlines":["...","...","..."],"body":"..."}',
+    "3) 입력에 없는 사실·수치를 지어내지 않는다. keyTakeaways·faq·subheads도 body에 없는 사실을 새로 만들지 않는다.",
+    "4) JSON만 출력:",
+    '{"title":"...","headlines":["...","...","..."],"body":"...",' +
+      '"subheads":["...","..."],"keyTakeaways":["...","...","..."],' +
+      '"faq":[{"q":"...","a":"..."}]}',
   ].join("\n");
 }
 
@@ -211,6 +259,50 @@ export function parseEnhanceEmailResult(
   return { subject: trimmedSubject, body: safeBody };
 }
 
+/** 문자열 배열만 받는다. 배열이 아니거나 비면 undefined — 키를 만들지 않기 위해서다. */
+function optionalStringList(value: unknown, limit: number): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const list = value
+    .filter((x): x is string => typeof x === "string")
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .slice(0, limit);
+  return list.length > 0 ? list : undefined;
+}
+
+function optionalFaqList(value: unknown): PressFaqItem[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: PressFaqItem[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const o = item as Record<string, unknown>;
+    const q = typeof o.q === "string" ? o.q.trim() : "";
+    const a = typeof o.a === "string" ? o.a.trim() : "";
+    if (!q || !a) continue;
+    out.push({ q, a });
+    if (out.length >= FAQ_DEFENSIVE_MAX) break;
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+/**
+ * 임의의 객체(모델 응답 JSON·액션 반환값)에서 GEO 확장 필드만 추려낸다.
+ * 형태가 틀린 값은 **조용히 버린다** — 이 필드 때문에 다듬기 결과 전체를 폐기하지 않는다.
+ */
+export function parsePressGeoFields(source: unknown): PressGeoFields {
+  if (!source || typeof source !== "object") return {};
+  const o = source as Record<string, unknown>;
+  const keyTakeaways = optionalStringList(o.keyTakeaways, GEO_TARGETS.keyTakeaways);
+  const subheads = optionalStringList(o.subheads, SUBHEAD_MAX);
+  // 개수 규정이 없는 FAQ는 상한만 방어한다(강제 없음).
+  const faq = optionalFaqList(o.faq);
+  return {
+    ...(keyTakeaways ? { keyTakeaways } : {}),
+    ...(faq ? { faq } : {}),
+    ...(subheads ? { subheads } : {}),
+  };
+}
+
 export function parsePolishPressResult(
   raw: string,
   fallback: PolishPressResult,
@@ -224,5 +316,24 @@ export function parsePolishPressResult(
     : [];
   if (!title || !body || headlines.length === 0) return fallback;
   while (headlines.length < 3) headlines.push(title);
-  return { title, headlines, body };
+  // GEO 필드는 있으면 얹고, 없으면 fallback 값을 유지한다(둘 다 없으면 키가 없는 기존 형태).
+  const geo = parsePressGeoFields(obj);
+  return {
+    title,
+    headlines,
+    body,
+    ...pickGeo(geo, fallback),
+  };
+}
+
+/** 모델 값 우선, 없으면 fallback 값 승계. 양쪽 다 없으면 키를 만들지 않는다. */
+function pickGeo(geo: PressGeoFields, fallback: PressGeoFields): PressGeoFields {
+  const keyTakeaways = geo.keyTakeaways ?? fallback.keyTakeaways;
+  const faq = geo.faq ?? fallback.faq;
+  const subheads = geo.subheads ?? fallback.subheads;
+  return {
+    ...(keyTakeaways ? { keyTakeaways } : {}),
+    ...(faq ? { faq } : {}),
+    ...(subheads ? { subheads } : {}),
+  };
 }

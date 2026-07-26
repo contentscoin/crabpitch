@@ -544,6 +544,45 @@ export default function AdminPage() {
           </CardContent>
         </Card>
 
+        {packSync && packSync.pressGuideRecheck.length > 0 && (
+          <Card>
+            <CardContent className="space-y-2 pt-5">
+              <div className="text-sm font-bold text-warning">
+                PR 지식 팩 새 시리즈 {packSync.pressGuideRecheck.length}건 — 규범 재대조 필요
+              </div>
+              <p className="text-xs text-muted">
+                보도자료·표시광고법 규범의 정본은 <code>convex/lib/pressGuide.ts</code>이고, 각 상수
+                블록에 추출 근거 문서 ID가 주석으로 적혀 있습니다. 새 시리즈가 나오면 그 주석을
+                기준으로 값이 바뀌었는지 확인한 뒤 반영하세요. 자동 전환은 하지 않습니다.
+              </p>
+              <ul className="space-y-1 text-xs text-foreground-muted">
+                {packSync.pressGuideRecheck.map((p) => (
+                  <li key={p.packageId}>
+                    · {p.name ?? p.packageId}
+                    {p.capturedAt ? ` (${p.capturedAt.slice(0, 10)})` : ""}
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+
+        {packSync?.integrity.expected !== undefined &&
+          packSync.integrity.actual < packSync.integrity.expected && (
+            <Card>
+              <CardContent className="space-y-1 pt-5">
+                <div className="text-sm font-bold text-warning">
+                  정합성 — 반입 {packSync.integrity.actual}명 / 기준 {packSync.integrity.expected}명
+                </div>
+                <p className="text-xs text-muted">
+                  기자단 reference 팩이 선언한 인원보다 적게 반입됐습니다. 위 팩 표에서 결손(partial)
+                  팩을 확인하세요. 상류 인제스트 단계에서 청크가 유실된 팩은 재동기화로 채워지지
+                  않습니다.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
         <Card>
           <CardContent className="space-y-3 pt-5">
             <div>

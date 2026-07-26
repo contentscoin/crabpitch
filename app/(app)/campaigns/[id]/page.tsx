@@ -389,6 +389,8 @@ export default function CampaignDetailPage() {
         </Card>
       </StepSection>
 
+      {sentCount > 0 && <FollowUpSection campaignId={id} />}
+
       {/* 회신 처리 */}
       <StepSection icon={Inbox} step="⑤" title="회신 응대" desc="기자 회신을 붙여넣으면 7유형으로 분류하고 답장 초안을 만듭니다.">
         <ReplyComposer campaignId={id} drafts={drafts ?? []} />
@@ -910,5 +912,96 @@ function ReplyItem({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * 팔로업 — 무회신 발송 건에 **새 정보를 담아** 한 번 더 접촉한다.
+ * 최소 간격·새 정보·재탕 여부는 서버가 판정하므로 여기서는 안내와 입력만 다룬다.
+ */
+function FollowUpSection({ campaignId }: { campaignId: Id<"campaigns"> }) {
+  const candidates = useQuery(api.drafts.listFollowUpCandidates, { campaignId });
+  const createFollowUp = useMutation(api.drafts.createFollowUp);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [news, setNews] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  if (!candidates || candidates.length === 0) return null;
+  const eligible = candidates.filter((c) => c.eligible);
+
+  async function submit(draftId: string) {
+    setBusy(true);
+    setNote(null);
+    try {
+      await createFollowUp({ draftId: draftId as Id<"emailDrafts">, newsUpdate: news });
+      setNews("");
+      setOpenId(null);
+      setNote("팔로업 초안을 만들었습니다. ③단계 초안 목록에서 확인하고 발송하세요.");
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "팔로업 초안 생성에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <StepSection
+      icon={Send}
+      step="④-b"
+      title="팔로업"
+      desc="회신이 없는 건에 한해, 새로 생긴 사실이 있을 때만 한 번 더 보냅니다."
+    >
+      <p className="mb-3 text-xs text-muted">
+        같은 내용을 다시 보내는 것은 스팸입니다. 지난 메일 이후 새로 확정된 사실이 없으면
+        팔로업하지 않는 편이 낫습니다. 최소 간격·재탕 여부는 서버가 확인합니다.
+      </p>
+      {eligible.length === 0 ? (
+        <p className="text-sm text-muted">
+          아직 팔로업할 수 있는 건이 없습니다. ({candidates[0]?.reason ?? "대기 중"})
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {eligible.map((c) => (
+            <li key={c.draftId} className="rounded-lg border border-border bg-card p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold">{c.subject}</div>
+                  <div className="mt-0.5 text-xs text-muted">
+                    → {c.code} · {c.outlet} · 발송 {c.daysSinceSent}일 경과 · 무회신
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="subtle"
+                  onClick={() => {
+                    setOpenId(openId === c.draftId ? null : c.draftId);
+                    setNote(null);
+                  }}
+                >
+                  {openId === c.draftId ? "닫기" : "팔로업 작성"}
+                </Button>
+              </div>
+              {openId === c.draftId && (
+                <div className="mt-3 space-y-2">
+                  <Label htmlFor={`news-${c.draftId}`}>지난 메일 이후 새로 생긴 사실</Label>
+                  <Textarea
+                    id={`news-${c.draftId}`}
+                    rows={3}
+                    value={news}
+                    onChange={(e) => setNews(e.target.value)}
+                    placeholder="예) 어제 대형 유통사와 공급 계약을 체결했습니다. 계약 규모 12억 원(계약서 기준), 내년 1월 납품 시작."
+                  />
+                  <Button size="sm" disabled={busy || news.trim().length < 20} onClick={() => submit(c.draftId)}>
+                    {busy ? "만드는 중…" : "팔로업 초안 만들기"}
+                  </Button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {note && <p className="mt-2 text-xs text-foreground-muted">{note}</p>}
+    </StepSection>
   );
 }

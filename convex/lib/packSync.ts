@@ -384,7 +384,7 @@ export function resolveArticleDate(
 
 /* ── 매체 유형(outletCategory) 정적 매핑 ────────────────────── */
 
-export type OutletCategory = "newswire" | "it" | "economy" | "general";
+export type OutletCategory = "newswire" | "broadcast" | "it" | "economy" | "general";
 
 /**
  * 네이버 뉴스 OID → 매체 유형.
@@ -396,6 +396,13 @@ export const NAVER_OID_CATEGORY: Record<string, OutletCategory> = {
   "001": "newswire", // 연합뉴스
   "003": "newswire", // 뉴시스
   "421": "newswire", // 뉴스1
+  // 방송 — 영상 자료(B-roll)와 1페이저를 먼저 원한다
+  "056": "broadcast", // KBS
+  "214": "broadcast", // MBC
+  "055": "broadcast", // SBS
+  "052": "broadcast", // YTN
+  "437": "broadcast", // JTBC
+  "422": "broadcast", // 연합뉴스TV
   // IT·테크 전문지
   "030": "it", // 전자신문
   "092": "it", // 지디넷코리아

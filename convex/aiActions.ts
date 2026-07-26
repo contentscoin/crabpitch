@@ -12,6 +12,7 @@ import {
   parsePolishPressResult,
   pressPolishSystemPrompt,
   pressPolishUserPrompt,
+  type PolishPressResult,
 } from "./lib/anthropicEnhance";
 import { lintPressRelease, type PressLintResult } from "./lib/pressLint";
 import {
@@ -31,6 +32,16 @@ import {
   type LlmProvider,
 } from "./lib/llm";
 import { llmProviderValidator } from "./aiKeys";
+// S11 회신 분류 폴백
+import { classifyReply, type ReplyType } from "./lib/replyClassifier";
+import {
+  maskReplyForLlm,
+  needsLlmFallback,
+  parseReplyClassification,
+  replyClassifySystemPrompt,
+  replyClassifyUserPrompt,
+  REPLY_TYPE_LABELS,
+} from "./lib/replyLlm";
 
 interface ResolvedLlm {
   provider: LlmProvider;
@@ -255,15 +266,14 @@ export const polishPressRelease = action({
   handler: async (
     ctx,
     args,
-  ): Promise<{
-    title: string;
-    headlines: string[];
-    body: string;
-    mode: "anthropic" | "openai" | "gemini" | "skipped" | "error";
-    message?: string;
-    /** 결정적 lint 결과 — 1차는 warn-only(저장을 막지 않는다) */
-    lint: PressLintResult;
-  }> => {
+  ): Promise<
+    PolishPressResult & {
+      mode: "anthropic" | "openai" | "gemini" | "skipped" | "error";
+      message?: string;
+      /** 결정적 lint 결과 — 1차는 warn-only(저장을 막지 않는다) */
+      lint: PressLintResult;
+    }
+  > => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("로그인이 필요합니다.");
 
@@ -506,6 +516,109 @@ export const enhanceMediaKit = action({
         error: msg,
       });
       return { kit, gaps: [], mode: "error", message: msg };
+    }
+  },
+});
+
+/* ── 기자 회신 분류 BYOK 폴백 (S11) ──────────────────────────
+ * 키워드 규칙이 아무 신호도 못 잡은 회신만 사용자 LLM으로 보조 분류한다.
+ * 이 액션은 "제안"까지만 만든다 — 최종 판정과 억제 리스트 등록은
+ * `replies.applyAiClassification`이 원문으로 다시 수행한다(컴플라이언스 단일 강제 지점).
+ */
+export const classifyReplyWithAi = action({
+  args: { replyId: v.id("replies") },
+  handler: async (
+    ctx,
+    { replyId },
+  ): Promise<{
+    type: ReplyType;
+    source: "rule" | "llm";
+    changed: boolean;
+    suppressed: boolean;
+    mode: "anthropic" | "openai" | "gemini" | "skipped" | "error";
+    message?: string;
+  }> => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("로그인이 필요합니다.");
+
+    const reply = await ctx.runQuery(internal.replies.getForAiClassify, { replyId, userId });
+    if (!reply) throw new Error("회신을 찾을 수 없습니다.");
+
+    const unchanged = {
+      type: reply.type,
+      source: "rule" as const,
+      changed: false,
+      suppressed: false,
+    };
+    if (reply.locked) {
+      return { ...unchanged, mode: "skipped", message: "이미 처리된 회신입니다." };
+    }
+
+    // 규칙이 신호를 잡았으면 호출 자체를 하지 않는다 — 결정적 동작 보존 + 회신당 비용 절약.
+    const rule = classifyReply(reply.rawBody);
+    if (!needsLlmFallback(rule)) {
+      return {
+        ...unchanged,
+        type: rule.type,
+        mode: "skipped",
+        message: `규칙이 '${rule.matched}' 신호로 분류했습니다 — AI 보조가 필요 없습니다.`,
+      };
+    }
+
+    // 크랩피치는 공용 LLM 키를 두지 않는다 — 키가 없으면 규칙 결과(확인 질문)를 그대로 쓴다.
+    const resolved = await resolveLlm(ctx, userId);
+    if (!resolved) {
+      return { ...unchanged, type: rule.type, mode: "skipped", message: NO_KEY_MESSAGE };
+    }
+
+    try {
+      const raw = await callLlm(
+        resolved,
+        replyClassifySystemPrompt(),
+        // PII 마스킹: 회신 원문에 섞인 기자 이메일·전화는 외부 제공자로 나가지 않는다.
+        replyClassifyUserPrompt(maskReplyForLlm(reply.rawBody)),
+      );
+      const proposal = raw ? parseReplyClassification(raw) : null;
+      await ctx.runMutation(internal.aiKeys.recordUsage, {
+        userId,
+        provider: resolved.provider,
+        ok: proposal !== null,
+        error: proposal ? undefined : raw ? "7유형 밖 응답 또는 파싱 실패" : "빈 응답",
+      });
+      if (!proposal) {
+        return {
+          ...unchanged,
+          type: rule.type,
+          mode: "error",
+          message: `${providerLabel(resolved.provider)} 응답을 쓸 수 없어 규칙 분류를 유지합니다.`,
+        };
+      }
+
+      const applied = await ctx.runMutation(internal.replies.applyAiClassification, {
+        replyId,
+        userId,
+        proposal: {
+          type: proposal.type,
+          ...(proposal.questionSubtype ? { questionSubtype: proposal.questionSubtype } : {}),
+        },
+      });
+      const suppressNote = applied.suppressed ? " 수신거부로 판정해 억제 리스트에 등록했습니다." : "";
+      return {
+        ...applied,
+        mode: resolved.provider,
+        message: applied.changed
+          ? `${providerLabel(resolved.provider)}가 '${REPLY_TYPE_LABELS[applied.type]}'으로 다시 분류했습니다.${suppressNote}`
+          : `${providerLabel(resolved.provider)}도 기존 분류를 유지했습니다.`,
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "회신 분류 실패";
+      await ctx.runMutation(internal.aiKeys.recordUsage, {
+        userId,
+        provider: resolved.provider,
+        ok: false,
+        error: msg,
+      });
+      return { ...unchanged, type: rule.type, mode: "error", message: msg };
     }
   },
 });

@@ -1,5 +1,12 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+  type MutationCtx,
+} from "./_generated/server";
 import { requireUser } from "./model";
 import {
   classifyReply,
@@ -9,8 +16,28 @@ import {
   type QuestionSubtype,
   type ReplyType,
 } from "./lib/replyClassifier";
+import { resolveReplyClassification } from "./lib/replyLlm";
 import { journalistCode } from "./lib/mask";
 import { defaultInterviewSlots, formatInterviewConfirmDraft } from "./lib/interviewSlots";
+import { replyTypeValidator } from "./schema";
+
+/**
+ * 수신거부 판정 시 억제 리스트 등록 — **분류 경로(규칙/AI 폴백)와 무관하게** 서버가 강제한다.
+ * 등록 지점이 갈라지면 한쪽만 고쳐지는 드리프트가 생기므로 단일 함수로 둔다.
+ */
+async function ensureSuppressed(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  email: string,
+  reason: string,
+): Promise<void> {
+  const existing = await ctx.db
+    .query("suppressionList")
+    .withIndex("by_user_email", (q) => q.eq("userId", userId).eq("email", email))
+    .unique();
+  if (existing) return;
+  await ctx.db.insert("suppressionList", { userId, email, reason });
+}
 
 /** 기자 회신 입력 → 7유형 분류 + 답장 초안 생성. 수신거부는 즉시 억제 리스트 반영. */
 export const add = mutation({
@@ -52,17 +79,7 @@ export const add = mutation({
     });
 
     if (type === "unsubscribe") {
-      const existing = await ctx.db
-        .query("suppressionList")
-        .withIndex("by_user_email", (q) => q.eq("userId", userId).eq("email", j.email))
-        .unique();
-      if (!existing) {
-        await ctx.db.insert("suppressionList", {
-          userId,
-          email: j.email,
-          reason: "기자 회신 수신거부",
-        });
-      }
+      await ensureSuppressed(ctx, userId, j.email, "기자 회신 수신거부");
     }
 
     if (type === "published") {
@@ -225,5 +242,128 @@ export const refreshInterviewSlots = mutation({
     });
     await ctx.db.patch(id, { interviewSlots, draftResponse });
     return interviewSlots;
+  },
+});
+
+/* ── S11: BYOK 회신 분류 폴백 (aiActions.classifyReplyWithAi 전용) ──────────
+ * LLM 실호출은 액션("use node")에서 하고, 여기서는 입력 제공과 **최종 판정·억제 등록**만 맡는다.
+ * 판정을 액션 결과에 맡기지 않는 이유는 컴플라이언스다 — 키워드 우선순위와 억제 등록은
+ * DB를 실제로 쓰는 이 계층에서 다시 강제해야 우회 경로가 남지 않는다.
+ */
+
+/** 분류 폴백 입력 조회. 회신 본문 외 기자 PII(실명·이메일)는 액션으로 내보내지 않는다. */
+export const getForAiClassify = internalQuery({
+  args: { replyId: v.id("replies"), userId: v.id("users") },
+  returns: v.union(
+    v.object({
+      rawBody: v.string(),
+      type: replyTypeValidator,
+      /** 이미 처리·확정된 회신 — 재분류로 사용자가 손댄 초안을 덮어쓰면 안 된다 */
+      locked: v.boolean(),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, { replyId, userId }) => {
+    const r = await ctx.db.get(replyId);
+    if (!r) return null;
+    const campaign = await ctx.db.get(r.campaignId);
+    if (!campaign || campaign.userId !== userId) return null;
+    return {
+      rawBody: r.rawBody,
+      type: r.type,
+      locked: r.handled || r.interviewConfirmedAt !== undefined,
+    };
+  },
+});
+
+/**
+ * LLM이 제안한 유형 적용. **제안은 제안일 뿐** — 서버가 원문으로 다시 판정한다.
+ * ① 키워드가 잡히면 제안을 아예 보지 않고 규칙 결과를 쓴다(`resolveReplyClassification`).
+ * ② 최종이 수신거부면 규칙 경로와 똑같이 억제 리스트에 등록한다.
+ * ③ 게재 통보로 인한 초안 상태 전이는 규칙 경로에만 남긴다 — 억제는 과잉 적용해도 안전하지만
+ *    발송 이력을 'published'로 바꾸는 건 LLM 오판 시 되돌리기 어려운 상태 변경이다.
+ */
+export const applyAiClassification = internalMutation({
+  args: {
+    replyId: v.id("replies"),
+    userId: v.id("users"),
+    proposal: v.union(
+      v.object({
+        type: replyTypeValidator,
+        questionSubtype: v.optional(
+          v.union(
+            v.literal("numbers"),
+            v.literal("competitor"),
+            v.literal("intent"),
+            v.literal("roadmap"),
+            v.literal("negative"),
+          ),
+        ),
+      }),
+      v.null(),
+    ),
+  },
+  returns: v.object({
+    type: replyTypeValidator,
+    source: v.union(v.literal("rule"), v.literal("llm")),
+    changed: v.boolean(),
+    /** 억제 리스트에 올라 있는가 — 수신거부 판정 시 항상 true */
+    suppressed: v.boolean(),
+  }),
+  handler: async (ctx, { replyId, userId, proposal }) => {
+    const r = await ctx.db.get(replyId);
+    if (!r) throw new Error("회신을 찾을 수 없습니다.");
+    const campaign = await ctx.db.get(r.campaignId);
+    if (!campaign || campaign.userId !== userId) throw new Error("권한이 없습니다.");
+    if (r.handled || r.interviewConfirmedAt !== undefined) {
+      throw new Error("이미 처리된 회신입니다. 재분류할 수 없습니다.");
+    }
+
+    const resolved = resolveReplyClassification(r.rawBody, proposal);
+
+    // 초안은 유형에서 파생되므로 유형이 바뀌면 다시 만든다. 사용자가 고른 변형은 유지할 수
+    // 없다 — 변형 id는 유형별로 다르다(applyReplyTemplate과 동일 제약).
+    const interviewSlots =
+      resolved.type === "interview"
+        ? (r.interviewSlots?.length ? r.interviewSlots : [...defaultInterviewSlots()])
+        : undefined;
+    const pr = await ctx.db.get(campaign.pressReleaseId);
+    const draftResponse = buildReplyDraft(resolved.type, {
+      ...(interviewSlots && interviewSlots.length >= 3
+        ? {
+            slots: [interviewSlots[0]!, interviewSlots[1]!, interviewSlots[2]!] as [
+              string,
+              string,
+              string,
+            ],
+          }
+        : {}),
+      ...(pr?.links?.length ? { links: pr.links } : {}),
+      ...(resolved.questionSubtype ? { questionSubtype: resolved.questionSubtype } : {}),
+    });
+
+    await ctx.db.patch(replyId, {
+      type: resolved.type,
+      draftResponse,
+      templateVariant: "default",
+      interviewSlots,
+      questionSubtype: resolved.questionSubtype,
+      needsEscalation: resolved.needsEscalation,
+    });
+
+    let suppressed = false;
+    if (resolved.type === "unsubscribe") {
+      const j = await ctx.db.get(r.journalistId);
+      if (!j) throw new Error("기자를 찾을 수 없어 수신거부를 등록하지 못했습니다.");
+      await ensureSuppressed(ctx, userId, j.email, "기자 회신 수신거부(AI 분류)");
+      suppressed = true;
+    }
+
+    return {
+      type: resolved.type,
+      source: resolved.source,
+      changed: r.type !== resolved.type,
+      suppressed,
+    };
   },
 });

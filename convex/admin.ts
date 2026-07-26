@@ -9,6 +9,7 @@ import {
 } from "./lib/platformAdmin";
 import { requireUser, getProfile } from "./model";
 import { EXCLUDE_STALE_KEY, STALE_MATCH_DAYS } from "./journalists";
+import { PR_PRESSKIT_PACK } from "./lib/packRegistry";
 
 export const getAccess = query({
   args: {},
@@ -370,6 +371,22 @@ export const packSyncOverview = query({
       pendingApproval: packs
         .filter((p) => !p.syncEnabled)
         .map((p) => ({ packageId: p.packageId, name: p.name, series: p.series })),
+      /**
+       * PR 지식 팩의 새 시리즈가 발행되면 `convex/lib/pressGuide.ts`의 상수를 다시 대조해야 한다
+       * (그 파일이 규범의 정본이고, 각 블록에 추출 근거 문서 ID가 주석으로 박혀 있다).
+       * 자동 전환은 하지 않고 재대조가 필요하다는 사실만 띄운다.
+       */
+      pressGuideRecheck: packs
+        .filter((p) => p.series === "pr-presskit" && p.packageId !== PR_PRESSKIT_PACK.packageId)
+        .map((p) => ({ packageId: p.packageId, name: p.name, capturedAt: p.capturedAt })),
+      /**
+       * 정합성 — reference 팩이 선언한 인원과 실제 반입된 팩 유래 기자 수 대조.
+       * 배치 팩 결손(예: batch-025)이 있으면 여기서 차이로 드러난다.
+       */
+      integrity: {
+        expected: packs.find((p) => p.series === "journalist-reference")?.recordCount,
+        actual: journalists.filter((j) => j.source === "opencrab").length,
+      },
       recentRuns: runs.slice(0, 30).map((r) => ({
         packageId: r.packageId,
         status: r.status,

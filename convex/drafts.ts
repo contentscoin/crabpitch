@@ -4,9 +4,15 @@ import { internal } from "./_generated/api";
 import { requireUser, getProfile, bumpSends } from "./model";
 import {
   buildEmailDraftWithPreset,
+  ctaLine,
   renderCustomTemplate,
   type JournalistContext,
 } from "./lib/emailTemplate";
+import {
+  buildFollowUpDraft,
+  checkFollowUpEligibility,
+  isCopyPaste,
+} from "./lib/followUp";
 
 const emailTemplatePresetValidator = v.union(
   v.literal("standard"),
@@ -604,5 +610,128 @@ export const applyEnhancedDrafts = internalMutation({
       await ctx.db.patch(u.draftId, { subject: u.subject, body: u.body });
     }
     return updates.length;
+  },
+});
+
+/* ── 팔로업 (S13) ────────────────────────────────────────────
+ * 무회신 + 최소 간격 경과 + **새 정보 필수**. 같은 내용을 다시 보내는 것은 스팸이므로
+ * 재탕이면 서버가 거부한다. 발송 게이트는 팔로업도 예외 없이 통과한다.
+ */
+
+/** 팔로업 가능한 발송 건 목록(익명 코드만 — 실명·이메일 미포함). */
+export const listFollowUpCandidates = query({
+  args: { campaignId: v.id("campaigns") },
+  handler: async (ctx, { campaignId }) => {
+    const userId = await requireUser(ctx);
+    const campaign = await ctx.db.get(campaignId);
+    if (!campaign || campaign.userId !== userId) return [];
+
+    const drafts = await ctx.db
+      .query("emailDrafts")
+      .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
+      .collect();
+    const replies = await ctx.db
+      .query("replies")
+      .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
+      .collect();
+    const repliedJournalists = new Set(replies.map((r) => String(r.journalistId)));
+    // 이미 팔로업을 만든 건은 다시 후보로 올리지 않는다.
+    const alreadyFollowedUp = new Set(
+      drafts.filter((d) => d.followUpOf).map((d) => String(d.followUpOf)),
+    );
+
+    const now = Date.now();
+    const out = [];
+    for (const d of drafts) {
+      if (d.status !== "sent") continue;
+      if (alreadyFollowedUp.has(String(d._id))) continue;
+      const check = checkFollowUpEligibility(
+        d.sentAt,
+        repliedJournalists.has(String(d.journalistId)),
+        now,
+      );
+      const j = await ctx.db.get(d.journalistId);
+      out.push({
+        draftId: d._id,
+        code: journalistCode(d.journalistId),
+        outlet: j?.outlet ?? "?",
+        subject: d.subject,
+        sentAt: d.sentAt,
+        eligible: check.eligible,
+        reason: check.reason,
+        daysSinceSent: check.daysSinceSent,
+      });
+    }
+    return out.sort((a, b) => (b.sentAt ?? 0) - (a.sentAt ?? 0));
+  },
+});
+
+/** 팔로업 초안 생성. 새 정보가 없거나 원본과 너무 비슷하면 거부한다. */
+export const createFollowUp = mutation({
+  args: { draftId: v.id("emailDrafts"), newsUpdate: v.string() },
+  handler: async (ctx, { draftId, newsUpdate }) => {
+    const userId = await requireUser(ctx);
+    const original = await ctx.db.get(draftId);
+    if (!original) throw new Error("원본 초안을 찾을 수 없습니다.");
+    const campaign = await ctx.db.get(original.campaignId);
+    if (!campaign || campaign.userId !== userId) throw new Error("권한이 없습니다.");
+
+    const update = newsUpdate.trim();
+    if (update.length < 20) {
+      throw new Error(
+        "팔로업에는 지난 메일 이후 새로 생긴 정보가 필요합니다. 같은 내용을 다시 보내지 마세요.",
+      );
+    }
+
+    const replies = await ctx.db
+      .query("replies")
+      .withIndex("by_campaign", (q) => q.eq("campaignId", original.campaignId))
+      .collect();
+    const hasReply = replies.some(
+      (r) => String(r.journalistId) === String(original.journalistId),
+    );
+    const check = checkFollowUpEligibility(original.sentAt, hasReply, Date.now());
+    if (!check.eligible) throw new Error(check.reason ?? "지금은 팔로업할 수 없습니다.");
+
+    const existing = await ctx.db
+      .query("emailDrafts")
+      .withIndex("by_campaign", (q) => q.eq("campaignId", original.campaignId))
+      .collect();
+    if (existing.some((d) => String(d.followUpOf) === String(draftId))) {
+      throw new Error("이미 이 발송 건의 팔로업 초안이 있습니다.");
+    }
+
+    const profile = await getProfile(ctx, userId);
+    const pr = await ctx.db.get(campaign.pressReleaseId);
+    const j = await ctx.db.get(original.journalistId);
+
+    const { subject, body } = buildFollowUpDraft({
+      senderName: profile?.senderName ?? "담당자",
+      companyName: profile?.companyName ?? pr?.who ?? "회사",
+      originalSubject: original.subject,
+      newsUpdate: update,
+      daysSinceSent: check.daysSinceSent ?? 0,
+      cta: ctaLine(j?.outletCategory as Parameters<typeof ctaLine>[0]),
+      ...(pr?.links?.length ? { links: pr.links } : {}),
+    });
+
+    if (isCopyPaste(original.body, body)) {
+      throw new Error(
+        "지난 메일과 내용이 거의 같습니다. 새로 확정된 사실을 담아야 팔로업이 됩니다.",
+      );
+    }
+
+    const compliance = checkEmailCompliance(subject, body);
+    return await ctx.db.insert("emailDrafts", {
+      campaignId: original.campaignId,
+      journalistId: original.journalistId,
+      userId,
+      subject,
+      body,
+      status: "draft",
+      followUpOf: draftId,
+      complianceLevel: compliance.status,
+      ...(compliance.notes.length ? { complianceNotes: compliance.notes } : {}),
+    });
   },
 });

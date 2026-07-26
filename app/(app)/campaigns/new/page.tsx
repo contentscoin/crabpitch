@@ -6,7 +6,14 @@ import { useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { PressLintResult, PressViolation } from "@/convex/lib/pressLint";
-import { FileText, ListChecks, Sparkles, Wand2 } from "lucide-react";
+import {
+  parsePressGeoFields,
+  SUBHEAD_HINT,
+  SUBHEAD_MAX,
+  type PressFaqItem,
+} from "@/convex/lib/anthropicEnhance";
+import { GEO_TARGETS } from "@/convex/lib/pressGuide";
+import { FileText, ListChecks, Plus, Sparkles, Trash2, Wand2 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
@@ -27,6 +34,14 @@ const SEVERITY_BADGE: Record<
   medium: { variant: "outline", label: "참고" },
 };
 
+/** 줄바꿈 입력 → 배열. 빈 줄은 버린다. */
+function lines(text: string): string[] {
+  return text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
 export default function NewCampaignPage() {
   const router = useRouter();
   const createPR = useMutation(api.pressReleases.create);
@@ -38,6 +53,8 @@ export default function NewCampaignPage() {
   const [form, setForm] = useState({
     who: "",
     headline: "",
+    subheads: "",
+    keyTakeaways: "",
     body: "",
     numbers: "",
     quote: "",
@@ -45,6 +62,8 @@ export default function NewCampaignPage() {
     links: "",
     boilerplate: "",
   });
+  /** GEO 하단 Q&A — 문항 수를 강제하지 않는다(팩에 규정 없음). 사용자가 직접 추가·삭제한다. */
+  const [faq, setFaq] = useState<PressFaqItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [polishing, setPolishing] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -57,6 +76,10 @@ export default function NewCampaignPage() {
 
   function set<K extends keyof typeof form>(k: K, v: string) {
     setForm((f) => ({ ...f, [k]: v }));
+  }
+
+  function setFaqField(i: number, k: keyof PressFaqItem, v: string) {
+    setFaq((list) => list.map((item, idx) => (idx === i ? { ...item, [k]: v } : item)));
   }
 
   const kits = mediaKits ?? [];
@@ -95,11 +118,16 @@ export default function NewCampaignPage() {
       });
       // skipped/error 폴백은 입력값 그대로라 폼을 덮어쓰지 않는다.
       if (result.mode !== "skipped" && result.mode !== "error") {
+        // GEO 필드는 응답 페이로드에서 방어적으로 읽는다 — 모델이 빼먹으면 사용자가 쓰던 값을 그대로 둔다.
+        const geo = parsePressGeoFields(result);
         setForm((f) => ({
           ...f,
           headline: result.headlines[0] ?? result.title,
           body: result.body,
+          subheads: geo.subheads ? geo.subheads.join("\n") : f.subheads,
+          keyTakeaways: geo.keyTakeaways ? geo.keyTakeaways.join("\n") : f.keyTakeaways,
         }));
+        if (geo.faq) setFaq(geo.faq);
         setLintedText(`${result.headlines[0] ?? result.title}\n${result.body}`);
       } else {
         setLintedText(`${form.headline}\n${form.body}`);
@@ -132,6 +160,12 @@ export default function NewCampaignPage() {
         .map((l) => l.trim())
         .filter(Boolean);
       const title = form.headline || `${form.who} 보도자료`;
+      // GEO 필드는 비어 있으면 아예 넘기지 않는다 — 기존처럼 필드 없는 레코드가 만들어진다.
+      const keyTakeaways = lines(form.keyTakeaways).slice(0, GEO_TARGETS.keyTakeaways);
+      const subheads = lines(form.subheads).slice(0, SUBHEAD_MAX);
+      const faqItems = faq
+        .map((f) => ({ q: f.q.trim(), a: f.a.trim() }))
+        .filter((f) => f.q && f.a);
       const prId = await createPR({
         title,
         headlines: [form.headline, form.numbers ? `${form.headline} — 수치` : title, `${title} — 업계`].filter(
@@ -143,6 +177,9 @@ export default function NewCampaignPage() {
         numbers: form.numbers || undefined,
         quote: form.quote || undefined,
         links: links.length ? links : undefined,
+        keyTakeaways: keyTakeaways.length ? keyTakeaways : undefined,
+        subheads: subheads.length ? subheads : undefined,
+        faq: faqItems.length ? faqItems : undefined,
       });
       const campaignId = await createCampaign({ pressReleaseId: prId });
       router.push(`/campaigns/${campaignId}`);
@@ -156,6 +193,8 @@ export default function NewCampaignPage() {
     .split(/[,\s]+/)
     .map((t) => t.trim())
     .filter(Boolean);
+  const takeawayList = lines(form.keyTakeaways);
+  const subheadList = lines(form.subheads);
 
   const lintStale = lint !== null && lintedText !== `${form.headline}\n${form.body}`;
 
@@ -206,6 +245,39 @@ export default function NewCampaignPage() {
             </div>
 
             <div>
+              <Label htmlFor="subheads">부제 (한 줄에 하나)</Label>
+              <Textarea
+                id="subheads"
+                value={form.subheads}
+                onChange={(e) => set("subheads", e.target.value)}
+                rows={2}
+                placeholder={"예) 정산 소요 시간 4시간 → 20분\n예) 도입 매장 3개월 만에 1만 곳"}
+              />
+              <p className="mt-1 text-xs text-muted">
+                제목을 보완하는 보조 포인트입니다({SUBHEAD_HINT}). 위에서부터 {SUBHEAD_MAX}개까지 저장합니다
+                {subheadList.length > SUBHEAD_MAX ? ` — 지금 ${subheadList.length}줄이라 뒤쪽은 빠집니다.` : "."}
+              </p>
+            </div>
+
+            <div>
+              <Label htmlFor="keyTakeaways">{GEO_TARGETS.keyTakeaways}줄 요약 (한 줄에 하나)</Label>
+              <Textarea
+                id="keyTakeaways"
+                value={form.keyTakeaways}
+                onChange={(e) => set("keyTakeaways", e.target.value)}
+                rows={3}
+                placeholder={"예) 큐레잇이 시드 10억 원을 유치했다.\n예) 정산 처리 시간을 4시간에서 20분으로 줄였다.\n예) 연내 도입 매장 2만 곳을 목표로 한다."}
+              />
+              <p className="mt-1 text-xs text-muted">
+                보도자료 최상단에 붙는 요약입니다. 수치를 함께 적으면 생성형 AI 검색이 인용하기 좋습니다. 위에서부터{" "}
+                {GEO_TARGETS.keyTakeaways}줄까지 저장합니다
+                {takeawayList.length > GEO_TARGETS.keyTakeaways
+                  ? ` — 지금 ${takeawayList.length}줄이라 뒤쪽은 빠집니다.`
+                  : "."}
+              </p>
+            </div>
+
+            <div>
               <Label htmlFor="numbers">숫자 근거</Label>
               <Input
                 id="numbers"
@@ -235,6 +307,59 @@ export default function NewCampaignPage() {
                 onChange={(e) => set("quote", e.target.value)}
                 placeholder="바로 인용 가능한 구체적 코멘트"
               />
+            </div>
+
+            <div>
+              <div className="mb-1.5 flex flex-wrap items-end justify-between gap-2">
+                <Label className="mb-0">하단 Q&amp;A (FAQ)</Label>
+                <Button
+                  type="button"
+                  variant="subtle"
+                  size="sm"
+                  onClick={() => setFaq((list) => [...list, { q: "", a: "" }])}
+                >
+                  <Plus className="h-3.5 w-3.5" /> 문항 추가
+                </Button>
+              </div>
+              {faq.length === 0 ? (
+                <p className="rounded-md border border-dashed border-border px-3 py-3 text-xs text-muted">
+                  본문 아래에 붙는 Q&amp;A입니다. 생성형 AI가 답변을 만들 때 그대로 인용하기 좋은 형태라, 기자가 실제로
+                  물을 질문만 담으면 됩니다. 문항 수 제한은 없습니다.
+                </p>
+              ) : (
+                <ul className="space-y-3">
+                  {faq.map((item, i) => (
+                    <li key={i} className="space-y-2 rounded-md border border-border bg-surface/50 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-foreground">Q{i + 1}</span>
+                        <button
+                          type="button"
+                          onClick={() => setFaq((list) => list.filter((_, idx) => idx !== i))}
+                          className="inline-flex items-center gap-1 text-xs text-muted hover:text-danger"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" /> 삭제
+                        </button>
+                      </div>
+                      <Input
+                        aria-label={`FAQ ${i + 1} 질문`}
+                        value={item.q}
+                        onChange={(e) => setFaqField(i, "q", e.target.value)}
+                        placeholder="예) 기존 정산 방식과 무엇이 다른가?"
+                      />
+                      <Textarea
+                        aria-label={`FAQ ${i + 1} 답변`}
+                        value={item.a}
+                        onChange={(e) => setFaqField(i, "a", e.target.value)}
+                        rows={2}
+                        placeholder="본문에 있는 사실로만 답합니다. 수치를 쓰면 기준·출처를 함께 적습니다."
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-1 text-xs text-muted">
+                질문과 답변이 모두 채워진 문항만 저장됩니다.
+              </p>
             </div>
 
             <div>

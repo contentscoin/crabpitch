@@ -110,6 +110,9 @@ export function ctaLine(category: OutletCategory | undefined): string {
   switch (category) {
     case "newswire":
       return "원문 자료와 이미지가 준비돼 있습니다. 회신 주시면 바로 송부드리겠습니다.";
+    case "broadcast":
+      // 방송은 텍스트 자료보다 영상·1페이저를 먼저 본다.
+      return "1페이저와 B-roll 영상 자료가 준비돼 있습니다. 회신 주시면 바로 송부드리겠습니다.";
     case "it":
       return "기술 구조와 실측 데이터를 정리해 두었습니다. 필요하시면 회신 주세요.";
     case "economy":
@@ -119,16 +122,72 @@ export function ctaLine(category: OutletCategory | undefined): string {
   }
 }
 
-// beat별 앵글 조정 (journalist-outreach-email 표)
-function beatAngle(beat: string, ctx: EmailContext): string {
-  const b = beat.toLowerCase();
-  if (b.includes("투자") || b.includes("벤처") || b.includes("핀테크"))
-    return `${ctx.bodyFact} 이번 라운드의 의미와 성장 지표를 중심으로 정리했습니다.`;
-  if (b.includes("ai") || b.includes("데이터") || b.includes("소프트웨어") || b.includes("제품"))
-    return `${ctx.bodyFact} 기술 차별점과 사용성 관점에서 자료를 준비했습니다.`;
-  if (b.includes("유통") || b.includes("커머스"))
-    return `${ctx.bodyFact} 판매·입점·소비 트렌드 관점의 자료를 함께 드립니다.`;
-  return ctx.bodyFact;
+/**
+ * beat별 앵글 — 같은 사실을 그 기자가 평소 쓰는 관점으로 다시 말한다.
+ *
+ * 판정은 **주력 beat 우선**이다. beat 분포가 있으면 비중이 가장 큰 것부터 보고,
+ * 없으면 beatPrimary → beatSecondary 순으로 본다. 어디에도 안 걸리면 사실만 전한다
+ * (억지 앵글은 티가 나고 역효과다).
+ */
+const BEAT_ANGLES: Array<{ match: RegExp; angle: (fact: string) => string }> = [
+  {
+    match: /투자|벤처|스타트업|ir|펀딩/i,
+    angle: (f) => `${f} 이번 라운드의 의미와 성장 지표를 중심으로 정리했습니다.`,
+  },
+  {
+    match: /핀테크|금융|결제|보험|은행/i,
+    angle: (f) => `${f} 규제 대응과 사용자 보호 관점의 자료를 함께 드립니다.`,
+  },
+  {
+    match: /ai|인공지능|데이터|소프트웨어|제품|it|테크|클라우드/i,
+    angle: (f) => `${f} 기술 차별점과 사용성 관점에서 자료를 준비했습니다.`,
+  },
+  {
+    match: /반도체|하드웨어|제조|부품/i,
+    angle: (f) => `${f} 공정·수율과 공급망 관점의 수치를 정리했습니다.`,
+  },
+  {
+    match: /유통|커머스|리테일|물류/i,
+    angle: (f) => `${f} 판매·입점·소비 트렌드 관점의 자료를 함께 드립니다.`,
+  },
+  {
+    match: /바이오|헬스|의료|제약/i,
+    angle: (f) => `${f} 임상·인허가 단계와 검증 근거를 함께 정리했습니다.`,
+  },
+  {
+    match: /게임|콘텐츠|미디어|엔터/i,
+    angle: (f) => `${f} 이용자 반응과 콘텐츠 파이프라인 관점에서 준비했습니다.`,
+  },
+  {
+    match: /모빌리티|자동차|배터리|에너지|환경/i,
+    angle: (f) => `${f} 실증 데이터와 친환경 효과를 수치로 정리했습니다.`,
+  },
+  {
+    match: /정책|규제|공공|행정/i,
+    angle: (f) => `${f} 제도 변화와 산업 영향 관점의 배경 자료를 준비했습니다.`,
+  },
+];
+
+export function beatAngleFor(beats: string[], fact: string): string {
+  for (const beat of beats) {
+    if (!beat) continue;
+    const hit = BEAT_ANGLES.find((entry) => entry.match.test(beat));
+    if (hit) return hit.angle(fact);
+  }
+  return fact;
+}
+
+/** 기자 컨텍스트에서 앵글 판정에 쓸 beat를 비중 순으로 뽑는다. */
+function orderedBeats(j: JournalistContext): string[] {
+  const fromDist = (j.beatDistribution ?? [])
+    .slice()
+    .sort((a, b) => b.weight - a.weight)
+    .map((d) => d.beat);
+  return [...fromDist, j.beatPrimary, ...(j.beatSecondary ?? [])].filter(Boolean);
+}
+
+function beatAngle(j: JournalistContext, ctx: EmailContext): string {
+  return beatAngleFor(orderedBeats(j), ctx.bodyFact);
 }
 
 /**
@@ -140,7 +199,7 @@ export function buildEmailDraft(
   j: JournalistContext,
 ): { subject: string; body: string } {
   const subject = `[${email.companyName}] ${truncate(email.headline, 22)}`;
-  const angle = beatAngle(j.beatPrimary, email);
+  const angle = beatAngle(j, email);
 
   const body = assemble([
     embargoLine(email.embargoAt) || undefined,
@@ -259,6 +318,9 @@ export function buildEmailDraftWithPreset(
   const embargo = embargoLine(email.embargoAt) || undefined;
   const embargoNote = embargoAssetNote(email.embargoAt) || undefined;
   const cta = ctaLine(j.outletCategory);
+  // 핵심 블록의 beat 재프레이밍은 프리셋도 공유한다 — 프리셋이 다른 건 배치와 압축률이지
+  // "그 기자의 관점으로 말한다"는 원칙이 아니다.
+  const angle = beatAngle(j, email);
 
   if (preset === "data") {
     const subject = `[${email.companyName}] ${truncate(email.bodyFact, 24)}`;
@@ -272,6 +334,8 @@ export function buildEmailDraftWithPreset(
       `· 수치: ${email.bodyFact}`,
       email.background ? `· 배경: ${email.background}` : undefined,
       email.meaning ? `· 의미: ${email.meaning}` : undefined,
+      "",
+      angle,
       quote || undefined,
       links || undefined,
       embargoNote,
@@ -293,7 +357,7 @@ export function buildEmailDraftWithPreset(
       email.background
         ? `${email.background}. 저희는 이 문제에서 출발했습니다.`
         : `${email.companyName}이(가) 풀려는 문제에서 출발한 이야기입니다.`,
-      `그 결과가 이번 소식입니다 — ${email.headline}. ${email.bodyFact}`,
+      `그 결과가 이번 소식입니다 — ${email.headline}. ${angle}`,
       email.meaning ? `${email.meaning}` : undefined,
       quote || undefined,
       links || undefined,
@@ -312,7 +376,7 @@ export function buildEmailDraftWithPreset(
     embargo,
     `기자님, 안녕하세요. ${email.senderName}입니다.`,
     hook,
-    `${email.companyName}: ${email.headline}. ${email.bodyFact}`,
+    `${email.companyName}: ${email.headline}. ${angle}`,
     quote || undefined,
     links || undefined,
     embargoNote,

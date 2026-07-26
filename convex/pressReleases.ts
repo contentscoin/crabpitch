@@ -43,6 +43,19 @@ export const get = query({
   },
 });
 
+/**
+ * GEO 확장 필드 검증자 — 전부 optional이라 기존 호출부는 그대로 동작한다.
+ * ⚠️ FAQ 문항 수는 규정하지 않는다(`GEO_TARGETS.faqCount`가 undefined — 팩에 규정 없음).
+ */
+const geoArgs = {
+  /** 최상단 3줄 요약 */
+  keyTakeaways: v.optional(v.array(v.string())),
+  /** 하단 Q&A */
+  faq: v.optional(v.array(v.object({ q: v.string(), a: v.string() }))),
+  /** 부제 */
+  subheads: v.optional(v.array(v.string())),
+} as const;
+
 export const create = mutation({
   args: {
     title: v.string(),
@@ -54,6 +67,7 @@ export const create = mutation({
     numbers: v.optional(v.string()),
     quote: v.optional(v.string()),
     links: v.optional(v.array(v.string())),
+    ...geoArgs,
   },
   handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
@@ -83,10 +97,43 @@ export const create = mutation({
       numbers: args.numbers,
       quote: args.quote,
       links: args.links,
+      keyTakeaways: args.keyTakeaways,
+      faq: args.faq,
+      subheads: args.subheads,
       status: "ready",
       agencyClientId: profile?.activeClientId,
     });
     await bumpPressReleases(ctx, userId, 1);
     return id;
+  },
+});
+
+/**
+ * 저장된 보도자료 부분 수정 — 전달된 필드만 덮어쓴다.
+ * 값을 넘기지 않은 필드는 건드리지 않아 기존 레코드(신규 필드가 없는 것 포함)가 그대로 남는다.
+ */
+export const update = mutation({
+  args: {
+    id: v.id("pressReleases"),
+    title: v.optional(v.string()),
+    headlines: v.optional(v.array(v.string())),
+    body: v.optional(v.string()),
+    ...geoArgs,
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireUser(ctx);
+    const pr = await ctx.db.get(args.id);
+    if (!pr || !(await canAccessClientScoped(ctx, userId, pr.userId, pr.agencyClientId))) {
+      throw new Error("보도자료를 찾을 수 없습니다.");
+    }
+    await ctx.db.patch(args.id, {
+      ...(args.title !== undefined ? { title: args.title } : {}),
+      ...(args.headlines !== undefined ? { headlines: args.headlines } : {}),
+      ...(args.body !== undefined ? { body: args.body } : {}),
+      ...(args.keyTakeaways !== undefined ? { keyTakeaways: args.keyTakeaways } : {}),
+      ...(args.faq !== undefined ? { faq: args.faq } : {}),
+      ...(args.subheads !== undefined ? { subheads: args.subheads } : {}),
+    });
+    return args.id;
   },
 });

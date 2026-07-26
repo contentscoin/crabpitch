@@ -247,6 +247,8 @@ export default defineSchema({
     complianceLevel: v.optional(v.string()),
     /** 위반 요약(사용자 노출용 한글 문구) + 발송 제외 사유 */
     complianceNotes: v.optional(v.array(v.string())),
+    /** 이 초안이 어떤 초안의 팔로업인지 — 재탕 검증·이력 추적용 */
+    followUpOf: v.optional(v.id("emailDrafts")),
   })
     .index("by_campaign", ["campaignId"])
     .index("by_campaign_journalist", ["campaignId", "journalistId"])
