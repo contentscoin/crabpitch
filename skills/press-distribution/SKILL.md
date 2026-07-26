@@ -92,6 +92,9 @@ top_reference_url, mailing_status`
 | 연락처 신뢰도 | 15 | `contact_confidence: high` 15 / medium 8 / low 3 |
 | 매체 급 | 5 | 타깃 독자와의 적합성(전문지 vs 종합지) |
 
+**관계 가점(Pro)**: `campaign-report` 스킬의 기자 관계 스코어(게재 +5, 회신 +3…)가 있으면
+위 점수에 **최대 +10**을 더해 게재 이력 기자를 우선 배치한다.
+
 점수와 **매칭 이유 한 줄**을 반드시 함께 제시한다. 예:
 > **이도원 · 지디넷코리아** (leespot@zdnet.co.kr) — 87점
 > 이유: 최근 "레드브릭하우스 카카오벤처스 투자" 등 스타트업 투자유치 기사 다수, 플랫폼/핀테크 beat 일치.
@@ -121,7 +124,8 @@ top_reference_url, mailing_status`
 3. 옵트아웃 문구 포함 여부
 4. 발송 방식 선택: **"초안만 저장(기본)" / "지금 발송" / "예약 발송"**
    단, 이 패키지의 **자동 동작은 초안 생성뿐**이다. '지금 발송'은 사용자가 Gmail 초안을 열어
-   직접 보내는 것을, '예약 발송'은 로드맵 2차 유료 기능을 의미한다(현재 자동 발송·예약 도구 없음).
+   직접 보내는 것을 의미하며, '예약 발송'은 Pro 스킬 `follow-up-scheduler`(Growth 이상)가
+   "초안 일괄 생성 + Google Calendar 발송 리마인더" 조합으로 처리한다(자동 발송 도구는 없음).
 
 이 스킬이 수행하는 유일한 Gmail 쓰기 동작은 초안 생성(`mcp__Gmail__create_draft`)이다.
 자동 발송 도구가 없으므로 스킬이 임의로 메일을 발송하지 않으며, 산출물 기본값은
@@ -135,13 +139,14 @@ top_reference_url, mailing_status`
 - 초안 저장: `mcp__Gmail__create_draft` (to, subject, body/htmlBody)
 - 실제 발송은 사용자가 Gmail 임시보관함에서 초안(`mcp__Gmail__create_draft`)을 확인한 뒤 직접 보낸다
   (예약·자동 발송은 로드맵 2차 기능 — 현재 패키지에 별도 '발송 스킬'은 없다)
-- 라벨링: `mcp__Gmail__create_label`로 `CrabPitch/캠페인명` 라벨 생성 후 발송 메일에 부착
-  → 답장 추적과 성과 집계에 사용
+- 라벨링: `mcp__Gmail__create_label`로 `언론홍보/캠페인/{캠페인명}` 라벨 생성 후 발송 메일에 부착
+  (모든 배포·회신은 Gmail **`언론홍보`** 라벨 그룹 안에서 관리) → 답장 추적과 성과 집계에 사용
 
 **추적 지표(성과 리포트용):**
 - 발송 통수 / 오픈(가능 시) / 답장 수 / 게재 확인 수
 - 답장은 `reply-handler` 스킬이 분류·처리
 - 게재 확인은 발송 후 3·7일 기자 매체에서 회사명 검색으로 확인
+- 회신율·게재율 KPI 집계와 개선 제안은 Pro 스킬 `campaign-report`(Solo 이상)가 담당
 
 ---
 
@@ -150,6 +155,13 @@ top_reference_url, mailing_status`
 - 메일 문구 → **journalist-outreach-email**
 - 기자 답장 옴 → **reply-handler**
 - 회사 소개 자료가 부실 → **media-kit-builder** 먼저 완성 권유
+
+**Pro(유료) 확장 — `skills-pro/`:**
+- 성과 집계·게재 확인·관계 스코어 → **campaign-report** (Solo+)
+- 무응답 기자 팔로업(D+7)·예약·엠바고 → **follow-up-scheduler** (Growth+)
+- 경쟁사 노출 비교·신규 매체 발굴 → **competitor-coverage** (Growth+)
+- 인터뷰 성사 시 준비·모의 인터뷰 → **interview-prep** (Solo+)
+- 대행사 멀티 클라이언트 운영 → **agency-multi-client** (Agency)
 
 ## 절대 하지 말 것
 
