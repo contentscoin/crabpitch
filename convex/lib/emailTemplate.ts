@@ -86,6 +86,16 @@ export function hasOptOut(body: string): boolean {
   return body.includes("수신거부");
 }
 
+/** 발송 직전: 초안의 '기자님' 인사에 실명 주입(DB 초안에는 실명을 저장하지 않음). */
+export function personalizeForSend(body: string, journalistName: string): string {
+  const name = journalistName.trim();
+  if (!name) return body;
+  if (body.startsWith("기자님,")) {
+    return `${name} 기자님,` + body.slice("기자님,".length);
+  }
+  return body.replace(/(^|\n)기자님,/g, `$1${name} 기자님,`);
+}
+
 function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n) + "…" : s;
 }

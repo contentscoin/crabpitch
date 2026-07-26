@@ -16,7 +16,9 @@ pnpm dev           # http://localhost:3000  (로그인 후 대시보드 '데모 
 ```
 
 - 아키텍처·도메인 모델·통합 심(seam)·배포 절차: **`docs/ARCHITECTURE.md`**
+- 프로젝트 현황·성숙도·후속 백로그: **`docs/PROJECT_ANALYSIS.md`**
 - 자격증명 없이도 데모 시드로 전 기능 동작. OpenCrab/Anthropic/Gmail 실 배선 지점은 `.env.example` 참조.
+- **유료 MCP**: Solo/Growth/Agency에서 `/ai`로 `cp_mcp_…` 키 발급 → Claude/ChatGPT/Gemini/Cursor 플러그인 등록. 가이드: **`docs/MCP-SETUP.md`**
 
 ### 🔒 기자 개인정보 보호 (앱 기본값)
 기자 **실명·이메일·연락처는 화면에 절대 표시하지 않습니다**(익명 코드 `기자 #XXXX`로 대체).
@@ -27,6 +29,7 @@ PII를 내려보내지 않습니다.
 Codex/Claude/Gemini에서 바로 쓰는 **공개 배포용** 스킬 묶음(보도문·미디어킷·기자배포·회신).
 Gmail **`언론홍보`** 라벨 워크플로우 + PII 보호가 내장돼 있으며, 기자 실데이터를 포함하지 않습니다.
 게시 저장소: **[`contentscoin/crabpitch-skill`](https://github.com/contentscoin/crabpitch-skill)** (public) — 절차는 `skills-public/PUBLISH.md` 참조.
+동기화: `pnpm sync:skills-public`
 
 ## 💎 Pro 스킬 팩 (`skills-pro/`) — 유료 구독자 전용
 요금제 기능표(기획서 6.3)에 대응하는 유료 스킬 5종(4종 직접 매핑 + interview-prep은 '답장 응대'
@@ -106,7 +109,22 @@ SKILL.md를 수정한 뒤에는 아래로 다시 생성해 소스와 배포물�
 for d in skills/*/ skills-pro/*/; do n=$(basename "$d"); [ -f "$d/SKILL.md" ] && (cd "$d" && zip -q -j "../../dist/$n.skill" SKILL.md); done
 ```
 
+## 내 AI로 작성 (BYO)
+
+웹앱은 서버 LLM API보다 **사용자 본인 ChatGPT · Claude · Gemini** + 공개 스킬 팩을 우선합니다.
+앱 메뉴 **내 AI** (`/ai`)에서:
+
+1. **CLI 설치 스크립트** (`/crabpitch-byo-ai-setup.sh` · `.ps1`) 실행 → 브라우저 로그인 창
+2. 스킬 프롬프트 복사 → CLI/웹/앱 채팅에 붙여넣기
+
+웹 페이지가 PC에 CLI를 자동 설치할 수는 없습니다(브라우저 보안). 스크립트를 받아 터미널에서 실행하세요.
+
 ## 다음에 이어서 할 것
-2차(성과 추적·예약 발송·캘린더 인터뷰·경쟁사 비교·멀티클라이언트)는 **Pro 스킬 팩(`skills-pro/`)으로
-스킬 레이어 구현 완료**. 남은 것: 웹앱 대시보드에 성과 리포트 화면 통합, 결제 연동, 대행사 API.
-자세한 로드맵은 기획서 9장 참조.
+
+1. Convex prod에 OpenCrab MCP 키 설정 + Google `/gmail/callback` 등록
+2. 설정 → **서버 연동 상태** / **내 AI** 확인
+3. (선택) 로드맵 3차 — 2차(성과 추적·예약 발송·캘린더 인터뷰·경쟁사 비교·멀티클라이언트)의
+   스킬 레이어는 **Pro 스킬 팩(`skills-pro/`)으로 구현 완료**. 남은 것: 웹앱 대시보드 성과 리포트
+   화면 통합, 결제 연동, 대행사 API.
+
+상세: `docs/PROJECT_ANALYSIS.md` · 배포: `docs/DEPLOY.md`

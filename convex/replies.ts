@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import { requireUser } from "./model";
 import { classifyReply, buildReplyDraft } from "./lib/replyClassifier";
 import { journalistCode } from "./lib/mask";
+import { defaultInterviewSlots, formatInterviewConfirmDraft } from "./lib/interviewSlots";
 
 /** 기자 회신 입력 → 7유형 분류 + 답장 초안 생성. 수신거부는 즉시 억제 리스트 반영. */
 export const add = mutation({
@@ -19,8 +20,13 @@ export const add = mutation({
     if (!j) throw new Error("기자를 찾을 수 없습니다.");
 
     const { type } = classifyReply(rawBody);
-    // ⚠️ 답장 초안에 실명 미사용("기자님"). 실명은 실제 회신 발송 시점에만.
-    const draftResponse = buildReplyDraft(type);
+    const interviewSlots = type === "interview" ? [...defaultInterviewSlots()] : undefined;
+    const draftResponse = buildReplyDraft(
+      type,
+      interviewSlots
+        ? { slots: [interviewSlots[0]!, interviewSlots[1]!, interviewSlots[2]!] }
+        : {},
+    );
 
     const id = await ctx.db.insert("replies", {
       campaignId,
@@ -29,9 +35,9 @@ export const add = mutation({
       rawBody,
       draftResponse,
       handled: false,
+      ...(interviewSlots ? { interviewSlots } : {}),
     });
 
-    // ⑥ 수신거부 → 억제 리스트 영구 등록 (컴플라이언스)
     if (type === "unsubscribe") {
       const existing = await ctx.db
         .query("suppressionList")
@@ -46,7 +52,6 @@ export const add = mutation({
       }
     }
 
-    // ④ 게재 통보 → 해당 초안 published 표시(성과 집계)
     if (type === "published") {
       const draft = await ctx.db
         .query("emailDrafts")
@@ -81,7 +86,6 @@ export const listByCampaign = query({
   },
 });
 
-/** 사용자 전체 미처리 회신(리플라이 인박스). */
 export const inbox = query({
   args: {},
   handler: async (ctx) => {
@@ -123,5 +127,50 @@ export const markHandled = mutation({
     const campaign = await ctx.db.get(r.campaignId);
     if (!campaign || campaign.userId !== userId) throw new Error("권한이 없습니다.");
     await ctx.db.patch(id, { handled: true });
+  },
+});
+
+/** 인터뷰 일정 1안 확정 → 답장 초안 갱신 + 처리 완료. */
+export const confirmInterviewSlot = mutation({
+  args: {
+    id: v.id("replies"),
+    slot: v.string(),
+  },
+  handler: async (ctx, { id, slot }) => {
+    const userId = await requireUser(ctx);
+    const r = await ctx.db.get(id);
+    if (!r) throw new Error("회신을 찾을 수 없습니다.");
+    const campaign = await ctx.db.get(r.campaignId);
+    if (!campaign || campaign.userId !== userId) throw new Error("권한이 없습니다.");
+    if (r.type !== "interview") throw new Error("인터뷰 회신만 일정을 확정할 수 있습니다.");
+
+    const draftResponse = formatInterviewConfirmDraft(slot);
+    await ctx.db.patch(id, {
+      interviewPickedSlot: slot,
+      interviewConfirmedAt: Date.now(),
+      draftResponse,
+      handled: true,
+    });
+    return { slot };
+  },
+});
+
+/** 인터뷰 슬롯 재생성(기본 3안). */
+export const refreshInterviewSlots = mutation({
+  args: { id: v.id("replies") },
+  handler: async (ctx, { id }) => {
+    const userId = await requireUser(ctx);
+    const r = await ctx.db.get(id);
+    if (!r) throw new Error("회신을 찾을 수 없습니다.");
+    const campaign = await ctx.db.get(r.campaignId);
+    if (!campaign || campaign.userId !== userId) throw new Error("권한이 없습니다.");
+    if (r.type !== "interview") throw new Error("인터뷰 회신만 가능합니다.");
+
+    const interviewSlots = [...defaultInterviewSlots()];
+    const draftResponse = buildReplyDraft("interview", {
+      slots: [interviewSlots[0]!, interviewSlots[1]!, interviewSlots[2]!],
+    });
+    await ctx.db.patch(id, { interviewSlots, draftResponse });
+    return interviewSlots;
   },
 });

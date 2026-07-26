@@ -8,9 +8,15 @@ import {
   PenLine,
   Send,
   Check,
+  Plug,
+  KeyRound,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PLANS, COMPARE_ROWS, STEPS } from "@/lib/brand";
+import {
+  CRABPITCH_SKILL_REPO_URL,
+  MCP_TOOLS,
+} from "@/lib/mcpGuide";
 import { cn } from "@/lib/utils";
 
 export default function LandingPage() {
@@ -24,6 +30,7 @@ export default function LandingPage() {
           </div>
           <div className="hidden items-center gap-7 text-sm font-medium text-foreground-muted md:flex">
             <a href="#how" className="hover:text-brand">작동 방식</a>
+            <a href="#mcp" className="hover:text-brand">내 AI</a>
             <a href="#compare" className="hover:text-brand">대행사 비교</a>
             <a href="#price" className="hover:text-brand">요금제</a>
             <a href="#platform" className="hover:text-brand">플랫폼</a>
@@ -44,7 +51,7 @@ export default function LandingPage() {
       <header className="hero-glow">
         <div className="mx-auto max-w-6xl px-6 pb-16 pt-20 sm:pt-24">
           <span className="inline-flex items-center gap-2 rounded-full border border-brand/20 bg-brand-soft px-3.5 py-1.5 text-[13px] font-bold text-brand">
-            🦀 OpenCrab 기자 온톨로지 기반 · 매일 갱신
+            🦀 기자 매칭 · 내 AI로 초안까지
           </span>
           <h1 className="mt-5 max-w-3xl text-4xl font-extrabold leading-[1.15] sm:text-5xl md:text-[3.4rem]">
             말만 하면,<br />
@@ -52,7 +59,7 @@ export default function LandingPage() {
           </h1>
           <p className="mt-5 max-w-2xl text-lg text-foreground-muted">
             홍보팀도, 월 수백만 원 대행사도 없이. 1인 창업가와 소상공인을 위한 AI 언론 배포 도구.
-            보도자료 작성부터 기자 매칭·개인화 메일·답장 응대까지, 대화 한 번으로 끝냅니다.
+            웹앱에서 배포하거나, 이미 쓰는 Claude·ChatGPT·Gemini에서 기자 찾기와 메일 초안을 이어 가세요.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Link
@@ -62,14 +69,14 @@ export default function LandingPage() {
               무료로 첫 배포 시작
             </Link>
             <a
-              href="#how"
+              href="#mcp"
               className="rounded-md border border-border bg-card px-6 py-3.5 text-base font-bold text-foreground transition-colors hover:bg-surface"
             >
-              작동 방식 보기
+              내 AI로 쓰는 법
             </a>
           </div>
           <p className="mt-4 text-[13px] text-muted">
-            ✓ 신용카드 불필요 &nbsp;·&nbsp; ✓ 내 Gmail로 직접 발송 &nbsp;·&nbsp; ✓ 수신거부·승인 게이트 기본 탑재
+            ✓ 신용카드 불필요 &nbsp;·&nbsp; ✓ 내 Gmail로 직접 발송 &nbsp;·&nbsp; ✓ 내 AI 연결은 Solo부터
           </p>
         </div>
       </header>
@@ -121,8 +128,74 @@ export default function LandingPage() {
         </div>
       </Section>
 
+      {/* 내 AI */}
+      <Section id="mcp">
+        <Eyebrow>내 AI에서</Eyebrow>
+        <SecTitle>쓰는 Claude·ChatGPT·Gemini에서 바로 이어 가세요</SecTitle>
+        <SecDesc>
+          새 AI를 배울 필요 없습니다. 연결 키만 한 번 붙이면, 평소 채팅에서 기자 찾기·메일 초안·회신
+          분류를 요청할 수 있습니다. 실제 발송은 웹앱의 내 Gmail에서만 합니다.
+        </SecDesc>
+
+        <div className="mt-8 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {MCP_TOOLS.map((tool) => (
+              <div
+                key={tool.name}
+                className="rounded-lg border border-border bg-card px-5 py-4 shadow-card"
+              >
+                <div className="text-base font-bold text-foreground">{tool.title}</div>
+                <p className="mt-2 text-sm text-foreground-muted">{tool.description}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <div className="rounded-xl border border-border bg-surface p-6">
+              <div className="flex items-center gap-2 text-brand">
+                <KeyRound className="h-5 w-5" />
+                <span className="text-sm font-extrabold">3단계</span>
+              </div>
+              <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-foreground-muted">
+                <li>
+                  로그인 후 <b className="text-foreground">내 AI</b>에서 연결 키를 만듭니다.
+                </li>
+                <li>연결 주소를 복사해 Claude·ChatGPT·Gemini·Cursor에 붙여넣습니다.</li>
+                <li>채팅에서 「기자 찾아줘」「메일 초안 만들어줘」라고 말합니다.</li>
+              </ol>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-6 shadow-card">
+              <div className="flex items-center gap-2 text-brand">
+                <Plug className="h-5 w-5" />
+                <span className="text-sm font-extrabold">안심하고 쓰세요</span>
+              </div>
+              <ul className="mt-3 space-y-2 text-sm text-foreground-muted">
+                <li>
+                  기자 실명·이메일은 AI에 안 나옵니다 —{" "}
+                  <b className="text-foreground">기자 코드</b>만
+                </li>
+                <li>
+                  발송은 <b className="text-foreground">웹앱 + 내 Gmail</b>에서만
+                </li>
+                <li>
+                  연결은 <b className="text-foreground">Solo / Growth / Agency</b>에서
+                </li>
+              </ul>
+              <div className="mt-5">
+                <Link
+                  href="/signin"
+                  className="inline-flex rounded-md bg-brand px-4 py-2.5 text-sm font-bold text-brand-foreground hover:bg-brand-hover"
+                >
+                  로그인하고 연결하기
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Section>
+
       {/* COMPARE */}
-      <Section id="compare">
+      <Section id="compare" muted>
         <Eyebrow>포지셔닝</Eyebrow>
         <SecTitle>홍보 대행사와 무엇이 다른가</SecTitle>
         <SecDesc>
@@ -154,7 +227,7 @@ export default function LandingPage() {
       </Section>
 
       {/* PRICING */}
-      <Section id="price" muted>
+      <Section id="price">
         <Eyebrow>요금제</Eyebrow>
         <SecTitle>첫 성공은 무료로, 규모는 합리적으로</SecTitle>
         <SecDesc>
@@ -216,8 +289,8 @@ export default function LandingPage() {
             <p className="mt-2 max-w-3xl text-[15px] leading-relaxed text-deep-foreground/80">
               모든 발송은 <b>사용자 승인 게이트</b>를 거치고, 메일에는 <b>수신거부 문구</b>가 기본 삽입됩니다.
               동일 기자 7일 내 재발송을 막고, 수신거부 회신은 <b>억제 리스트</b>에 영구 등록됩니다. 발송은
-              회사 서버가 아닌 <b>당신의 Gmail(BYO-Email)</b>로 나가 신뢰를 지킵니다. 무작위 대량발송보다
-              근거 있는 소량 정밀 발송이 실제로 더 잘 실립니다.
+              회사 서버가 아닌 <b>당신의 Gmail</b>로 나가 신뢰를 지킵니다. 내 AI 연결에서도
+              기자 실명·이메일은 나오지 않으며, 무작위 대량발송보다 근거 있는 소량 정밀 발송이 실제로 더 잘 실립니다.
             </p>
           </div>
         </div>
@@ -226,22 +299,38 @@ export default function LandingPage() {
       {/* PLATFORMS */}
       <Section id="platform" muted>
         <Eyebrow>어디서든</Eyebrow>
-        <SecTitle>Claude · ChatGPT · Gemini 어디서나</SecTitle>
+        <SecTitle>웹앱이든, 내 AI든 — 같은 피치</SecTitle>
         <SecDesc>
-          특정 앱에 종속되지 않습니다. 스킬은 마크다운 하나로 세 플랫폼 공용, 자동화 깊이만 다릅니다.
+          대시보드에서 끝까지 돌리거나, 평소 쓰는 AI 채팅에서 초안을 잡고 웹앱에서만 발송하세요.
         </SecDesc>
         <div className="mt-8 grid gap-4 sm:grid-cols-3">
           {[
-            { i: <Sparkles className="h-5 w-5" />, t: "🤖 Claude / Cowork", d: ".skill 설치 → OpenCrab·Gmail MCP 완전 자동화. 매칭부터 발송·응대까지 대화로 끝." },
-            { i: <MessageSquareReply className="h-5 w-5" />, t: "💬 ChatGPT 웹", d: "커스텀 GPT Instructions에 스킬 탑재, 웹 로그인 상태로 메일링. 반자동 진행." },
-            { i: <Target className="h-5 w-5" />, t: "✨ Gemini 웹", d: "동일 스킬을 Gem/프롬프트로, Google Workspace 연동으로 Gmail 발송." },
+            {
+              i: <Sparkles className="h-5 w-5 text-brand" />,
+              t: "Claude",
+              d: "연결 주소를 붙인 뒤, 채팅에서 기자 찾기·메일 초안을 요청하세요. 발송은 웹앱 Gmail로.",
+            },
+            {
+              i: <MessageSquareReply className="h-5 w-5 text-brand" />,
+              t: "ChatGPT",
+              d: "커스텀 GPT나 커넥터에 연결 주소를 등록하면 같은 흐름으로 초안을 잡을 수 있습니다.",
+            },
+            {
+              i: <Target className="h-5 w-5 text-brand" />,
+              t: "Gemini",
+              d: "Gem에 연결을 추가하고, Workspace Gmail·웹앱 발송과 함께 이어 쓰세요.",
+            },
           ].map((p) => (
             <div key={p.t} className="rounded-lg border border-border bg-card p-6 shadow-card">
+              <div className="mb-3">{p.i}</div>
               <b className="text-base">{p.t}</b>
               <p className="mt-2 text-sm text-foreground-muted">{p.d}</p>
             </div>
           ))}
         </div>
+        <p className="mt-6 text-center text-sm text-foreground-muted">
+          로그인 후 <b>내 AI</b>에서 연결 키를 만들고 바로 시작할 수 있습니다.
+        </p>
       </Section>
 
       {/* FINAL CTA */}
@@ -267,8 +356,27 @@ export default function LandingPage() {
           <div>
             <div className="flex items-center gap-2 text-base font-extrabold text-foreground">🦀 크랩피치</div>
             <p className="mt-2 max-w-xl text-xs leading-relaxed">
-              &lsquo;크랩피치&rsquo;는 작업용 가칭입니다. OpenCrab 기자 온톨로지 + Gmail 기반 보도자료 배포 SaaS.
-              기자 연락처는 공개된 직무 정보이며, 실제 발송은 사용자 승인·수신거부 절차를 준수합니다.
+              1인·소상공인을 위한 언론 배포 도구입니다. 기자 실명·이메일은 화면과 AI 응답에
+              노출하지 않으며, 발송은 사용자 승인 후에만 진행합니다.
+            </p>
+            <p className="mt-2 text-xs">
+              <a
+                href={CRABPITCH_SKILL_REPO_URL}
+                className="underline underline-offset-2 hover:text-brand"
+                target="_blank"
+                rel="noreferrer"
+              >
+                공개 스킬
+              </a>
+              {" · "}
+              <a
+                href="https://github.com/contentscoin/crabpitch"
+                className="underline underline-offset-2 hover:text-brand"
+                target="_blank"
+                rel="noreferrer"
+              >
+                앱 저장소
+              </a>
             </p>
           </div>
           <div className="shrink-0">© 2026 CrabPitch · 1인·소상공인을 위한 언론 배포</div>

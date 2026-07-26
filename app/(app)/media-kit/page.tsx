@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/Card";
 import { Input, Label, Textarea } from "@/components/ui/Input";
 import { Progress } from "@/components/ui/Progress";
 import { PageHeader, EmptyState } from "@/components/app/bits";
+import { ByoAiConnectPanel } from "@/components/app/ByoAiConnect";
 
 export default function MediaKitPage() {
   const kits = useQuery(api.mediaKits.list);
@@ -22,16 +23,18 @@ export default function MediaKitPage() {
   }
 
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
         title="미디어킷"
-        description="기자가 바로 인용하는 공식 회사 소개 자료. 한 번에 한 섹션씩 채워 완성합니다."
+        description="본인 AI 스킬로 프레스킷을 만들거나, 아래에서 섹션을 직접 채웁니다."
         action={
           <Button onClick={newKit}>
             <Plus className="h-4 w-4" /> 새 미디어킷
           </Button>
         }
       />
+
+      <ByoAiConnectPanel skill="media-kit-builder" compact />
 
       {kits === undefined ? (
         <div className="h-40 animate-pulse rounded-lg border border-border bg-card" />

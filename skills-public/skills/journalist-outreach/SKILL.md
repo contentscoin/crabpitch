@@ -33,8 +33,16 @@ license: MIT · CrabPitch Skills (public). 범용(Codex/Claude/Gemini) 호환.
 ## ② 기자 매칭
 
 주제 태그를 기자 온톨로지 쿼리로 변환한다.
-- **OpenCrab MCP 연결 시** `opencrab_query`(팩: `korean-journalist-contact-index-v2`)로 조회.
-- **미연결 시** 사용자가 붙여넣은 리스트를 동일 스키마로 정규화.
+
+**우선순위 (있는 도구부터):**
+1. **CrabPitch MCP** (`docs/MCP-SETUP.md`, 유료 `cp_mcp_…`)
+   - `crabpitch_match_journalists` — 주제/태그로 후보 매칭. 응답은 **기자 코드·매체·beat·점수만** (실명·이메일 없음).
+   - `crabpitch_email_template` — 피치 메일 제목/본문 템플릿.
+   - `crabpitch_status` — 연결·플랜 확인.
+2. **OpenCrab MCP** — `opencrab_query`(팩: `korean-journalist-contact-index-v2`)로 온톨로지 심 조회.
+3. **미연결** — 사용자가 붙여넣은 리스트를 동일 스키마로 정규화.
+
+매칭 후 실제 발송·실명 주입은 CrabPitch 웹앱 또는 아래 ⑤ Gmail 단계에서만 한다.
 
 ### 적합도 점수(0~100)
 | 신호 | 배점 | 기준 |
