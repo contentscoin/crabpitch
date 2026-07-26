@@ -109,23 +109,24 @@ SKILL.md를 수정한 뒤에는 아래로 다시 생성해 소스와 배포물�
 for d in skills/*/ skills-pro/*/; do n=$(basename "$d"); [ -f "$d/SKILL.md" ] && (cd "$d" && zip -q -j "../../dist/$n.skill" SKILL.md); done
 ```
 
-## 내 AI로 작성 (BYO) — 두 가지 방법
+## 내 AI로 작성 (BYO) — 유저 자신의 LLM만 사용
 
-앱 메뉴 **내 AI** (`/ai`)에서 GPT·Claude·Gemini를 연결하는 방법은 두 가지입니다.
+크랩피치는 **자체 LLM·공용 API 키를 제공하지 않습니다.** 앱 메뉴 **내 AI** (`/ai`)에서
+유저가 자신의 GPT·Claude·Gemini를 연결하는 방법은 두 가지입니다.
 
-### ① API 키 연결 (BYOK) — 웹에서 바로 실행 ★추천
-OpenAI·Anthropic·Google 중 **하나의 API 키만 등록**하면 보도자료 다듬기·메일 개인화가
-웹 화면 안에서 직접 작동합니다(복붙 불필요). 키는 서버에만 저장되고 화면에는 마스킹만
-표시되며, 「연결 테스트」로 즉시 확인할 수 있습니다.
-우선순위: **사용자 키 → 서버 환경변수**(`ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`GEMINI_API_KEY`).
-상세: **`docs/AI-PROVIDERS.md`**
-
-### ② 스킬·MCP 연결 — 쓰던 구독형 AI 채팅에서
-API 키 없이 ChatGPT·Claude·Gemini 구독만 있다면:
+### ① 스킬·MCP 연결 — 쓰던 구독형 AI 채팅에서 ★기본
+유저가 이미 구독 OAuth로 로그인돼 있는 본인 ChatGPT·Claude·Gemini에서 실행합니다
+(3사 모두 서드파티가 유저 구독을 서버에서 대신 호출하는 OAuth 위임을 제공하지 않으므로,
+이 방향이 유저 구독을 활용하는 유일한 구조입니다):
 
 1. `/ai`에서 스킬 프롬프트 복사 → 내 AI 채팅에 붙여넣기 (공개 스킬 팩 기준)
 2. (Solo 이상) MCP 연결 키 발급 → 채팅에서 「기자 찾아줘」 직접 호출
 3. (선택) **CLI 설치 스크립트** (`/crabpitch-byo-ai-setup.sh` · `.ps1`) — 터미널 사용자용
+
+### ② 본인 API 키 연결 (BYOK) — 웹에서 바로 실행 (선택·고급)
+웹 화면 안에서 「AI로 다듬기」를 쓰고 싶은 유저만 본인 API 키를 등록합니다.
+사용량만큼 본인 계정으로 과금되며, 키는 서버에만 저장되고 화면에는 마스킹만 표시.
+서버 환경변수 폴백 없음(BYOK 전용). 상세: **`docs/AI-PROVIDERS.md`**
 
 ## 다음에 이어서 할 것
 

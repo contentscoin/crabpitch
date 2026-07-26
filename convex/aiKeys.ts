@@ -22,14 +22,9 @@ export const llmProviderValidator = v.union(
   v.literal("gemini"),
 );
 
-function serverEnvKey(provider: LlmProvider): string | null {
-  const key = process.env[LLM_PROVIDER_META[provider].envVar]?.trim();
-  return key || null;
-}
-
 /**
  * 내 AI 키 현황 — 원문 키는 절대 반환하지 않는다(마스킹만).
- * 서버 환경변수 키 보유 여부도 함께 알려 "웹에서 바로 쓰기" 가능 여부를 판단한다.
+ * SaaS 공용 LLM 키는 없다 — 오직 사용자 본인 키(BYOK)만 사용한다.
  */
 export const status = query({
   args: {},
@@ -47,7 +42,6 @@ export const status = query({
         hasUserKey: v.boolean(),
         maskedKey: v.union(v.string(), v.null()),
         model: v.union(v.string(), v.null()),
-        serverKeyAvailable: v.boolean(),
         lastUsedAt: v.union(v.number(), v.null()),
         lastStatus: v.union(v.literal("ok"), v.literal("error"), v.null()),
         lastError: v.union(v.string(), v.null()),
@@ -66,8 +60,7 @@ export const status = query({
     const providers = LLM_PROVIDERS.map((p) => {
       const meta = LLM_PROVIDER_META[p];
       const row = rows.find((r) => r.provider === p);
-      const serverKeyAvailable = serverEnvKey(p) !== null;
-      if (row || serverKeyAvailable) available.push(p);
+      if (row) available.push(p);
       return {
         provider: p,
         label: meta.label,
@@ -78,7 +71,6 @@ export const status = query({
         hasUserKey: !!row,
         maskedKey: row ? maskApiKey(row.apiKey) : null,
         model: row?.model ?? null,
-        serverKeyAvailable,
         lastUsedAt: row?.lastUsedAt ?? null,
         lastStatus: row?.lastStatus ?? null,
         lastError: row?.lastError ?? null,
@@ -170,7 +162,7 @@ export const setPreferredProvider = mutation({
 
 /**
  * 액션 전용: 실행할 프로바이더 + 원문 키 해석.
- * 사용자 키 우선, 없으면 서버 환경변수 폴백. 클라이언트로 노출 금지.
+ * 사용자 본인 키(BYOK)만 사용한다 — 서버 공용 키 폴백 없음. 클라이언트로 노출 금지.
  */
 export const resolveForUser = internalQuery({
   args: {
@@ -182,7 +174,6 @@ export const resolveForUser = internalQuery({
       provider: llmProviderValidator,
       apiKey: v.string(),
       model: v.union(v.string(), v.null()),
-      source: v.union(v.literal("user"), v.literal("server")),
     }),
     v.null(),
   ),
@@ -193,8 +184,8 @@ export const resolveForUser = internalQuery({
       .collect();
     const profile = await getProfile(ctx, userId);
 
-    const available: LlmProvider[] = LLM_PROVIDERS.filter(
-      (p) => rows.some((r) => r.provider === p) || serverEnvKey(p) !== null,
+    const available: LlmProvider[] = LLM_PROVIDERS.filter((p) =>
+      rows.some((r) => r.provider === p),
     );
     const requested = provider ?? profile?.preferredLlmProvider;
     const picked = pickProvider(
@@ -204,17 +195,12 @@ export const resolveForUser = internalQuery({
     if (!picked) return null;
 
     const row = rows.find((r) => r.provider === picked);
-    if (row) {
-      return {
-        provider: picked,
-        apiKey: row.apiKey,
-        model: row.model ?? null,
-        source: "user" as const,
-      };
-    }
-    const env = serverEnvKey(picked);
-    if (!env) return null;
-    return { provider: picked, apiKey: env, model: null, source: "server" as const };
+    if (!row) return null;
+    return {
+      provider: picked,
+      apiKey: row.apiKey,
+      model: row.model ?? null,
+    };
   },
 });
 
@@ -234,7 +220,7 @@ export const recordUsage = internalMutation({
         q.eq("userId", userId).eq("provider", provider),
       )
       .unique();
-    if (!row) return null; // 서버 env 키 사용 시에는 기록할 행이 없음
+    if (!row) return null;
     await ctx.db.patch(row._id, {
       lastUsedAt: Date.now(),
       lastStatus: ok ? "ok" : "error",

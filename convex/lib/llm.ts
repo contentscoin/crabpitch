@@ -3,8 +3,8 @@
  * 요청 생성/응답 파싱은 순수 TS로 분리해 키 없이도 테스트 가능.
  * 실호출은 aiActions.ts ("use node") 에서만 수행.
  *
- * 키 해석 우선순위: 사용자 BYOK 키(userAiKeys) → 서버 환경변수
- * (ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY).
+ * 키는 전적으로 사용자 BYOK(userAiKeys)만 사용한다 — SaaS가 제공하는
+ * 공용 LLM 키는 없다.
  */
 
 export type LlmProvider = "anthropic" | "openai" | "gemini";
@@ -21,7 +21,6 @@ export interface LlmProviderMeta {
   keyConsoleUrl: string;
   /** 키 접두(느슨한 힌트 — 차단용 아님) */
   keyPrefixHint: string;
-  envVar: string;
 }
 
 export const LLM_PROVIDER_META: Record<LlmProvider, LlmProviderMeta> = {
@@ -32,7 +31,6 @@ export const LLM_PROVIDER_META: Record<LlmProvider, LlmProviderMeta> = {
     defaultModel: "claude-opus-5",
     keyConsoleUrl: "https://platform.claude.com/settings/keys",
     keyPrefixHint: "sk-ant-",
-    envVar: "ANTHROPIC_API_KEY",
   },
   openai: {
     id: "openai",
@@ -41,7 +39,6 @@ export const LLM_PROVIDER_META: Record<LlmProvider, LlmProviderMeta> = {
     defaultModel: "gpt-5.1",
     keyConsoleUrl: "https://platform.openai.com/api-keys",
     keyPrefixHint: "sk-",
-    envVar: "OPENAI_API_KEY",
   },
   gemini: {
     id: "gemini",
@@ -50,7 +47,6 @@ export const LLM_PROVIDER_META: Record<LlmProvider, LlmProviderMeta> = {
     defaultModel: "gemini-2.5-pro",
     keyConsoleUrl: "https://aistudio.google.com/apikey",
     keyPrefixHint: "AIza",
-    envVar: "GEMINI_API_KEY",
   },
 };
 

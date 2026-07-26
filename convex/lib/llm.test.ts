@@ -15,7 +15,7 @@ describe("llm 프로바이더 메타", () => {
     expect(LLM_PROVIDERS).toEqual(["anthropic", "openai", "gemini"]);
     for (const p of LLM_PROVIDERS) {
       expect(LLM_PROVIDER_META[p].defaultModel).toBeTruthy();
-      expect(LLM_PROVIDER_META[p].envVar).toContain("API_KEY");
+      expect(LLM_PROVIDER_META[p].keyConsoleUrl).toMatch(/^https:/);
     }
   });
 
