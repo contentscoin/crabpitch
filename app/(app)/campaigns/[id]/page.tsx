@@ -1,6 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -13,17 +14,24 @@ import {
   Inbox,
   ChevronDown,
   Check,
+  Wand2,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge, ConfidenceBadge } from "@/components/ui/Badge";
-import { Label, Textarea } from "@/components/ui/Input";
+import { Input, Label, Textarea } from "@/components/ui/Input";
 import {
   CampaignStatusBadge,
   ScoreBar,
   ReplyTypeBadge,
   REPLY_TYPES,
 } from "@/components/app/bits";
+import {
+  EMAIL_TEMPLATE_PRESETS,
+  TEMPLATE_PLACEHOLDERS,
+} from "@/convex/lib/emailTemplate";
+import { REPLY_TEMPLATE_VARIANTS } from "@/convex/lib/replyClassifier";
+import type { ReplyType } from "@/convex/lib/replyClassifier";
 
 export default function CampaignDetailPage() {
   const params = useParams<{ id: string }>();
@@ -35,6 +43,8 @@ export default function CampaignDetailPage() {
   const replies = useQuery(api.replies.listByCampaign, { campaignId: id });
   const usage = useQuery(api.usage.getMyUsage);
   const gmail = useQuery(api.gmailAccounts.getConnection);
+  const aiStatus = useQuery(api.aiKeys.status);
+  const customTemplates = useQuery(api.emailTemplates.list);
 
   const runMatch = useMutation(api.journalists.matchForCampaign);
   const syncOpenCrab = useAction(api.opencrabActions.syncJournalists);
@@ -52,6 +62,20 @@ export default function CampaignDetailPage() {
   const [draftNote, setDraftNote] = useState<string | null>(null);
   const [sendNote, setSendNote] = useState<string | null>(null);
   const [scheduleLocal, setScheduleLocal] = useState("");
+  /** 프리셋 id 또는 "custom:<docId>" */
+  const [templateChoice, setTemplateChoice] = useState("standard");
+
+  const aiConnected = !!aiStatus?.activeProvider;
+
+  function templateArgs(): {
+    preset?: string;
+    customTemplateId?: Id<"userEmailTemplates">;
+  } {
+    if (templateChoice.startsWith("custom:")) {
+      return { customTemplateId: templateChoice.slice("custom:".length) as Id<"userEmailTemplates"> };
+    }
+    return { preset: templateChoice };
+  }
 
   if (data === undefined) {
     return <div className="h-64 animate-pulse rounded-lg border border-border bg-card" />;
@@ -174,14 +198,22 @@ export default function CampaignDetailPage() {
 
       {/* ③ 개인화 메일 초안 */}
       <StepSection icon={PenLine} step="③" title="개인화 메일 초안" desc="기자별 최근 기사를 언급한 서로 다른 메일. 무작위 대량발송이 아닙니다.">
+        <TemplatePicker
+          value={templateChoice}
+          onChange={setTemplateChoice}
+          customTemplates={customTemplates ?? []}
+        />
+
         <div className="mb-4 flex flex-wrap gap-2">
           <Button
             variant={drafts && drafts.length ? "subtle" : "brand"}
             onClick={() =>
               wrap("gen", async () => {
-                await genDrafts({ campaignId: id });
-                const enhanced = await enhanceDrafts({ campaignId: id });
-                if (enhanced.message) setDraftNote(enhanced.message);
+                await genDrafts({ campaignId: id, ...templateArgs() });
+                if (aiConnected) {
+                  const enhanced = await enhanceDrafts({ campaignId: id });
+                  if (enhanced.message) setDraftNote(enhanced.message);
+                }
               })
             }
             disabled={busy === "gen" || includedCount === 0}
@@ -189,7 +221,7 @@ export default function CampaignDetailPage() {
             <PenLine className="h-4 w-4" /> {busy === "gen" ? "생성 중…" : "개인화 메일 초안 생성"}
             {includedCount > 0 && <span className="opacity-80">({includedCount}명)</span>}
           </Button>
-          {drafts && drafts.length > 0 && (
+          {drafts && drafts.length > 0 && aiConnected && (
             <Button
               variant="subtle"
               onClick={() =>
@@ -200,8 +232,18 @@ export default function CampaignDetailPage() {
               }
               disabled={busy === "ai"}
             >
-              {busy === "ai" ? "AI 다듬는 중…" : "AI로 다시 다듬기"}
+              <Wand2 className="h-4 w-4" /> {busy === "ai" ? "AI 다듬는 중…" : "내 AI로 다듬기"}
             </Button>
+          )}
+          {drafts && drafts.length > 0 && !aiConnected && (
+            <Link href="/ai">
+              <Button
+                variant="ghost"
+                title="내 AI에서 본인 GPT·Claude·Gemini API 키를 등록하면 초안을 AI로 개인화할 수 있습니다."
+              >
+                <Wand2 className="h-4 w-4" /> AI 연결하고 다듬기
+              </Button>
+            </Link>
           )}
           {includedCount === 0 && <p className="mt-2 w-full text-xs text-muted">먼저 매칭에서 발송할 기자를 포함하세요.</p>}
           {draftNote && <p className="mt-2 w-full text-xs text-muted">{draftNote}</p>}
@@ -387,6 +429,199 @@ function DraftItem({
   );
 }
 
+const CUSTOM_BODY_SCAFFOLD = `{{후킹}}
+
+{{회사명}}은(는) {{헤드라인}}. {{핵심수치}}
+
+{{인용문}}
+
+{{자료링크}}
+
+추가 자료나 대표 인터뷰가 필요하시면 편하게 회신 주세요.
+
+{{발신자}} 드림
+{{연락처}}`;
+
+/** 메일 초안 템플릿 선택 + 커스텀 템플릿 편집. */
+function TemplatePicker({
+  value,
+  onChange,
+  customTemplates,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  customTemplates: { _id: string; name: string; subject: string; body: string }[];
+}) {
+  const saveTemplate = useMutation(api.emailTemplates.save);
+  const removeTemplate = useMutation(api.emailTemplates.remove);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  const selectedCustom = value.startsWith("custom:")
+    ? customTemplates.find((t) => `custom:${t._id}` === value) ?? null
+    : null;
+
+  function openEditor(tpl: { _id: string; name: string; subject: string; body: string } | null) {
+    if (tpl) {
+      setEditingId(tpl._id);
+      setName(tpl.name);
+      setSubject(tpl.subject);
+      setBody(tpl.body);
+    } else {
+      setEditingId(null);
+      setName("");
+      setSubject("[{{회사명}}] {{헤드라인}}");
+      setBody(CUSTOM_BODY_SCAFFOLD);
+    }
+    setNote(null);
+    setEditorOpen(true);
+  }
+
+  async function onSave() {
+    setBusy(true);
+    setNote(null);
+    try {
+      const savedId = await saveTemplate({
+        id: (editingId as Id<"userEmailTemplates">) ?? undefined,
+        name,
+        subject,
+        body,
+      });
+      onChange(`custom:${savedId}`);
+      setEditorOpen(false);
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "저장에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRemove(tplId: string) {
+    if (!window.confirm("이 템플릿을 삭제할까요?")) return;
+    await removeTemplate({ id: tplId as Id<"userEmailTemplates"> });
+    if (value === `custom:${tplId}`) onChange("standard");
+  }
+
+  return (
+    <div className="mb-4 rounded-lg border border-border bg-card p-4">
+      <div className="text-sm font-semibold">메일 템플릿</div>
+      <p className="mt-0.5 text-xs text-muted">
+        초안 생성에 쓸 골격을 고르세요. 어떤 템플릿이든 「기자님」 호칭과 수신거부 문구는 자동으로
+        보장됩니다.
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {EMAIL_TEMPLATE_PRESETS.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            title={p.description}
+            onClick={() => onChange(p.id)}
+            className={
+              "rounded-md border px-3 py-1.5 text-sm transition-colors " +
+              (value === p.id
+                ? "border-brand bg-brand-soft/40 font-semibold"
+                : "border-border bg-card hover:bg-surface")
+            }
+          >
+            {p.label}
+          </button>
+        ))}
+        {customTemplates.map((t) => (
+          <button
+            key={t._id}
+            type="button"
+            title={t.subject}
+            onClick={() => onChange(`custom:${t._id}`)}
+            className={
+              "rounded-md border px-3 py-1.5 text-sm transition-colors " +
+              (value === `custom:${t._id}`
+                ? "border-brand bg-brand-soft/40 font-semibold"
+                : "border-border bg-card hover:bg-surface")
+            }
+          >
+            ✎ {t.name}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => openEditor(null)}
+          className="rounded-md border border-dashed border-border px-3 py-1.5 text-sm text-foreground-muted hover:bg-surface"
+        >
+          ＋ 새 템플릿
+        </button>
+      </div>
+      {selectedCustom && !editorOpen && (
+        <div className="mt-2 flex gap-2">
+          <Button type="button" size="sm" variant="subtle" onClick={() => openEditor(selectedCustom)}>
+            템플릿 편집
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={() => onRemove(selectedCustom._id)}>
+            삭제
+          </Button>
+        </div>
+      )}
+
+      {editorOpen && (
+        <div className="mt-4 space-y-3 rounded-md border border-border bg-surface/50 p-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="tpl-name">템플릿 이름</Label>
+              <Input
+                id="tpl-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="예) 우리 회사 기본형"
+              />
+            </div>
+            <div>
+              <Label htmlFor="tpl-subject">제목 템플릿</Label>
+              <Input
+                id="tpl-subject"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="[{{회사명}}] {{헤드라인}}"
+              />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="tpl-body">본문 템플릿</Label>
+            <Textarea
+              id="tpl-body"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={10}
+            />
+          </div>
+          <details className="text-xs text-foreground-muted">
+            <summary className="cursor-pointer font-semibold">사용 가능한 자리표시자</summary>
+            <ul className="mt-1 grid gap-x-4 sm:grid-cols-2">
+              {TEMPLATE_PLACEHOLDERS.map((p) => (
+                <li key={p.key}>
+                  <code>{`{{${p.key}}}`}</code> — {p.description}
+                </li>
+              ))}
+            </ul>
+          </details>
+          {note && <p className="text-xs text-danger">{note}</p>}
+          <div className="flex gap-2">
+            <Button type="button" size="sm" disabled={busy || !body.trim()} onClick={onSave}>
+              {busy ? "저장 중…" : editingId ? "수정 저장" : "템플릿 저장"}
+            </Button>
+            <Button type="button" size="sm" variant="subtle" onClick={() => setEditorOpen(false)}>
+              닫기
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ReplyComposer({
   campaignId,
   drafts,
@@ -468,6 +703,7 @@ function ReplyItem({
     type: string;
     rawBody: string;
     draftResponse: string;
+    templateVariant?: string;
     handled: boolean;
     code: string;
     outlet: string;
@@ -478,6 +714,9 @@ function ReplyItem({
   const markHandled = useMutation(api.replies.markHandled);
   const confirmSlot = useMutation(api.replies.confirmInterviewSlot);
   const refreshSlots = useMutation(api.replies.refreshInterviewSlots);
+  const applyTemplate = useMutation(api.replies.applyReplyTemplate);
+  const variants = REPLY_TEMPLATE_VARIANTS[reply.type as ReplyType] ?? [];
+  const activeVariant = reply.templateVariant ?? "default";
   return (
     <div className="rounded-lg border border-border bg-card p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -498,6 +737,29 @@ function ReplyItem({
         )}
       </div>
       <p className="mt-2 rounded-md bg-surface px-3 py-2 text-sm text-foreground-muted">“{reply.rawBody}”</p>
+      {variants.length > 1 && !reply.handled && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="text-xs font-semibold text-muted">응대 톤:</span>
+          {variants.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              title={v.description}
+              onClick={() =>
+                applyTemplate({ id: reply._id as Id<"replies">, variantId: v.id })
+              }
+              className={
+                "rounded-full border px-2.5 py-0.5 text-xs transition-colors " +
+                (activeVariant === v.id
+                  ? "border-brand bg-brand-soft/40 font-semibold text-foreground"
+                  : "border-border text-foreground-muted hover:bg-surface")
+              }
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="mt-2">
         <div className="text-xs font-semibold text-muted">답장 초안</div>
         <pre className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-foreground">{reply.draftResponse}</pre>

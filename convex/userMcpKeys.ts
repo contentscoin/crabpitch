@@ -14,6 +14,9 @@ function siteBase(): string {
   return mcpSiteBase();
 }
 
+/** 1인당 활성 연결 키 상한 — 남용·키 방치 방지. */
+export const MAX_ACTIVE_MCP_KEYS = 4;
+
 export const getAccess = query({
   args: {},
   returns: v.object({
@@ -21,12 +24,18 @@ export const getAccess = query({
     plan: v.string(),
     siteUrl: v.string(),
     message: v.string(),
+    maxKeys: v.number(),
+    activeKeyCount: v.number(),
   }),
   handler: async (ctx) => {
     const userId = await requireUser(ctx);
     const profile = await getProfile(ctx, userId);
     const plan = (profile?.plan as Plan) ?? "free";
     const allowed = planAllowsMcp(plan);
+    const keys = await ctx.db
+      .query("userMcpKeys")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
     return {
       allowed,
       plan,
@@ -34,6 +43,8 @@ export const getAccess = query({
       message: allowed
         ? "연결 키를 만들어 Claude·ChatGPT·Gemini·Cursor에 붙일 수 있습니다."
         : "내 AI 연결은 Solo / Growth / Agency에서 사용할 수 있습니다. 설정에서 플랜을 바꿔 주세요.",
+      maxKeys: MAX_ACTIVE_MCP_KEYS,
+      activeKeyCount: keys.filter((k) => !k.revoked).length,
     };
   },
 });
@@ -80,6 +91,18 @@ export const create = mutation({
   handler: async (ctx, { name }) => {
     const userId = await requireUser(ctx);
     await requireMcpPlan(ctx, userId);
+
+    const existing = await ctx.db
+      .query("userMcpKeys")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    const activeCount = existing.filter((k) => !k.revoked).length;
+    if (activeCount >= MAX_ACTIVE_MCP_KEYS) {
+      throw new Error(
+        `연결 키는 1인당 최대 ${MAX_ACTIVE_MCP_KEYS}개입니다. 안 쓰는 키를 「연결 끊기」로 폐기한 뒤 다시 만드세요.`,
+      );
+    }
+
     const { raw, prefix } = generateMcpKey();
     const keyHash = await sha256Hex(raw);
     const id = await ctx.db.insert("userMcpKeys", {

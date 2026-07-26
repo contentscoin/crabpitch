@@ -1,7 +1,13 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireUser } from "./model";
-import { classifyReply, buildReplyDraft } from "./lib/replyClassifier";
+import {
+  classifyReply,
+  buildReplyDraft,
+  buildReplyDraftVariant,
+  REPLY_TEMPLATE_VARIANTS,
+  type ReplyType,
+} from "./lib/replyClassifier";
 import { journalistCode } from "./lib/mask";
 import { defaultInterviewSlots, formatInterviewConfirmDraft } from "./lib/interviewSlots";
 
@@ -34,6 +40,7 @@ export const add = mutation({
       type,
       rawBody,
       draftResponse,
+      templateVariant: "default",
       handled: false,
       ...(interviewSlots ? { interviewSlots } : {}),
     });
@@ -127,6 +134,37 @@ export const markHandled = mutation({
     const campaign = await ctx.db.get(r.campaignId);
     if (!campaign || campaign.userId !== userId) throw new Error("권한이 없습니다.");
     await ctx.db.patch(id, { handled: true });
+  },
+});
+
+/** 응대 템플릿 변형 적용 → 답장 초안 재생성. */
+export const applyReplyTemplate = mutation({
+  args: { id: v.id("replies"), variantId: v.string() },
+  handler: async (ctx, { id, variantId }) => {
+    const userId = await requireUser(ctx);
+    const r = await ctx.db.get(id);
+    if (!r) throw new Error("회신을 찾을 수 없습니다.");
+    const campaign = await ctx.db.get(r.campaignId);
+    if (!campaign || campaign.userId !== userId) throw new Error("권한이 없습니다.");
+
+    const variants = REPLY_TEMPLATE_VARIANTS[r.type as ReplyType] ?? [];
+    if (!variants.some((v) => v.id === variantId)) {
+      throw new Error("지원하지 않는 템플릿입니다.");
+    }
+
+    const slots =
+      r.type === "interview" && r.interviewSlots && r.interviewSlots.length >= 3
+        ? ([r.interviewSlots[0]!, r.interviewSlots[1]!, r.interviewSlots[2]!] as [
+            string,
+            string,
+            string,
+          ])
+        : undefined;
+    const draftResponse = buildReplyDraftVariant(r.type as ReplyType, variantId, {
+      ...(slots ? { slots } : {}),
+    });
+    await ctx.db.patch(id, { draftResponse, templateVariant: variantId });
+    return { variantId };
   },
 });
 

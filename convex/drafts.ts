@@ -2,7 +2,11 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { requireUser, getProfile, bumpSends } from "./model";
-import { buildEmailDraft } from "./lib/emailTemplate";
+import {
+  buildEmailDraftWithPreset,
+  isEmailTemplatePresetId,
+  renderCustomTemplate,
+} from "./lib/emailTemplate";
 import { journalistCode } from "./lib/mask";
 import { PLAN_LIMITS, currentMonth, type Plan } from "./lib/plans";
 import { partitionBySuppression, suppressedEmailSet } from "./lib/sendGuard";
@@ -34,16 +38,28 @@ async function filterSuppressed(
   return { sendable: sendable.map((x) => x.draft), blocked: blocked.length };
 }
 
-/** 포함된 매칭 기자 각각에 개인화 메일 초안 생성. */
+/** 포함된 매칭 기자 각각에 개인화 메일 초안 생성. 템플릿(프리셋/커스텀) 선택 가능. */
 export const generateForCampaign = mutation({
-  args: { campaignId: v.id("campaigns") },
-  handler: async (ctx, { campaignId }) => {
+  args: {
+    campaignId: v.id("campaigns"),
+    preset: v.optional(v.string()), // EmailTemplatePresetId — 모르는 값은 standard 폴백
+    customTemplateId: v.optional(v.id("userEmailTemplates")),
+  },
+  handler: async (ctx, { campaignId, preset, customTemplateId }) => {
     const userId = await requireUser(ctx);
     const campaign = await ctx.db.get(campaignId);
     if (!campaign || campaign.userId !== userId) throw new Error("캠페인을 찾을 수 없습니다.");
     const pr = await ctx.db.get(campaign.pressReleaseId);
     if (!pr) throw new Error("보도자료를 찾을 수 없습니다.");
     const profile = await getProfile(ctx, userId);
+
+    let custom: { subject: string; body: string } | null = null;
+    if (customTemplateId) {
+      const tpl = await ctx.db.get(customTemplateId);
+      if (!tpl || tpl.userId !== userId) throw new Error("템플릿을 찾을 수 없습니다.");
+      custom = { subject: tpl.subject, body: tpl.body };
+    }
+    const presetId = preset && isEmailTemplatePresetId(preset) ? preset : "standard";
 
     const matches = (
       await ctx.db
@@ -64,21 +80,22 @@ export const generateForCampaign = mutation({
       const j = await ctx.db.get(m.journalistId);
       if (!j) continue;
       // ⚠️ 초안 본문에 기자 실명을 넣지 않는다("기자님"). 실명은 발송 시점(Gmail)에만 주입.
-      const { subject, body } = buildEmailDraft(
-        {
-          companyName: profile?.companyName ?? pr.who ?? "회사",
-          senderName: profile?.senderName ?? "담당자",
-          headline: pr.headlines[0] ?? pr.title,
-          bodyFact: pr.numbers ?? pr.body.slice(0, 80),
-          quote: pr.quote,
-          links: pr.links,
-          contact: profile?.contactEmail,
-        },
-        {
-          beatPrimary: j.beatPrimary,
-          topReferenceTitle: j.topReferenceTitle,
-        },
-      );
+      const emailCtx = {
+        companyName: profile?.companyName ?? pr.who ?? "회사",
+        senderName: profile?.senderName ?? "담당자",
+        headline: pr.headlines[0] ?? pr.title,
+        bodyFact: pr.numbers ?? pr.body.slice(0, 80),
+        quote: pr.quote,
+        links: pr.links,
+        contact: profile?.contactEmail,
+      };
+      const jCtx = {
+        beatPrimary: j.beatPrimary,
+        topReferenceTitle: j.topReferenceTitle,
+      };
+      const { subject, body } = custom
+        ? renderCustomTemplate(custom.subject, custom.body, emailCtx, jCtx)
+        : buildEmailDraftWithPreset(presetId, emailCtx, jCtx);
       await ctx.db.insert("emailDrafts", {
         campaignId,
         journalistId: j._id,

@@ -151,6 +151,8 @@ export default defineSchema({
     type: replyTypeValidator,
     rawBody: v.string(),
     draftResponse: v.string(),
+    /** 적용된 응대 템플릿 변형 id (기본 "default") */
+    templateVariant: v.optional(v.string()),
     handled: v.boolean(),
     interviewSlots: v.optional(v.array(v.string())), // 인터뷰 제안 3안
     interviewPickedSlot: v.optional(v.string()),
@@ -240,6 +242,16 @@ export default defineSchema({
   })
     .index("by_agency", ["agencyId"])
     .index("by_hash", ["keyHash"]),
+
+  // 사용자 커스텀 메일 템플릿 — {{자리표시자}} 기반 제목/본문
+  userEmailTemplates: defineTable({
+    userId: v.id("users"),
+    name: v.string(),
+    subject: v.string(),
+    body: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
 
   // 사용자 본인 LLM API 키(BYOK) — GPT·Claude·Gemini를 웹앱에서 직접 실행
   // 원문 키는 서버 함수에서만 사용하고 클라이언트에는 마스킹만 반환한다.

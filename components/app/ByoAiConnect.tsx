@@ -182,30 +182,6 @@ export function ByoAiConnectPanel({
         </CardContent>
       </Card>
 
-      {!compact && (
-        <Card>
-          <CardContent className="space-y-3 pt-5">
-            <div className="text-sm font-semibold">AI에 아직 연결 안 하셨나요?</div>
-            <p className="text-sm text-foreground-muted">
-              먼저 <a href="/ai" className="font-semibold text-brand underline underline-offset-2">내 AI</a>에서
-              연결 키를 만들고 Claude·ChatGPT·Gemini에 붙여넣으면, 아래 스킬이 기자 찾기·메일 초안까지
-              이어집니다.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <a href="/ai">
-                <Button type="button" size="sm" variant="subtle">
-                  연결 키 만들러 가기
-                </Button>
-              </a>
-              <a href={hub.skillPackUrl} target="_blank" rel="noreferrer">
-                <Button type="button" size="sm" variant="ghost">
-                  <ExternalLink className="h-4 w-4" /> 공개 스킬
-                </Button>
-              </a>
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

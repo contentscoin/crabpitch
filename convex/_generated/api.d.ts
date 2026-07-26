@@ -18,6 +18,7 @@ import type * as byoAi from "../byoAi.js";
 import type * as campaigns from "../campaigns.js";
 import type * as crons from "../crons.js";
 import type * as drafts from "../drafts.js";
+import type * as emailTemplates from "../emailTemplates.js";
 import type * as gmailAccounts from "../gmailAccounts.js";
 import type * as gmailActions from "../gmailActions.js";
 import type * as gmailHttp from "../gmailHttp.js";
@@ -74,6 +75,7 @@ declare const fullApi: ApiFromModules<{
   campaigns: typeof campaigns;
   crons: typeof crons;
   drafts: typeof drafts;
+  emailTemplates: typeof emailTemplates;
   gmailAccounts: typeof gmailAccounts;
   gmailActions: typeof gmailActions;
   gmailHttp: typeof gmailHttp;
