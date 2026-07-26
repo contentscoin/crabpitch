@@ -214,6 +214,7 @@ export function buildEmailDraftWithPreset(
  */
 
 export const TEMPLATE_PLACEHOLDERS: Array<{ key: string; description: string }> = [
+  { key: "수신거부", description: "표준 수신거부 안내 문구(생략해도 자동으로 덧붙습니다)" },
   { key: "회사명", description: "프로필의 회사/브랜드명" },
   { key: "발신자", description: "보내는 사람 이름" },
   { key: "헤드라인", description: "보도자료 헤드라인 1안" },
@@ -233,6 +234,7 @@ export function renderCustomTemplate(
   j: JournalistContext,
 ): { subject: string; body: string } {
   const vars: Record<string, string> = {
+    수신거부: OPT_OUT,
     회사명: email.companyName,
     발신자: email.senderName,
     헤드라인: email.headline,
@@ -250,22 +252,50 @@ export function renderCustomTemplate(
       key in vars ? vars[key]! : whole,
     );
 
-  let subject = render(subjectTemplate).trim();
+  // 제목은 단일 라인이어야 한다({{자료링크}} 같은 멀티라인 값 삽입 대비).
+  let subject = render(subjectTemplate).replace(/\s*\n+\s*/g, " ").trim();
   if (!subject) subject = `[${email.companyName}] ${truncate(email.headline, 22)}`;
 
   let body = render(bodyTemplate).replace(/\n{3,}/g, "\n\n").trim();
-  // 컴플라이언스 강제: 호칭·수신거부
-  if (!body.includes("기자님")) {
+
+  // 컴플라이언스 강제 ①: 호칭 — personalizeForSend의 실명 주입 앵커("기자님,")와
+  // 동일한 패턴이어야 발송 시 실명이 반드시 주입된다. "기자님의/기자님께" 같은
+  // 부분 문자열만으로는 앵커가 없으므로 인사말을 붙인다.
+  if (!/(^|\n)기자님,/.test(body)) {
     body = `기자님, 안녕하세요. ${email.senderName}입니다.\n\n${body}`;
   }
+
+  // 개인화 보정: 기자별 자리표시자가 하나도 없으면 전 기자 동일 본문(대량발송)이
+  // 되므로 인사말 뒤에 개인화 후킹을 자동 삽입한다.
+  const PERSONAL_PLACEHOLDER = /\{\{\s*(후킹|최근기사|비트)\s*\}\}/;
+  if (!PERSONAL_PLACEHOLDER.test(subjectTemplate) && !PERSONAL_PLACEHOLDER.test(bodyTemplate)) {
+    const hook = personalHook(email, j);
+    if (body.startsWith("기자님,")) {
+      const nl = body.indexOf("\n");
+      body = nl === -1 ? `${body}\n${hook}` : `${body.slice(0, nl + 1)}${hook}\n${body.slice(nl + 1)}`;
+    } else {
+      body = `${hook}\n\n${body}`;
+    }
+  }
+
+  // 컴플라이언스 강제 ②: 기능하는 수신거부 안내가 없으면 표준 문구를 덧붙인다.
   if (!hasOptOut(body)) {
     body = `${body}\n\n──\n${OPT_OUT}`;
   }
   return { subject, body };
 }
 
+/**
+ * 기능하는 수신거부 안내가 있는지 판정.
+ * 단순 부분 문자열("수신거부")은 "수신거부 요청은 받지 않습니다" 같은 문장이나
+ * 치환되지 않은 {{수신거부}} 리터럴도 통과시키므로, 표준 문구 포함 또는
+ * "수신거부라(고) 남겨/회신/답장" 형태의 실행 가능한 안내 패턴만 인정한다.
+ */
 export function hasOptOut(body: string): boolean {
-  return body.includes("수신거부");
+  return (
+    body.includes(OPT_OUT) ||
+    /['"“”‘’「」]?수신거부['"“”‘’「」]?\s*(라고|라|이라|로|으로)?\s*(남겨|회신|답장)/.test(body)
+  );
 }
 
 /** 발송 직전: 초안의 '기자님' 인사에 실명 주입(DB 초안에는 실명을 저장하지 않음). */

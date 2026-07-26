@@ -121,10 +121,20 @@ export function UserMcpKeysPanel() {
                 placeholder="내 Claude"
               />
             </div>
-            <Button type="button" disabled={busy} onClick={onCreate}>
+            <Button
+              type="button"
+              disabled={busy || access.activeKeyCount >= access.maxKeys}
+              onClick={onCreate}
+            >
               {busy ? "만드는 중…" : "키 만들기"}
             </Button>
           </div>
+          {access.activeKeyCount >= access.maxKeys && (
+            <p className="text-xs text-muted">
+              상한에 도달했습니다. 아래 「내 연결」에서 안 쓰는 키를 끊으면 새로 만들 수
+              있습니다.
+            </p>
+          )}
           {error && <p className="text-sm text-danger">{error}</p>}
         </CardContent>
       </Card>

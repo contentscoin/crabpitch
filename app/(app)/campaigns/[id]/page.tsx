@@ -2,7 +2,7 @@
 
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -29,6 +29,9 @@ import {
 import {
   EMAIL_TEMPLATE_PRESETS,
   TEMPLATE_PLACEHOLDERS,
+  hasOptOut as hasUsableOptOut,
+  isEmailTemplatePresetId,
+  type EmailTemplatePresetId,
 } from "@/convex/lib/emailTemplate";
 import { REPLY_TEMPLATE_VARIANTS } from "@/convex/lib/replyClassifier";
 import type { ReplyType } from "@/convex/lib/replyClassifier";
@@ -65,16 +68,28 @@ export default function CampaignDetailPage() {
   /** 프리셋 id 또는 "custom:<docId>" */
   const [templateChoice, setTemplateChoice] = useState("standard");
 
+  // 선택한 커스텀 템플릿이 (다른 탭 등에서) 삭제되면 standard로 폴백.
+  useEffect(() => {
+    if (
+      templateChoice.startsWith("custom:") &&
+      customTemplates !== undefined &&
+      !customTemplates.some((t) => `custom:${t._id}` === templateChoice)
+    ) {
+      setTemplateChoice("standard");
+    }
+  }, [templateChoice, customTemplates]);
+
+  const aiLoading = aiStatus === undefined;
   const aiConnected = !!aiStatus?.activeProvider;
 
   function templateArgs(): {
-    preset?: string;
+    preset?: EmailTemplatePresetId;
     customTemplateId?: Id<"userEmailTemplates">;
   } {
     if (templateChoice.startsWith("custom:")) {
       return { customTemplateId: templateChoice.slice("custom:".length) as Id<"userEmailTemplates"> };
     }
-    return { preset: templateChoice };
+    return { preset: isEmailTemplatePresetId(templateChoice) ? templateChoice : "standard" };
   }
 
   if (data === undefined) {
@@ -210,7 +225,8 @@ export default function CampaignDetailPage() {
             onClick={() =>
               wrap("gen", async () => {
                 await genDrafts({ campaignId: id, ...templateArgs() });
-                if (aiConnected) {
+                // 로딩 중에는 서버가 안전하게 skipped를 반환하므로 호출해 둔다.
+                if (aiLoading || aiConnected) {
                   const enhanced = await enhanceDrafts({ campaignId: id });
                   if (enhanced.message) setDraftNote(enhanced.message);
                 }
@@ -221,7 +237,7 @@ export default function CampaignDetailPage() {
             <PenLine className="h-4 w-4" /> {busy === "gen" ? "생성 중…" : "개인화 메일 초안 생성"}
             {includedCount > 0 && <span className="opacity-80">({includedCount}명)</span>}
           </Button>
-          {drafts && drafts.length > 0 && aiConnected && (
+          {drafts && drafts.length > 0 && !aiLoading && aiConnected && (
             <Button
               variant="subtle"
               onClick={() =>
@@ -235,7 +251,7 @@ export default function CampaignDetailPage() {
               <Wand2 className="h-4 w-4" /> {busy === "ai" ? "AI 다듬는 중…" : "내 AI로 다듬기"}
             </Button>
           )}
-          {drafts && drafts.length > 0 && !aiConnected && (
+          {drafts && drafts.length > 0 && !aiLoading && !aiConnected && (
             <Link href="/ai">
               <Button
                 variant="ghost"
@@ -403,7 +419,7 @@ function DraftItem({
   draft: { _id: string; subject: string; body: string; code: string; outlet: string; status: string };
 }) {
   const [open, setOpen] = useState(false);
-  const hasOptOut = draft.body.includes("수신거부");
+  const hasOptOut = hasUsableOptOut(draft.body);
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card">
       <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-surface">
@@ -487,7 +503,7 @@ function TemplatePicker({
     setNote(null);
     try {
       const savedId = await saveTemplate({
-        id: (editingId as Id<"userEmailTemplates">) ?? undefined,
+        id: editingId ? (editingId as Id<"userEmailTemplates">) : undefined,
         name,
         subject,
         body,
@@ -503,8 +519,13 @@ function TemplatePicker({
 
   async function onRemove(tplId: string) {
     if (!window.confirm("이 템플릿을 삭제할까요?")) return;
-    await removeTemplate({ id: tplId as Id<"userEmailTemplates"> });
-    if (value === `custom:${tplId}`) onChange("standard");
+    setNote(null);
+    try {
+      await removeTemplate({ id: tplId as Id<"userEmailTemplates"> });
+      if (value === `custom:${tplId}`) onChange("standard");
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "삭제에 실패했습니다.");
+    }
   }
 
   return (
@@ -520,6 +541,7 @@ function TemplatePicker({
             key={p.id}
             type="button"
             title={p.description}
+            aria-pressed={value === p.id}
             onClick={() => onChange(p.id)}
             className={
               "rounded-md border px-3 py-1.5 text-sm transition-colors " +
@@ -536,6 +558,7 @@ function TemplatePicker({
             key={t._id}
             type="button"
             title={t.subject}
+            aria-pressed={value === `custom:${t._id}`}
             onClick={() => onChange(`custom:${t._id}`)}
             className={
               "rounded-md border px-3 py-1.5 text-sm transition-colors " +
@@ -565,6 +588,7 @@ function TemplatePicker({
           </Button>
         </div>
       )}
+      {note && !editorOpen && <p className="mt-2 text-xs text-danger">{note}</p>}
 
       {editorOpen && (
         <div className="mt-4 space-y-3 rounded-md border border-border bg-surface/50 p-3">
@@ -715,8 +739,22 @@ function ReplyItem({
   const confirmSlot = useMutation(api.replies.confirmInterviewSlot);
   const refreshSlots = useMutation(api.replies.refreshInterviewSlots);
   const applyTemplate = useMutation(api.replies.applyReplyTemplate);
+  const [variantBusy, setVariantBusy] = useState(false);
+  const [variantError, setVariantError] = useState<string | null>(null);
   const variants = REPLY_TEMPLATE_VARIANTS[reply.type as ReplyType] ?? [];
   const activeVariant = reply.templateVariant ?? "default";
+
+  async function onApplyVariant(variantId: string) {
+    setVariantBusy(true);
+    setVariantError(null);
+    try {
+      await applyTemplate({ id: reply._id as Id<"replies">, variantId });
+    } catch (e) {
+      setVariantError(e instanceof Error ? e.message : "템플릿 적용에 실패했습니다.");
+    } finally {
+      setVariantBusy(false);
+    }
+  }
   return (
     <div className="rounded-lg border border-border bg-card p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -745,11 +783,11 @@ function ReplyItem({
               key={v.id}
               type="button"
               title={v.description}
-              onClick={() =>
-                applyTemplate({ id: reply._id as Id<"replies">, variantId: v.id })
-              }
+              aria-pressed={activeVariant === v.id}
+              disabled={variantBusy}
+              onClick={() => onApplyVariant(v.id)}
               className={
-                "rounded-full border px-2.5 py-0.5 text-xs transition-colors " +
+                "rounded-full border px-2.5 py-0.5 text-xs transition-colors disabled:opacity-60 " +
                 (activeVariant === v.id
                   ? "border-brand bg-brand-soft/40 font-semibold text-foreground"
                   : "border-border text-foreground-muted hover:bg-surface")
@@ -759,6 +797,12 @@ function ReplyItem({
             </button>
           ))}
         </div>
+      )}
+      {variantError && <p className="mt-1 text-xs text-danger">{variantError}</p>}
+      {reply.handled && variants.length > 1 && (
+        <p className="mt-2 text-xs text-muted">
+          응대 톤: {variants.find((v) => v.id === activeVariant)?.label ?? activeVariant}
+        </p>
       )}
       <div className="mt-2">
         <div className="text-xs font-semibold text-muted">답장 초안</div>

@@ -33,8 +33,11 @@ export const list = query({
 });
 
 const MAX_TEMPLATES_PER_USER = 10;
+const MAX_NAME_LEN = 100;
+const MAX_SUBJECT_LEN = 200;
+const MAX_BODY_LEN = 20_000;
 
-/** 저장(신규 또는 수정). 본문 없는 템플릿은 거부. */
+/** 저장(신규 또는 수정). 본문 없는 템플릿은 거부, 필드별 길이 상한 강제. */
 export const save = mutation({
   args: {
     id: v.optional(v.id("userEmailTemplates")),
@@ -47,6 +50,12 @@ export const save = mutation({
     const userId = await requireUser(ctx);
     const trimmedName = name.trim() || "내 템플릿";
     if (!body.trim()) throw new Error("본문 템플릿을 입력하세요.");
+    if (trimmedName.length > MAX_NAME_LEN)
+      throw new Error(`템플릿 이름은 ${MAX_NAME_LEN}자 이내로 입력하세요.`);
+    if (subject.trim().length > MAX_SUBJECT_LEN)
+      throw new Error(`제목 템플릿은 ${MAX_SUBJECT_LEN}자 이내로 입력하세요.`);
+    if (body.length > MAX_BODY_LEN)
+      throw new Error(`본문 템플릿은 ${MAX_BODY_LEN.toLocaleString()}자 이내로 입력하세요.`);
 
     if (id) {
       const existing = await ctx.db.get(id);

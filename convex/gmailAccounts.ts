@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { requireUser, getProfile, bumpSends } from "./model";
+import { normalizeEmail, suppressedEmailSet } from "./lib/sendGuard";
 
 export const getConnection = query({
   args: {},
@@ -209,6 +210,15 @@ export const listPendingDraftsInternal = internalQuery({
   handler: async (ctx, { campaignId, userId }) => {
     const campaign = await ctx.db.get(campaignId);
     if (!campaign || campaign.userId !== userId) return [];
+
+    // 발송 직전 억제 리스트 재대조 — sendCampaign·executeScheduledSend와 동일하게
+    // Gmail 초안 경로도 초안 생성 이후 수신거부한 기자를 걸러낸다.
+    const suppressionRows = await ctx.db
+      .query("suppressionList")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    const suppressed = suppressedEmailSet(suppressionRows.map((r) => r.email));
+
     const drafts = await ctx.db
       .query("emailDrafts")
       .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
@@ -217,7 +227,7 @@ export const listPendingDraftsInternal = internalQuery({
     const rows = [];
     for (const d of pending) {
       const j = await ctx.db.get(d.journalistId);
-      if (!j) continue;
+      if (!j || suppressed.has(normalizeEmail(j.email))) continue;
       rows.push({
         draftId: d._id,
         subject: d.subject,

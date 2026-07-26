@@ -3,6 +3,8 @@
  * 실호출은 aiActions.ts ("use node") 에서만 수행.
  */
 
+import { hasOptOut } from "./emailTemplate";
+
 export interface EnhanceEmailInput {
   subject: string;
   body: string;
@@ -114,8 +116,8 @@ export function parseEnhanceEmailResult(
   const subject = typeof obj.subject === "string" ? obj.subject.trim() : "";
   const body = typeof obj.body === "string" ? obj.body.trim() : "";
   if (!subject || !body) return fallback;
-  // 컴플라이언스: 수신거부·익명 호칭 강제
-  let safeBody = body.includes("수신거부") ? body : `${body}\n\n──\n본 메일 수신을 원치 않으시면 회신으로 '수신거부'라 남겨주세요. 즉시 명단에서 제외하겠습니다.`;
+  // 컴플라이언스: 수신거부·익명 호칭 강제 (기능하는 안내 문구 기준 — emailTemplate.hasOptOut)
+  let safeBody = hasOptOut(body) ? body : `${body}\n\n──\n본 메일 수신을 원치 않으시면 회신으로 '수신거부'라 남겨주세요. 즉시 명단에서 제외하겠습니다.`;
   if (!safeBody.includes("기자님")) {
     safeBody = `기자님, 안녕하세요.\n\n${safeBody}`;
   }

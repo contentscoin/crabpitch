@@ -4,9 +4,15 @@ import { internal } from "./_generated/api";
 import { requireUser, getProfile, bumpSends } from "./model";
 import {
   buildEmailDraftWithPreset,
-  isEmailTemplatePresetId,
   renderCustomTemplate,
 } from "./lib/emailTemplate";
+
+const emailTemplatePresetValidator = v.union(
+  v.literal("standard"),
+  v.literal("data"),
+  v.literal("story"),
+  v.literal("brief"),
+);
 import { journalistCode } from "./lib/mask";
 import { PLAN_LIMITS, currentMonth, type Plan } from "./lib/plans";
 import { partitionBySuppression, suppressedEmailSet } from "./lib/sendGuard";
@@ -42,11 +48,14 @@ async function filterSuppressed(
 export const generateForCampaign = mutation({
   args: {
     campaignId: v.id("campaigns"),
-    preset: v.optional(v.string()), // EmailTemplatePresetId — 모르는 값은 standard 폴백
+    preset: v.optional(emailTemplatePresetValidator),
     customTemplateId: v.optional(v.id("userEmailTemplates")),
   },
   handler: async (ctx, { campaignId, preset, customTemplateId }) => {
     const userId = await requireUser(ctx);
+    if (preset && customTemplateId) {
+      throw new Error("preset과 customTemplateId는 동시에 지정할 수 없습니다.");
+    }
     const campaign = await ctx.db.get(campaignId);
     if (!campaign || campaign.userId !== userId) throw new Error("캠페인을 찾을 수 없습니다.");
     const pr = await ctx.db.get(campaign.pressReleaseId);
@@ -59,7 +68,7 @@ export const generateForCampaign = mutation({
       if (!tpl || tpl.userId !== userId) throw new Error("템플릿을 찾을 수 없습니다.");
       custom = { subject: tpl.subject, body: tpl.body };
     }
-    const presetId = preset && isEmailTemplatePresetId(preset) ? preset : "standard";
+    const presetId = preset ?? "standard";
 
     const matches = (
       await ctx.db
@@ -68,15 +77,22 @@ export const generateForCampaign = mutation({
         .collect()
     ).filter((m) => m.included);
 
-    // 기존 초안 초기화
+    // 기존 초안 초기화 — 발송 기록(sent/published)은 감사·게재 추적용이므로 보존한다.
     const old = await ctx.db
       .query("emailDrafts")
       .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
       .collect();
-    await Promise.all(old.map((d) => ctx.db.delete(d._id)));
+    const removable = old.filter((d) => d.status === "draft" || d.status === "queued");
+    await Promise.all(removable.map((d) => ctx.db.delete(d._id)));
+    const preserved = new Set(
+      old
+        .filter((d) => d.status === "sent" || d.status === "published")
+        .map((d) => String(d.journalistId)),
+    );
 
     let created = 0;
     for (const m of matches) {
+      if (preserved.has(String(m.journalistId))) continue; // 이미 발송된 기자는 재생성하지 않음
       const j = await ctx.db.get(m.journalistId);
       if (!j) continue;
       // ⚠️ 초안 본문에 기자 실명을 넣지 않는다("기자님"). 실명은 발송 시점(Gmail)에만 주입.
@@ -106,7 +122,10 @@ export const generateForCampaign = mutation({
       created += 1;
     }
 
-    await ctx.db.patch(campaignId, { status: "review" });
+    // 일부가 이미 발송된 캠페인은 발송 상태를 되돌리지 않는다(감사 추적 보존).
+    if (preserved.size === 0) {
+      await ctx.db.patch(campaignId, { status: "review" });
+    }
     return created;
   },
 });

@@ -146,6 +146,9 @@ export const applyReplyTemplate = mutation({
     if (!r) throw new Error("회신을 찾을 수 없습니다.");
     const campaign = await ctx.db.get(r.campaignId);
     if (!campaign || campaign.userId !== userId) throw new Error("권한이 없습니다.");
+    if (r.handled || r.interviewConfirmedAt !== undefined) {
+      throw new Error("이미 처리된 회신입니다. 템플릿 변형을 적용할 수 없습니다.");
+    }
 
     const variants = REPLY_TEMPLATE_VARIANTS[r.type as ReplyType] ?? [];
     if (!variants.some((v) => v.id === variantId)) {
@@ -205,7 +208,8 @@ export const refreshInterviewSlots = mutation({
     if (r.type !== "interview") throw new Error("인터뷰 회신만 가능합니다.");
 
     const interviewSlots = [...defaultInterviewSlots()];
-    const draftResponse = buildReplyDraft("interview", {
+    // 사용자가 고른 응대 톤(templateVariant)을 유지한 채 일정만 갱신한다.
+    const draftResponse = buildReplyDraftVariant("interview", r.templateVariant ?? "default", {
       slots: [interviewSlots[0]!, interviewSlots[1]!, interviewSlots[2]!],
     });
     await ctx.db.patch(id, { interviewSlots, draftResponse });
