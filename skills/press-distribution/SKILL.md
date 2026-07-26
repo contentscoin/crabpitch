@@ -40,6 +40,10 @@ OpenCrab 기자 데이터의 모든 레코드는 `mailing_status: "candidate"` �
    스팸 방지를 위해 한 캠페인당 발송 통수에도 상한을 둔다.
 5. 기자가 "수신거부/그만" 의사를 밝히면 즉시 억제 리스트(suppression list)에 추가하고
    다시는 발송하지 않는다. → 이 처리는 `reply-handler` 스킬이 담당한다.
+6. **기자 PII 비노출** — 기자 **실명·이메일·연락처는 채팅 응답·리스트·표 어디에도 출력하지
+   않는다.** 익명 코드(연락처 id 기반의 안정적 비가역 코드, 예: `기자 #A3F1`) + 매체 + beat +
+   신뢰도 + 적합도만 노출하고, 실명·이메일은 `mcp__Gmail__create_draft` 호출 시점의
+   수신자(To)·본문 인사말에만 주입한다.
 
 ---
 
@@ -76,6 +80,7 @@ OpenCrab 기자 데이터의 모든 레코드는 `mailing_status: "candidate"` �
 `reporter_name, outlet_name, email, beat_primary, beat_secondary,
 contact_confidence, reference_article_count, top_reference_title,
 top_reference_url, mailing_status`
+(이 필드들은 **내부 처리용**이다 — 화면 표시는 컴플라이언스 6항에 따라 익명 코드+매체+beat만.)
 
 **GPT/Gemini 웹(MCP 미연결) 시** — 사용자에게 OpenCrab MCP 연결을 안내하거나,
 사용자가 붙여넣은 기자 리스트(CSV/텍스트)를 입력으로 받아 동일 스키마로 정규화한다.
@@ -96,8 +101,8 @@ top_reference_url, mailing_status`
 위 점수에 **최대 +10**을 더해 게재 이력 기자를 우선 배치한다.
 
 점수와 **매칭 이유 한 줄**을 반드시 함께 제시한다. 예:
-> **이도원 · 지디넷코리아** (leespot@zdnet.co.kr) — 87점
-> 이유: 최근 "레드브릭하우스 카카오벤처스 투자" 등 스타트업 투자유치 기사 다수, 플랫폼/핀테크 beat 일치.
+> **기자 #A3F1 · 지디넷코리아 · 플랫폼/핀테크 · 신뢰도 high — 87점**
+> 이유: 최근 유사 스타트업 투자유치 기사 다수, beat 일치. (※ 실명/이메일 비표시)
 
 `contact_confidence: low`이거나 beat 불일치면 후보에서 제외하거나 별도 표시한다.
 
@@ -111,7 +116,8 @@ top_reference_url, mailing_status`
 - beat에 맞춘 앵글(투자 기자에겐 숫자·라운드, 제품 기자에겐 기능·사용성)
 - 제목은 기자당 1개, 25자 이내 뉴스형
 
-산출물은 표로 정리: `기자 | 매체 | 이메일 | 제목 | 본문(접기) | 적합도`
+산출물은 표로 정리: `기자코드 | 매체 | 제목 | 본문(접기) | 적합도`
+(이메일·실명 열 금지 — 실제 수신자 정보는 ⑤ Gmail 초안 생성 시점에만 주입한다.)
 
 ---
 
@@ -138,12 +144,13 @@ top_reference_url, mailing_status`
 **Gmail MCP 연결 시:**
 - 초안 저장: `mcp__Gmail__create_draft` (to, subject, body/htmlBody)
 - 실제 발송은 사용자가 Gmail 임시보관함에서 초안(`mcp__Gmail__create_draft`)을 확인한 뒤 직접 보낸다
-  (예약·자동 발송은 로드맵 2차 기능 — 현재 패키지에 별도 '발송 스킬'은 없다)
+  (예약 발송은 Pro 스킬 `follow-up-scheduler`(Growth 이상)가 "초안 일괄 생성 + Google Calendar
+  발송 리마인더" 조합으로 담당 — 자동 발송 도구는 어떤 패키지에도 없다)
 - 라벨링: `mcp__Gmail__create_label`로 `언론홍보/캠페인/{캠페인명}` 라벨 생성 후 발송 메일에 부착
   (모든 배포·회신은 Gmail **`언론홍보`** 라벨 그룹 안에서 관리) → 답장 추적과 성과 집계에 사용
 
 **추적 지표(성과 리포트용):**
-- 발송 통수 / 오픈(가능 시) / 답장 수 / 게재 확인 수
+- 발송 통수 / 답장 수 / 게재 확인 수 (오픈율은 현재 도구로 측정 불가 — 회신·게재 지표만 추적)
 - 답장은 `reply-handler` 스킬이 분류·처리
 - 게재 확인은 발송 후 3·7일 기자 매체에서 회사명 검색으로 확인
 - 회신율·게재율 KPI 집계와 개선 제안은 Pro 스킬 `campaign-report`(Solo 이상)가 담당

@@ -18,7 +18,7 @@ license: MIT · CrabPitch Skills (public). 범용(Codex/Claude/Gemini) 호환.
 - 답장 초안 본문 인사말은 **"기자님"**으로. 실명은 **실제 회신 발송 시점**의 Gmail 본문에만 주입.
 
 ## 회신 수집 (Gmail MCP)
-1. `mcp__Gmail__search_threads` — `label:언론홍보` 중 미응답 스레드 수집(답장 알림).
+1. `mcp__Gmail__list_labels`로 `언론홍보` **라벨 ID** 조회 → `mcp__Gmail__search_threads`에 `label:{라벨ID}`로 미응답 스레드 수집(답장 알림 — `label:`은 표시명이 아닌 라벨 ID를 받는다).
 2. `mcp__Gmail__get_thread` — 원문 파악 → 아래 7유형 분류.
 3. 분류 후 `mcp__Gmail__label_thread` — `언론홍보/회신`·`언론홍보/인터뷰`·`언론홍보/수신거부` 재분류.
 4. 유형별 `mcp__Gmail__create_draft`(`replyToMessageId`) 답장 초안 → 사용자 검토 후 발송.

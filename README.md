@@ -29,7 +29,8 @@ Gmail **`언론홍보`** 라벨 워크플로우 + PII 보호가 내장돼 있으
 게시 저장소: **[`contentscoin/crabpitch-skill`](https://github.com/contentscoin/crabpitch-skill)** (public) — 절차는 `skills-public/PUBLISH.md` 참조.
 
 ## 💎 Pro 스킬 팩 (`skills-pro/`) — 유료 구독자 전용
-요금제 기능표(기획서 6.3)와 1:1로 대응하는 유료 스킬 5종. **공개 repo에 게시하지 않습니다.**
+요금제 기능표(기획서 6.3)에 대응하는 유료 스킬 5종(4종 직접 매핑 + interview-prep은 '답장 응대'
+고도화·3차 로드맵 선행 구현). **공개 repo에 게시하지 않습니다.**
 
 | 스킬 | 플랜 | 하는 일 |
 |---|---|---|

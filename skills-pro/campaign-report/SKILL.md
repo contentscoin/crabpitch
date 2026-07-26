@@ -21,8 +21,10 @@ license: 크랩피치(CrabPitch) Pro — 유료 구독자 전용. 범용(Claude/
 ## 집계 워크플로우
 
 ### ① 캠페인 선택 & 데이터 수집 (Gmail MCP)
-1. `mcp__Gmail__list_labels`로 `언론홍보/캠페인/*` 라벨 확인 → 사용자에게 대상 캠페인 확인.
-2. `mcp__Gmail__search_threads` — `label:언론홍보/캠페인/{캠페인명}`으로 스레드 수집.
+1. `mcp__Gmail__list_labels`로 `언론홍보/캠페인/*`(Agency 모드: `언론홍보/{클라이언트}/캠페인/*`)
+   라벨과 **라벨 ID**를 확인 → 사용자에게 대상 캠페인 확인.
+2. `mcp__Gmail__search_threads` — ①에서 얻은 라벨 ID로 `label:{라벨ID}` 질의해 스레드 수집
+   (`label:`은 표시명이 아닌 라벨 ID를 받으므로 `언론홍보/캠페인/{캠페인명}` 표시명을 그대로 넣지 말 것).
    - 스레드 수 = **발송 통수**, 상대 메시지가 달린 스레드 = **회신**.
 3. 회신 스레드는 `mcp__Gmail__get_thread`로 열어 7유형(reply-handler 기준)으로 분류 집계.
    미분류 회신이 있으면 reply-handler를 먼저 돌리도록 안내.
