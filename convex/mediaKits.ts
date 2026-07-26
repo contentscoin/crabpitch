@@ -1,33 +1,15 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireUser } from "./model";
+// 완성도 산출은 `lib/mediaKitCompleteness`가 정본이다(가중 배점 + 항목별 미충족 사유).
+// 여기서는 DB에 저장할 총점만 쓰고, 사유는 화면이 같은 순수 함수를 직접 호출해 얻는다.
+import { computeCompleteness } from "./lib/mediaKitCompleteness";
 
 const factItem = v.object({
   label: v.string(),
   value: v.string(),
   source: v.optional(v.string()),
 });
-
-function computeCompleteness(k: {
-  boilerplate?: string;
-  keyMessages: string[];
-  factSheet: unknown[];
-  narrative?: string;
-  spokesperson?: string;
-  quotes: string[];
-  contact?: string;
-}): number {
-  const checks = [
-    !!k.boilerplate,
-    k.keyMessages.filter(Boolean).length >= 3,
-    k.factSheet.length >= 3,
-    !!k.narrative,
-    !!k.spokesperson,
-    k.quotes.filter(Boolean).length >= 3,
-    !!k.contact,
-  ];
-  return Math.round((checks.filter(Boolean).length / checks.length) * 100);
-}
 
 export const list = query({
   args: {},

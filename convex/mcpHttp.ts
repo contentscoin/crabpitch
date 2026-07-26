@@ -92,6 +92,24 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: "crabpitch_press_guide",
+    description:
+      "보도자료 작성 규범(구조·작성 전략·GEO·표시광고법 게이트·프레스킷 목차)을 조회하고, 초안을 주면 결정적 규칙 검사 결과를 함께 돌려줍니다. 표시·광고 계열만 다루며 법률 검토를 대체하지 않습니다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        section: {
+          type: "string",
+          enum: ["structure", "writing", "geo", "adlaw", "presskit", "all"],
+          description: "조회할 가이드 섹션 (기본 all)",
+        },
+        draft: { type: "string", description: "검사할 보도자료 본문 (선택)" },
+        title: { type: "string", description: "검사할 보도자료 제목 (선택)" },
+      },
+      additionalProperties: false,
+    },
+  },
 ];
 
 function textResult(text: string, isError = false): ToolCallResult {
@@ -228,6 +246,14 @@ async function callTool(
           text,
         });
         return textResult(JSON.stringify(result, null, 2));
+      }
+      case "crabpitch_press_guide": {
+        const guide = await ctx.runQuery(internal.mcpInternal.pressGuide, {
+          section: typeof args.section === "string" ? args.section : undefined,
+          draft: typeof args.draft === "string" ? args.draft : undefined,
+          title: typeof args.title === "string" ? args.title : undefined,
+        });
+        return textResult(JSON.stringify(guide, null, 2));
       }
       default:
         return textResult(`Unknown tool: ${name}`, true);

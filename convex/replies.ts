@@ -6,6 +6,7 @@ import {
   buildReplyDraft,
   buildReplyDraftVariant,
   REPLY_TEMPLATE_VARIANTS,
+  type QuestionSubtype,
   type ReplyType,
 } from "./lib/replyClassifier";
 import { journalistCode } from "./lib/mask";
@@ -25,14 +26,17 @@ export const add = mutation({
     const j = await ctx.db.get(journalistId);
     if (!j) throw new Error("기자를 찾을 수 없습니다.");
 
-    const { type } = classifyReply(rawBody);
+    const { type, questionSubtype, needsEscalation } = classifyReply(rawBody);
     const interviewSlots = type === "interview" ? [...defaultInterviewSlots()] : undefined;
-    const draftResponse = buildReplyDraft(
-      type,
-      interviewSlots
-        ? { slots: [interviewSlots[0]!, interviewSlots[1]!, interviewSlots[2]!] }
-        : {},
-    );
+    // 자료 요청 응대는 "약속한 자료만" 안내한다 — 보도자료에 실제로 걸어둔 링크만 넘긴다.
+    const pr = await ctx.db.get(campaign.pressReleaseId);
+    const draftResponse = buildReplyDraft(type, {
+      ...(interviewSlots
+        ? { slots: [interviewSlots[0]!, interviewSlots[1]!, interviewSlots[2]!] as [string, string, string] }
+        : {}),
+      ...(pr?.links?.length ? { links: pr.links } : {}),
+      ...(questionSubtype ? { questionSubtype } : {}),
+    });
 
     const id = await ctx.db.insert("replies", {
       campaignId,
@@ -43,6 +47,8 @@ export const add = mutation({
       templateVariant: "default",
       handled: false,
       ...(interviewSlots ? { interviewSlots } : {}),
+      ...(questionSubtype ? { questionSubtype } : {}),
+      ...(needsEscalation ? { needsEscalation } : {}),
     });
 
     if (type === "unsubscribe") {
@@ -163,8 +169,11 @@ export const applyReplyTemplate = mutation({
             string,
           ])
         : undefined;
+    const pr = await ctx.db.get(campaign.pressReleaseId);
     const draftResponse = buildReplyDraftVariant(r.type as ReplyType, variantId, {
       ...(slots ? { slots } : {}),
+      ...(pr?.links?.length ? { links: pr.links } : {}),
+      ...(r.questionSubtype ? { questionSubtype: r.questionSubtype as QuestionSubtype } : {}),
     });
     await ctx.db.patch(id, { draftResponse, templateVariant: variantId });
     return { variantId };
@@ -208,9 +217,11 @@ export const refreshInterviewSlots = mutation({
     if (r.type !== "interview") throw new Error("인터뷰 회신만 가능합니다.");
 
     const interviewSlots = [...defaultInterviewSlots()];
+    const pr = await ctx.db.get(campaign.pressReleaseId);
     // 사용자가 고른 응대 톤(templateVariant)을 유지한 채 일정만 갱신한다.
     const draftResponse = buildReplyDraftVariant("interview", r.templateVariant ?? "default", {
       slots: [interviewSlots[0]!, interviewSlots[1]!, interviewSlots[2]!],
+      ...(pr?.links?.length ? { links: pr.links } : {}),
     });
     await ctx.db.patch(id, { interviewSlots, draftResponse });
     return interviewSlots;

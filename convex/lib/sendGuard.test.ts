@@ -49,7 +49,7 @@ describe("7일 쿨다운", () => {
   const day = 24 * 60 * 60 * 1000;
 
   it("발송 이력이 없으면 통과한다", () => {
-    const { sendable, blocked } = partitionByCooldown([{ id: "a" }], now);
+    const { sendable, blocked } = partitionByCooldown<{ id: string; lastSentAt?: number }>([{ id: "a" }], now);
     expect(sendable).toHaveLength(1);
     expect(blocked).toHaveLength(0);
   });

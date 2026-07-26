@@ -94,7 +94,7 @@ describe("MCP HTTP 엔드포인트", () => {
     expect(body.result.capabilities.tools).toBeDefined();
   });
 
-  it("tools/list — 도구 4종을 노출한다", async () => {
+  it("tools/list — 도구 5종을 노출한다", async () => {
     const { ctx } = makeCtx();
     const res = await handleMcpRequest(
       ctx,
@@ -107,6 +107,7 @@ describe("MCP HTTP 엔드포인트", () => {
       "crabpitch_match_journalists",
       "crabpitch_email_template",
       "crabpitch_classify",
+      "crabpitch_press_guide",
     ]);
   });
 

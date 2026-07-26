@@ -6,6 +6,8 @@ import { resolveUserMcpKey } from "./lib/mcpAuth";
 import { scoreJournalist } from "./lib/scoring";
 import { journalistCode } from "./lib/mask";
 import { classifyReply } from "./lib/replyClassifier";
+import { guideSectionText, type GuideSection } from "./lib/pressGuide";
+import { lintPressRelease } from "./lib/pressLint";
 import { buildEmailDraft } from "./lib/emailTemplate";
 
 const MCP_OPT_OUT =
@@ -168,8 +170,57 @@ export const classify = internalQuery({
     type: v.string(),
     label: v.string(),
     priority: v.string(),
+    matched: v.optional(v.string()),
+    questionSubtype: v.optional(v.string()),
+    needsEscalation: v.optional(v.boolean()),
   }),
   handler: async (_ctx, { text }) => {
     return classifyReply(text);
+  },
+});
+
+/**
+ * 보도자료 작성 가이드 + 결정적 lint.
+ * PII와 무관하며(사용자 자신의 원고만 다룬다) 기존 유료 키 인증을 그대로 쓴다.
+ */
+export const pressGuide = internalQuery({
+  args: {
+    section: v.optional(v.string()),
+    draft: v.optional(v.string()),
+    title: v.optional(v.string()),
+  },
+  returns: v.object({
+    guide: v.string(),
+    lint: v.optional(
+      v.object({
+        status: v.string(),
+        summary: v.object({
+          critical: v.number(),
+          high: v.number(),
+          medium: v.number(),
+        }),
+        violations: v.array(
+          v.object({
+            level: v.string(),
+            severity: v.string(),
+            ruleId: v.string(),
+            label: v.string(),
+            span: v.string(),
+            suggestion: v.string(),
+          }),
+        ),
+      }),
+    ),
+    note: v.string(),
+  }),
+  handler: async (_ctx, { section, draft, title }) => {
+    const requested = (section ?? "all") as GuideSection;
+    const valid: GuideSection[] = ["structure", "writing", "geo", "adlaw", "presskit", "all"];
+    const chosen = valid.includes(requested) ? requested : "all";
+    return {
+      guide: guideSectionText(chosen),
+      lint: draft ? lintPressRelease(title ?? "", draft) : undefined,
+      note: "표시·광고 계열 규범만 다룹니다. 언론중재법은 범위 밖이며 법률 검토를 대체하지 않습니다.",
+    };
   },
 });
