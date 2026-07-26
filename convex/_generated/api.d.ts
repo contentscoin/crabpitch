@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as admin from "../admin.js";
 import type * as agency from "../agency.js";
 import type * as agencyHttp from "../agencyHttp.js";
 import type * as aiActions from "../aiActions.js";
@@ -37,6 +38,7 @@ import type * as lib_mcpHttpAuth from "../lib/mcpHttpAuth.js";
 import type * as lib_opencrabClient from "../lib/opencrabClient.js";
 import type * as lib_opencrabMap from "../lib/opencrabMap.js";
 import type * as lib_plans from "../lib/plans.js";
+import type * as lib_platformAdmin from "../lib/platformAdmin.js";
 import type * as lib_replyClassifier from "../lib/replyClassifier.js";
 import type * as lib_scoring from "../lib/scoring.js";
 import type * as mcpHttp from "../mcpHttp.js";
@@ -60,6 +62,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  admin: typeof admin;
   agency: typeof agency;
   agencyHttp: typeof agencyHttp;
   aiActions: typeof aiActions;
@@ -89,6 +92,7 @@ declare const fullApi: ApiFromModules<{
   "lib/opencrabClient": typeof lib_opencrabClient;
   "lib/opencrabMap": typeof lib_opencrabMap;
   "lib/plans": typeof lib_plans;
+  "lib/platformAdmin": typeof lib_platformAdmin;
   "lib/replyClassifier": typeof lib_replyClassifier;
   "lib/scoring": typeof lib_scoring;
   mcpHttp: typeof mcpHttp;

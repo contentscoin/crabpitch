@@ -82,6 +82,13 @@ npx convex env set AUTH_GOOGLE_SECRET <client-secret> --prod
    → Production/Preview 환경변수에 `CONVEX_DEPLOY_KEY`를 넣으면 빌드마다 Convex도 갱신됩니다.
 4. **Deploy**.
 
+### 플랫폼 관리자 (`/admin`)
+```bash
+npx convex env set ADMIN_EMAILS 'your@email.com' --prod
+```
+해당 Google 로그인 이메일이면 사이드바에 **관리자**가 나타나고, 사용자 플랜·MCP 키·연동 현황을 볼 수 있습니다.
+프로필 플래그 `isPlatformAdmin`으로도 추가 관리자를 지정할 수 있습니다.
+
 ### Cursor Cloud Agent용
 에이전트가 `npx convex deploy`를 돌리려면 **같은 키**를 Cursor 환경 시크릿에 넣으세요.
 
