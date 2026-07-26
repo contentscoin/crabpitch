@@ -10,10 +10,6 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Input, Label } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
-import {
-  CRABPITCH_MCP_DOCS_URL,
-  CRABPITCH_SKILL_REPO_URL,
-} from "@/lib/mcpGuide";
 
 async function copyText(text: string) {
   await navigator.clipboard.writeText(text);
@@ -25,7 +21,7 @@ export function UserMcpKeysPanel() {
   const create = useMutation(api.userMcpKeys.create);
   const revoke = useMutation(api.userMcpKeys.revoke);
 
-  const [name, setName] = useState("claude-desktop");
+  const [name, setName] = useState("내 Claude");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{
@@ -34,6 +30,7 @@ export function UserMcpKeysPanel() {
     mcpSnippet: string;
   } | null>(null);
   const [copied, setCopied] = useState<"key" | "snippet" | "url" | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   async function markCopied(kind: "key" | "snippet" | "url") {
     setCopied(kind);
@@ -44,12 +41,13 @@ export function UserMcpKeysPanel() {
     setBusy(true);
     setError(null);
     try {
-      const result = await create({ name: name.trim() || "default" });
+      const result = await create({ name: name.trim() || "기본" });
       setCreated({
         apiKey: result.apiKey,
         mcpUrl: result.mcpUrl,
         mcpSnippet: result.mcpSnippet,
       });
+      setShowAdvanced(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -58,7 +56,11 @@ export function UserMcpKeysPanel() {
   }
 
   async function onRevoke(keyId: Id<"userMcpKeys">) {
-    if (!window.confirm("이 MCP 키를 폐기할까요? 등록된 플러그인이 즉시 실패합니다.")) {
+    if (
+      !window.confirm(
+        "이 연결을 끊을까요? 등록해 둔 AI에서는 더 이상 동작하지 않습니다.",
+      )
+    ) {
       return;
     }
     await revoke({ keyId });
@@ -75,13 +77,11 @@ export function UserMcpKeysPanel() {
         <CardContent className="space-y-3 pt-5">
           <div className="flex items-center gap-2">
             <KeyRound className="h-4 w-4 text-brand" />
-            <span className="text-sm font-semibold">CrabPitch MCP 키</span>
-            <Badge variant="outline">유료 전용</Badge>
+            <span className="text-sm font-semibold">연결 키</span>
+            <Badge variant="outline">Solo 이상</Badge>
           </div>
-          <p className="text-sm text-foreground-muted">{access.message}</p>
-          <p className="text-xs text-muted">
-            현재 플랜: <strong>{access.plan}</strong>. Solo / Growth / Agency에서
-            Claude · ChatGPT · Gemini · Cursor에 MCP 플러그인을 등록할 수 있습니다.
+          <p className="text-sm text-foreground-muted">
+            내 AI에 크랩피치를 붙이려면 Solo / Growth / Agency 플랜이 필요합니다.
           </p>
           <Link href="/settings">
             <Button type="button" size="sm" variant="subtle">
@@ -101,43 +101,25 @@ export function UserMcpKeysPanel() {
         <CardContent className="space-y-3 pt-5">
           <div className="flex flex-wrap items-center gap-2">
             <KeyRound className="h-4 w-4 text-brand" />
-            <span className="text-sm font-semibold">CrabPitch MCP 키</span>
+            <span className="text-sm font-semibold">연결 키 만들기</span>
             <Badge variant="brand">{access.plan}</Badge>
           </div>
-          <p className="text-xs text-muted">
-            발급된 <code className="rounded bg-surface px-1">cp_mcp_…</code> 키를
-            Claude Desktop / Cursor / ChatGPT 커스텀 커넥터 / Gemini에 등록하세요.
-            기자 실명·이메일은 MCP 응답에 포함되지 않습니다.{" "}
-            <a
-              href={CRABPITCH_MCP_DOCS_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="underline underline-offset-2"
-            >
-              MCP 가이드
-            </a>
-            {" · "}
-            <a
-              href={CRABPITCH_SKILL_REPO_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="underline underline-offset-2"
-            >
-              공개 스킬
-            </a>
+          <p className="text-sm text-foreground-muted">
+            키를 만든 뒤 연결 주소를 복사해 Claude·ChatGPT·Gemini·Cursor에
+            붙여넣으면 됩니다.
           </p>
           <div className="flex flex-wrap items-end gap-2">
             <div className="min-w-[12rem] flex-1 space-y-1">
-              <Label htmlFor="mcp-key-name">키 이름</Label>
+              <Label htmlFor="mcp-key-name">이름 (구분용)</Label>
               <Input
                 id="mcp-key-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="claude-desktop"
+                placeholder="내 Claude"
               />
             </div>
             <Button type="button" disabled={busy} onClick={onCreate}>
-              {busy ? "발급 중…" : "키 발급"}
+              {busy ? "만드는 중…" : "키 만들기"}
             </Button>
           </div>
           {error && <p className="text-sm text-danger">{error}</p>}
@@ -146,43 +128,25 @@ export function UserMcpKeysPanel() {
 
       {created && (
         <Card>
-          <CardContent className="space-y-3 pt-5">
+          <CardContent className="space-y-4 pt-5">
             <p className="text-sm font-semibold text-foreground">
-              키는 지금 한 번만 표시됩니다. 안전한 곳에 복사하세요.
+              아래 정보는 지금만 볼 수 있습니다. 바로 복사해 두세요.
             </p>
-            <div className="space-y-1">
-              <div className="text-xs font-medium text-muted">API Key</div>
-              <pre className="overflow-x-auto rounded-md bg-surface p-3 text-xs">
-                {created.apiKey}
-              </pre>
-              <Button
-                type="button"
-                size="sm"
-                variant="subtle"
-                onClick={async () => {
-                  await copyText(created.apiKey);
-                  await markCopied("key");
-                }}
-              >
-                {copied === "key" ? (
-                  <Check className="h-4 w-4" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
-                키 복사
-              </Button>
-            </div>
-            <div className="space-y-1">
-              <div className="flex items-center gap-1 text-xs font-medium text-muted">
-                <Link2 className="h-3.5 w-3.5" /> MCP URL (키 포함)
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-1 text-sm font-medium">
+                <Link2 className="h-4 w-4 text-brand" />
+                연결 주소
               </div>
+              <p className="text-xs text-muted">
+                Claude · ChatGPT · Gemini에 이 주소를 붙여넣으세요.
+              </p>
               <pre className="overflow-x-auto rounded-md bg-surface p-3 text-xs">
                 {created.mcpUrl}
               </pre>
               <Button
                 type="button"
                 size="sm"
-                variant="subtle"
                 onClick={async () => {
                   await copyText(created.mcpUrl);
                   await markCopied("url");
@@ -193,16 +157,15 @@ export function UserMcpKeysPanel() {
                 ) : (
                   <Copy className="h-4 w-4" />
                 )}
-                URL 복사
+                연결 주소 복사
               </Button>
             </div>
-            <div className="space-y-1">
-              <div className="text-xs font-medium text-muted">
-                mcp.json / Claude Desktop 스니펫
-              </div>
-              <pre className="overflow-x-auto rounded-md bg-surface p-3 text-xs">
-                {created.mcpSnippet}
-              </pre>
+
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Cursor용 설정</div>
+              <p className="text-xs text-muted">
+                Cursor를 쓰면 「설정 복사」 후 MCP 설정 파일에 붙여넣으세요.
+              </p>
               <Button
                 type="button"
                 size="sm"
@@ -217,8 +180,41 @@ export function UserMcpKeysPanel() {
                 ) : (
                   <Copy className="h-4 w-4" />
                 )}
-                JSON 복사
+                설정 복사
               </Button>
+            </div>
+
+            <div>
+              <button
+                type="button"
+                className="text-xs text-muted underline underline-offset-2"
+                onClick={() => setShowAdvanced((v) => !v)}
+              >
+                {showAdvanced ? "숨기기" : "키 원문 보기"}
+              </button>
+              {showAdvanced && (
+                <div className="mt-2 space-y-2">
+                  <pre className="overflow-x-auto rounded-md bg-surface p-3 text-xs">
+                    {created.apiKey}
+                  </pre>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="subtle"
+                    onClick={async () => {
+                      await copyText(created.apiKey);
+                      await markCopied("key");
+                    }}
+                  >
+                    {copied === "key" ? (
+                      <Check className="h-4 w-4" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                    키 복사
+                  </Button>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -226,9 +222,9 @@ export function UserMcpKeysPanel() {
 
       <Card>
         <CardContent className="space-y-3 pt-5">
-          <div className="text-sm font-semibold">발급된 키</div>
+          <div className="text-sm font-semibold">내 연결</div>
           {activeKeys.length === 0 ? (
-            <p className="text-xs text-muted">아직 활성 키가 없습니다.</p>
+            <p className="text-sm text-muted">아직 만든 연결이 없습니다.</p>
           ) : (
             <ul className="space-y-2">
               {activeKeys.map((k) => (
@@ -239,11 +235,10 @@ export function UserMcpKeysPanel() {
                   <div>
                     <div className="font-medium">{k.name}</div>
                     <div className="text-xs text-muted">
-                      {k.keyPrefix}… ·{" "}
                       {new Date(k.createdAt).toLocaleString("ko-KR")}
                       {k.lastUsedAt
                         ? ` · 최근 사용 ${new Date(k.lastUsedAt).toLocaleString("ko-KR")}`
-                        : ""}
+                        : " · 아직 사용 안 함"}
                     </div>
                   </div>
                   <Button
@@ -253,22 +248,12 @@ export function UserMcpKeysPanel() {
                     onClick={() => onRevoke(k._id)}
                   >
                     <Trash2 className="h-4 w-4" />
-                    폐기
+                    연결 끊기
                   </Button>
                 </li>
               ))}
             </ul>
           )}
-          <p className="text-xs text-muted">
-            엔드포인트:{" "}
-            <code className="rounded bg-surface px-1">
-              {access.siteUrl}/api/mcp
-            </code>{" "}
-            (Bearer) 또는{" "}
-            <code className="rounded bg-surface px-1">
-              {access.siteUrl}/api/mcp/cp_mcp_…
-            </code>
-          </p>
         </CardContent>
       </Card>
     </div>

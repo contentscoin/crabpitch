@@ -121,7 +121,7 @@ function SettingsInner() {
       </section>
 
       <section>
-        <h2 className="mb-3 text-lg font-bold">CrabPitch MCP</h2>
+        <h2 className="mb-3 text-lg font-bold">내 AI 연결</h2>
         <McpDashboardCard />
       </section>
 
@@ -174,8 +174,8 @@ function SettingsInner() {
                   )}
                 </li>
                 <li className="flex items-center justify-between gap-2">
-                  <span>유저 MCP (/api/mcp)</span>
-                  <Badge variant="success">배포됨 · 유료 키</Badge>
+                  <span>내 AI 연결</span>
+                  <Badge variant="success">Solo 이상</Badge>
                 </li>
               </ul>
             )}
@@ -295,9 +295,9 @@ function SettingsInner() {
           * 데모 환경에서는 결제 없이 플랜을 전환해 한도 동작을 확인할 수 있습니다.
           Solo·Growth·Agency는{" "}
           <Link href="/ai" className="underline underline-offset-2">
-            내 AI 연동
+            내 AI
           </Link>
-          에서 Claude/ChatGPT/Gemini용 MCP 키를 발급할 수 있습니다(Free 제외).
+          에서 Claude·ChatGPT·Gemini·Cursor 연결 키를 만들 수 있습니다.
         </p>
       </section>
 

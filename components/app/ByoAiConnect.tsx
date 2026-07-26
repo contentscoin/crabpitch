@@ -60,7 +60,7 @@ export function ByoAiConnectPanel({
   const hub = useQuery(api.byoAi.getHub);
   const setPreferred = useMutation(api.byoAi.setPreferredProvider);
   const [provider, setProvider] = useState<ProviderId | null>(null);
-  const [copied, setCopied] = useState<"prompt" | "mcp" | null>(null);
+  const [copied, setCopied] = useState<"prompt" | null>(null);
   const [busy, setBusy] = useState(false);
 
   const active = provider ?? hub?.preferredProvider ?? "claude";
@@ -73,7 +73,7 @@ export function ByoAiConnectPanel({
     topicTags: topicTags?.length ? topicTags : undefined,
   });
 
-  async function markCopied(kind: "prompt" | "mcp") {
+  async function markCopied(kind: "prompt") {
     setCopied(kind);
     window.setTimeout(() => setCopied(null), 2000);
   }
@@ -185,45 +185,23 @@ export function ByoAiConnectPanel({
       {!compact && (
         <Card>
           <CardContent className="space-y-3 pt-5">
-            <div className="text-sm font-semibold">OpenCrab MCP (온톨로지, 선택)</div>
-            <p className="text-xs text-muted">
-              기자 온톨로지 심 연동용입니다. CrabPitch 앱 도구는 위의{" "}
-              <strong>CrabPitch MCP 키</strong>(유료)를 쓰세요. OpenCrab 키는{" "}
-              <code className="rounded bg-surface px-1">ocm_…</code> 형식입니다.
+            <div className="text-sm font-semibold">AI에 아직 연결 안 하셨나요?</div>
+            <p className="text-sm text-foreground-muted">
+              먼저 <a href="/ai" className="font-semibold text-brand underline underline-offset-2">내 AI</a>에서
+              연결 키를 만들고 Claude·ChatGPT·Gemini에 붙여넣으면, 아래 스킬이 기자 찾기·메일 초안까지
+              이어집니다.
             </p>
-            <pre className="overflow-x-auto rounded-md bg-surface p-3 text-xs">
-              {hub.mcpSnippet}
-            </pre>
             <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="subtle"
-                onClick={async () => {
-                  await copyText(hub.mcpSnippet);
-                  await markCopied("mcp");
-                }}
-              >
-                {copied === "mcp" ? (
-                  <Check className="h-4 w-4" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
-                MCP JSON 복사
-              </Button>
-              <a href={hub.skillPackUrl} target="_blank" rel="noreferrer">
-                <Button type="button" size="sm" variant="ghost">
-                  <ExternalLink className="h-4 w-4" /> 공개 스킬 팩
+              <a href="/ai">
+                <Button type="button" size="sm" variant="subtle">
+                  연결 키 만들러 가기
                 </Button>
               </a>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => setPreferred({ provider: active })}
-              >
-                {active} 를 기본 AI로
-              </Button>
+              <a href={hub.skillPackUrl} target="_blank" rel="noreferrer">
+                <Button type="button" size="sm" variant="ghost">
+                  <ExternalLink className="h-4 w-4" /> 공개 스킬
+                </Button>
+              </a>
             </div>
           </CardContent>
         </Card>

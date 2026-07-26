@@ -32,8 +32,8 @@ export const getAccess = query({
       plan,
       siteUrl: siteBase(),
       message: allowed
-        ? "MCP 키를 발급해 Claude·ChatGPT·Gemini·Cursor에 등록할 수 있습니다."
-        : "MCP는 유료 플랜(Solo/Growth/Agency) 전용입니다. 설정에서 플랜을 바꾸세요.",
+        ? "연결 키를 만들어 Claude·ChatGPT·Gemini·Cursor에 붙일 수 있습니다."
+        : "내 AI 연결은 Solo / Growth / Agency에서 사용할 수 있습니다. 설정에서 플랜을 바꿔 주세요.",
     };
   },
 });
