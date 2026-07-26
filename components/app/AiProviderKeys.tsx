@@ -100,8 +100,9 @@ export function AiProviderKeysPanel() {
               : "API 키 한 개만 등록하면 보도자료 다듬기·메일 개인화가 웹에서 바로 작동합니다."}
           </p>
           <p className="mt-1 text-xs">
-            사용한 만큼 본인 계정으로 과금되는 API 키(BYOK)입니다. 키는 서버에만 저장되고
-            화면에는 마스킹으로만 표시됩니다.
+            크랩피치는 공용 LLM을 제공하지 않습니다 — 사용한 만큼 본인 계정으로 과금되는
+            본인 API 키(BYOK)만 사용합니다. 키는 서버에만 저장되고 화면에는 마스킹으로만
+            표시됩니다.
           </p>
         </div>
       </div>
@@ -121,9 +122,6 @@ export function AiProviderKeysPanel() {
                   <span className="text-xs text-muted">{p.vendor}</span>
                   {isActive && <Badge variant="brand">지금 사용 중</Badge>}
                   {p.hasUserKey && !isActive && <Badge variant="outline">연결됨</Badge>}
-                  {!p.hasUserKey && p.serverKeyAvailable && (
-                    <Badge variant="outline">서버 키 사용 가능</Badge>
-                  )}
                   {p.lastStatus === "error" && (
                     <Badge variant="danger">마지막 호출 실패</Badge>
                   )}
@@ -211,7 +209,7 @@ export function AiProviderKeysPanel() {
                       <KeyRound className="h-4 w-4" />
                       {p.hasUserKey ? "키 바꾸기" : "키 등록"}
                     </Button>
-                    {(p.hasUserKey || p.serverKeyAvailable) && (
+                    {p.hasUserKey && (
                       <Button
                         type="button"
                         size="sm"
@@ -227,7 +225,7 @@ export function AiProviderKeysPanel() {
                         연결 테스트
                       </Button>
                     )}
-                    {(p.hasUserKey || p.serverKeyAvailable) && !isPreferred && (
+                    {p.hasUserKey && !isPreferred && (
                       <Button
                         type="button"
                         size="sm"

@@ -25,7 +25,6 @@ interface ResolvedLlm {
   provider: LlmProvider;
   apiKey: string;
   model: string | null;
-  source: "user" | "server";
 }
 
 /** 해석된 프로바이더로 1회 호출. 실패 시 throw. */
