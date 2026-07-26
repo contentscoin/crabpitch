@@ -59,8 +59,9 @@ license: 크랩피치(CrabPitch) Pro — 유료 구독자 전용. 범용(Claude/
 ## ⑥ 신규 기자 타깃 발굴
 경쟁사 기사를 쓴 기자 = 이 업계에 지면을 쓰는 현역 기자.
 1. 수집한 기사에서 매체·지면 성격을 정리(바이라인 실명은 **화면에 옮기지 않는다**).
-2. OpenCrab 연결 시 `opencrab_query`로 해당 매체·beat 기자를 조회해 press-distribution
-   매칭 파이프라인에 코드로 합류시킨다. 미연결 시 매체·beat 리스트만 전달.
+2. **CrabPitch MCP 연결 시** `crabpitch_match_journalists`에 그 매체·주제 태그를 넘겨 후보를
+   받는다(응답은 기자 코드만). OpenCrab MCP만 있으면 `opencrab_query`로 조회해 press-distribution
+   매칭 파이프라인에 코드로 합류시킨다. 둘 다 없으면 매체·beat 리스트만 전달.
 3. 이 기자들에게 보내는 첫 메일 훅은 "경쟁사 기사 언급"이 아니라 **그 기자의 업계 기사 자체**를
    언급한다(예: "○○ 시장 분석 기사 잘 읽었습니다").
 

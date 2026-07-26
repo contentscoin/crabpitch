@@ -32,7 +32,7 @@ convex/                   백엔드
     scoring.ts            기자 매칭 적합도(press-distribution 랭킹 규칙)
     emailTemplate.ts      기자 배포 메일 6블록(journalist-outreach-email)
     replyClassifier.ts    회신 7유형 분류·답장 초안(reply-handler)
-    plans.ts mask.ts      요금 한도 · 이메일 블러
+    plans.ts mask.ts      요금 한도 · 기자 PII 마스킹(익명 코드)
     agencyAuth.ts         Agency 플랜·멤버·API 키 해시
   campaigns/ drafts/ journalists/ replies/ ... 함수 모듈
   seed.ts                 데모 기자 온톨로지 + 데모 캠페인

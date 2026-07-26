@@ -28,6 +28,7 @@ license: 크랩피치(CrabPitch) Pro — 유료 구독자 전용. 범용(Claude/
    - 스레드 수 = **발송 통수**, 상대 메시지가 달린 스레드 = **회신**.
 3. 회신 스레드는 `mcp__Gmail__get_thread`로 열어 7유형(reply-handler 기준)으로 분류 집계.
    미분류 회신이 있으면 reply-handler를 먼저 돌리도록 안내.
+   **CrabPitch MCP 연결 시** `crabpitch_classify`에 회신 본문을 넘겨 동일 7유형 분류를 받아도 된다.
 
 **Gmail MCP 미연결 시**: 사용자가 붙여넣은 발송 기록/회신 요약을 입력으로 동일 집계.
 
