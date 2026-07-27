@@ -92,18 +92,22 @@ describe("자체 템플릿이 자기 게이트를 통과한다", () => {
     contact: "pr@example.com",
   };
 
-  for (const category of ["newswire", "it", "economy", undefined] as const) {
+  // 자산 보유 여부에 따라 CTA 문구가 갈리므로 두 축을 모두 검사한다 —
+  // 한쪽만 보면 "자료 없음" 경로에서 CTA가 0개로 잡히는 사고를 놓친다.
+  for (const category of ["newswire", "broadcast", "it", "economy", undefined] as const) {
     for (const preset of EMAIL_TEMPLATE_PRESETS) {
-      it(`${preset.id} / ${category ?? "general"}`, () => {
+      for (const withLinks of [true, false]) {
+      it(`${preset.id} / ${category ?? "general"} / 자료 ${withLinks ? "있음" : "없음"}`, () => {
         const { subject, body } = buildEmailDraftWithPreset(
           preset.id as EmailTemplatePresetId,
-          EMAIL,
+          withLinks ? { ...EMAIL, links: ["https://example.com/kit"] } : EMAIL,
           { beatPrimary: "벤처투자", outletCategory: category },
         );
         const r = checkEmailCompliance(subject, body);
         expect(r.violations.map((v) => v.label)).toEqual([]);
         expect(r.status).toBe("pass");
       });
+      }
     }
   }
 });

@@ -528,6 +528,8 @@ export const listDraftsForEnhance = internalQuery({
       senderName: v.string(),
       headline: v.string(),
       embargoAt: v.optional(v.number()),
+      /** 보도자료에 등록된 자료 링크가 있는가 — CTA가 자산 보유를 단언해도 되는지 */
+      hasAssets: v.boolean(),
       drafts: v.array(
         v.object({
           draftId: v.id("emailDrafts"),
@@ -589,6 +591,7 @@ export const listDraftsForEnhance = internalQuery({
       senderName: profile?.senderName ?? "담당자",
       headline: pr.headlines[0] ?? pr.title,
       embargoAt: pr.embargoAt,
+      hasAssets: (pr.links ?? []).filter(Boolean).length > 0,
       drafts: rows,
     };
   },
@@ -711,7 +714,10 @@ export const createFollowUp = mutation({
       originalSubject: original.subject,
       newsUpdate: update,
       daysSinceSent: check.daysSinceSent ?? 0,
-      cta: ctaLine(j?.outletCategory as Parameters<typeof ctaLine>[0]),
+      cta: ctaLine(
+        j?.outletCategory as Parameters<typeof ctaLine>[0],
+        (pr?.links ?? []).filter(Boolean).length > 0,
+      ),
       ...(pr?.links?.length ? { links: pr.links } : {}),
     });
 

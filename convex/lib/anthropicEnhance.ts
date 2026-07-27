@@ -30,6 +30,8 @@ export interface EnhanceEmailInput {
   outletCategory?: OutletCategory;
   referenceArticles?: Array<{ title: string; publishedAtText?: string; publishedAt?: number }>;
   embargoAt?: number;
+  /** 보도자료에 등록된 자료 링크가 있는가 — 없으면 CTA가 자산 보유를 단언하지 않는다 */
+  hasAssets?: boolean;
 }
 
 export interface EnhanceEmailResult {
@@ -130,7 +132,7 @@ function articleLines(input: EnhanceEmailInput): string {
 
 const OUTLET_TONE: Record<OutletCategory, string> = {
   newswire: "통신사 — 사실과 자료 제공 가능 여부를 앞세운다. 서사보다 속도.",
-  broadcast: "방송 — 화면에 담을 수 있는 장면과 영상 자료(B-roll) 가용성을 앞세운다.",
+  broadcast: "방송 — 화면에 담을 수 있는 장면을 앞세운다. 보유하지 않은 영상 소스를 있다고 말하지 않는다.",
   it: "IT 전문지 — 기술 구조·성능 수치·사용성 관점을 앞세운다.",
   economy: "경제지 — 시장 규모·성장률·재무 지표 관점을 앞세운다.",
   general: "일반 매체 — 왜 지금 중요한지 맥락을 먼저 설명한다.",
@@ -149,7 +151,7 @@ export function emailEnhanceUserPrompt(input: EnhanceEmailInput): string {
     dist ? `beat 분포: ${dist}` : undefined,
     `매체 유형: ${OUTLET_TONE[input.outletCategory ?? "general"]}`,
     input.embargoAt ? `엠바고: ${embargoLine(input.embargoAt)} — 최상단 표기를 유지할 것` : undefined,
-    `권장 행동 요청: ${ctaLine(input.outletCategory)}`,
+    `권장 행동 요청: ${ctaLine(input.outletCategory, input.hasAssets ?? false)}`,
     articleLines(input),
     "",
     `현재 제목: ${input.subject}`,

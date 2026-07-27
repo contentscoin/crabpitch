@@ -201,6 +201,7 @@ export const enhanceCampaignDrafts = action({
               | undefined,
             referenceArticles: d.referenceArticles,
             embargoAt: pack.embargoAt,
+            hasAssets: pack.hasAssets,
           }),
         );
         if (!raw) continue;

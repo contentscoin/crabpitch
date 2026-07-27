@@ -67,6 +67,11 @@ export function embargoLine(embargoAt: number | undefined): string {
   return `[엠바고] ${stamp} 이후 보도 요청`;
 }
 
+/** 보도자료에 실제로 등록된 자료가 있는가 — CTA가 자산 보유를 단언해도 되는지 판정. */
+function hasAssets(email: EmailContext): boolean {
+  return (email.links ?? []).filter(Boolean).length > 0;
+}
+
 /** 자료 블록에 덧붙는 엠바고 재고지(이중 표기). */
 function embargoAssetNote(embargoAt: number | undefined): string {
   return embargoAt ? "· 위 자료는 엠바고 해제 시각 이후 사용 가능합니다." : "";
@@ -106,13 +111,36 @@ export function pickHookArticle(
  * 미등록 매체는 기본(인터뷰 제안)으로 폴백한다. "완전 분기"가 아니라
  * 확인된 naver_oid만 분기한다는 점을 과장하지 않는다.
  */
-export function ctaLine(category: OutletCategory | undefined): string {
+export function ctaLine(
+  category: OutletCategory | undefined,
+  hasAssets = false,
+): string {
+  // ⚠️ 자료를 "준비돼 있다"고 단언하려면 실제로 등록된 자료가 있어야 한다.
+  // 없는 자산을 약속하면 회신이 온 순간 신뢰를 잃는다 — 회신 응대(`promisedLinks`)에
+  // 적용한 "약속한 자료만" 원칙을 발송 경로에도 똑같이 적용한다.
+  if (!hasAssets) {
+    switch (category) {
+      case "newswire":
+        return "필요하신 원문 자료와 이미지를 바로 준비해 보내드리겠습니다. 회신 주세요.";
+      case "broadcast":
+        // ⚠️ 여기서 "B-roll"을 약속하지 않는다. 방송 기자가 B-roll이라고 할 때 기대하는 것은
+        //    편집 가능한 실사 촬영본이고, 그건 보유 여부를 시스템이 알 수 없다.
+        return "촬영 협조나 1페이저·영상 소스가 필요하시면 회신 주세요. 준비해 보내드리겠습니다.";
+      case "it":
+        return "기술 구조와 실측 데이터를 정리해 보내드리겠습니다. 필요하시면 회신 주세요.";
+      case "economy":
+        return "재무·성장 지표 상세 자료를 정리해 보내드리겠습니다. 회신 주세요.";
+      default:
+        return "대표 인터뷰를 원하시면 회신 주세요. 일정에 맞춰 준비하겠습니다.";
+    }
+  }
+
   switch (category) {
     case "newswire":
       return "원문 자료와 이미지가 준비돼 있습니다. 회신 주시면 바로 송부드리겠습니다.";
     case "broadcast":
-      // 방송은 텍스트 자료보다 영상·1페이저를 먼저 본다.
-      return "1페이저와 B-roll 영상 자료가 준비돼 있습니다. 회신 주시면 바로 송부드리겠습니다.";
+      // 자료가 있어도 영상 소스 보유 여부까지는 알 수 없으므로 별도로 여쭙는다.
+      return "1페이저와 관련 자료가 준비돼 있습니다. 영상 소스가 필요하시면 회신 주세요.";
     case "it":
       return "기술 구조와 실측 데이터를 정리해 두었습니다. 필요하시면 회신 주세요.";
     case "economy":
@@ -213,7 +241,7 @@ export function buildEmailDraft(
     embargoAssetNote(email.embargoAt) || undefined,
     "",
     // CTA는 정확히 1개 — 매체 유형별 분기(미등록 매체는 기본 인터뷰 제안)
-    ctaLine(j.outletCategory),
+    ctaLine(j.outletCategory, hasAssets(email)),
     "",
     signature(email),
   ]);
@@ -317,7 +345,7 @@ export function buildEmailDraftWithPreset(
   // 커버하므로 안전성 공백이 없다는 판단으로 1차에서는 컴플라이언스 요소만 승계한다.
   const embargo = embargoLine(email.embargoAt) || undefined;
   const embargoNote = embargoAssetNote(email.embargoAt) || undefined;
-  const cta = ctaLine(j.outletCategory);
+  const cta = ctaLine(j.outletCategory, hasAssets(email));
   // 핵심 블록의 beat 재프레이밍은 프리셋도 공유한다 — 프리셋이 다른 건 배치와 압축률이지
   // "그 기자의 관점으로 말한다"는 원칙이 아니다.
   const angle = beatAngle(j, email);
@@ -422,7 +450,7 @@ export function renderCustomTemplate(
   const vars: Record<string, string> = {
     수신거부: OPT_OUT,
     엠바고: embargoLine(email.embargoAt),
-    매체CTA: ctaLine(j.outletCategory),
+    매체CTA: ctaLine(j.outletCategory, hasAssets(email)),
     회사명: email.companyName,
     발신자: email.senderName,
     헤드라인: email.headline,
