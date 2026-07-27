@@ -106,11 +106,43 @@ const TOOLS = [
         },
         draft: { type: "string", description: "검사할 보도자료 본문 (선택)" },
         title: { type: "string", description: "검사할 보도자료 제목 (선택)" },
+        boilerplate: {
+          type: "string",
+          description:
+            "미디어킷의 회사 소개 원문 (선택). 주면 본문이 이 문단을 그대로 실었는지 대조합니다.",
+        },
+        factSheet: {
+          type: "array",
+          description:
+            "미디어킷 팩트시트 (선택). 주면 본문 수치가 이 집합의 부분집합인지 대조합니다.",
+          items: {
+            type: "object",
+            properties: {
+              label: { type: "string" },
+              value: { type: "string" },
+            },
+            required: ["label", "value"],
+            additionalProperties: false,
+          },
+        },
       },
       additionalProperties: false,
     },
   },
 ];
+
+/** MCP 인자에서 `{label, value}` 배열만 통과시킨다 — 모양이 다르면 통째로 버린다. */
+function parseFactSheet(value: unknown): Array<{ label: string; value: string }> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const rows = value.filter(
+    (r): r is { label: string; value: string } =>
+      typeof r === "object" &&
+      r !== null &&
+      typeof (r as { label?: unknown }).label === "string" &&
+      typeof (r as { value?: unknown }).value === "string",
+  );
+  return rows.length > 0 ? rows : undefined;
+}
 
 function textResult(text: string, isError = false): ToolCallResult {
   return {
@@ -252,6 +284,8 @@ async function callTool(
           section: typeof args.section === "string" ? args.section : undefined,
           draft: typeof args.draft === "string" ? args.draft : undefined,
           title: typeof args.title === "string" ? args.title : undefined,
+          boilerplate: typeof args.boilerplate === "string" ? args.boilerplate : undefined,
+          factSheet: parseFactSheet(args.factSheet),
         });
         return textResult(JSON.stringify(guide, null, 2));
       }

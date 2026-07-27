@@ -7,6 +7,7 @@
  *    (반대로 메일은 발송이 비가역이라 critical을 즉시 차단한다 — `emailCompliance`.)
  */
 
+import { checkBoilerplate, checkNumbersAgainstFactSheet } from "./factCheck";
 import {
   GATE_THRESHOLDS,
   L1_BANNED_TERMS,
@@ -57,10 +58,29 @@ function clip(s: string, n = 40): string {
 }
 
 /**
- * 보도자료 제목·본문 검사.
- * L1 금칙어 / L2 최상급 / L4 수치-출처 근접 / 문장 길이(STYLE-LEN-001).
+ * 미디어킷 대조용 입력. 없으면 해당 규칙을 아예 돌리지 않는다 —
+ * 대조할 원본이 없는데 "원본과 다름"을 띄우면 전부 오탐이다.
  */
-export function lintPressRelease(title: string, body: string): PressLintResult {
+export interface PressLintOptions {
+  /** 미디어킷 보일러플레이트(단일 소스) */
+  boilerplate?: string;
+  /** 미디어킷 팩트시트 — 본문 수치의 근거 집합 */
+  factSheet?: Array<{ label?: string; value: string }>;
+}
+
+/** 수치 위반은 한 번에 이만큼만 보여준다 — 스무 줄짜리 경고는 아무도 읽지 않는다. */
+const MAX_NUMBER_VIOLATIONS = 5;
+
+/**
+ * 보도자료 제목·본문 검사.
+ * L1 금칙어 / L2 최상급 / L4 수치-출처 근접 / 문장 길이(STYLE-LEN-001) /
+ * 미디어킷 대조(FACT-BOILER-001 · FACT-NUM-001, `opts`가 있을 때만).
+ */
+export function lintPressRelease(
+  title: string,
+  body: string,
+  opts?: PressLintOptions,
+): PressLintResult {
   const violations: PressViolation[] = [];
   const text = `${title}\n${body}`;
 
@@ -134,6 +154,42 @@ export function lintPressRelease(title: string, body: string): PressLintResult {
       label: "확인이 끝나지 않은 항목이 남아 있습니다",
       span: WRITING_RULES.unverifiablePlaceholder,
       suggestion: "근거 자료를 확인해 실제 값으로 바꾸거나 해당 문장을 지우세요.",
+    });
+  }
+
+  // ── 미디어킷 대조 (단일 소스) ──────────────────────────────
+  const boiler = checkBoilerplate(body, opts?.boilerplate);
+  if (boiler.verdict === "drifted") {
+    violations.push({
+      level: "fact",
+      severity: "high",
+      ruleId: "FACT-BOILER-001",
+      label: "회사 소개가 미디어킷 원본과 다릅니다",
+      span: clip(boiler.closestParagraph ?? ""),
+      suggestion:
+        "회사 소개는 미디어킷 보일러플레이트를 그대로 싣습니다. 내용을 바꿔야 한다면 미디어킷을 먼저 고치세요.",
+    });
+  } else if (boiler.verdict === "missing") {
+    violations.push({
+      level: "fact",
+      severity: "medium",
+      ruleId: "FACT-BOILER-002",
+      label: "회사 소개(보일러플레이트)가 본문에 없습니다",
+      span: "",
+      suggestion: "본문 끝에 미디어킷의 회사 소개 문단을 그대로 넣으세요.",
+    });
+  }
+
+  const numbers = checkNumbersAgainstFactSheet(body, opts?.factSheet);
+  for (const claim of numbers.unsourced.slice(0, MAX_NUMBER_VIOLATIONS)) {
+    violations.push({
+      level: "fact",
+      severity: "medium",
+      ruleId: "FACT-NUM-001",
+      label: "팩트시트에 없는 수치입니다",
+      span: clip(claim.raw, 20),
+      suggestion:
+        "이 값을 팩트시트에 근거와 함께 추가하거나, 본문에서 팩트시트에 있는 값으로 바로잡으세요.",
     });
   }
 

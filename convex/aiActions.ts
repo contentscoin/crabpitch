@@ -263,6 +263,8 @@ export const polishPressRelease = action({
     quote: v.optional(v.string()),
     bodyHint: v.optional(v.string()),
     boilerplate: v.optional(v.string()),
+    /** 미디어킷 팩트시트 — 본문 수치의 근거 집합(대조용, 프롬프트에는 넣지 않는다) */
+    factSheet: v.optional(v.array(v.object({ label: v.string(), value: v.string() }))),
   },
   handler: async (
     ctx,
@@ -284,6 +286,9 @@ export const polishPressRelease = action({
       body: args.bodyHint ?? args.newsValue ?? args.title,
     };
 
+    // 미디어킷 대조 입력 — 원본이 넘어오지 않으면 해당 규칙은 자동으로 꺼진다.
+    const lintOpts = { boilerplate: args.boilerplate, factSheet: args.factSheet };
+
     const resolved = await resolveLlm(ctx, userId);
     if (!resolved) {
       // AI 미연결이어도 lint는 돌려준다 — 규칙 검사는 LLM과 무관한 결정적 코드다.
@@ -291,7 +296,7 @@ export const polishPressRelease = action({
         ...fallback,
         mode: "skipped",
         message: NO_KEY_MESSAGE,
-        lint: lintPressRelease(fallback.title, fallback.body),
+        lint: lintPressRelease(fallback.title, fallback.body, lintOpts),
       };
     }
 
@@ -321,7 +326,7 @@ export const polishPressRelease = action({
           ...fallback,
           mode: "error",
           message: "빈 응답",
-          lint: lintPressRelease(fallback.title, fallback.body),
+          lint: lintPressRelease(fallback.title, fallback.body, lintOpts),
         };
       }
       const polished = parsePolishPressResult(raw, fallback);
@@ -334,7 +339,7 @@ export const polishPressRelease = action({
         ...polished,
         mode: resolved.provider,
         message: `${providerLabel(resolved.provider)}로 보도자료를 다듬었습니다.`,
-        lint: lintPressRelease(polished.title, polished.body),
+        lint: lintPressRelease(polished.title, polished.body, lintOpts),
       };
     } catch (e) {
       const msg = e instanceof Error ? e.message : "보도자료 다듬기 실패";
@@ -348,7 +353,7 @@ export const polishPressRelease = action({
         ...fallback,
         mode: "error",
         message: msg,
-        lint: lintPressRelease(fallback.title, fallback.body),
+        lint: lintPressRelease(fallback.title, fallback.body, lintOpts),
       };
     }
   },

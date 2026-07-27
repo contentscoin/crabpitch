@@ -249,6 +249,11 @@ export default defineSchema({
     complianceNotes: v.optional(v.array(v.string())),
     /** 이 초안이 어떤 초안의 팔로업인지 — 재탕 검증·이력 추적용 */
     followUpOf: v.optional(v.id("emailDrafts")),
+    /**
+     * 사용자가 이 초안을 실제로 열어 확인한 시각.
+     * 캠페인 전체 발송 전에 최소 1건은 이 기록이 있어야 한다(파일럿 게이트).
+     */
+    approvedAt: v.optional(v.number()),
   })
     .index("by_campaign", ["campaignId"])
     .index("by_campaign_journalist", ["campaignId", "journalistId"])

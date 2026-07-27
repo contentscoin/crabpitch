@@ -7,6 +7,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "./_generated/dataModel";
 import { buildRawEmail, GMAIL_PR_LABEL, GMAIL_SCOPES } from "./lib/gmailMime";
 import { personalizeForSend } from "./lib/emailTemplate";
+import { pilotGateMessage } from "./lib/pilotGate";
 import { requireGoogleOAuthClient } from "./lib/googleOAuthEnv";
 
 function requireGmailOAuthEnv() {
@@ -185,6 +186,10 @@ export const pushCampaignToGmail = action({
     if (pending.length === 0) {
       return { sent: 0, mode: "gmail_drafts", message: "발송할 초안이 없습니다." };
     }
+
+    // 파일럿 게이트 — Gmail 연결 사용자에게는 이 경로가 기본이라 여기서도 반드시 막는다.
+    const pilot = await ctx.runQuery(internal.drafts.pilotGateStatus, { campaignId, userId });
+    if (pilot.needsApproval) throw new Error(pilotGateMessage(pilot.total));
 
     const accessToken = await refreshAccessToken(ctx, account, clientId, clientSecret);
     const labelId = await ensureLabelId(accessToken, GMAIL_PR_LABEL);

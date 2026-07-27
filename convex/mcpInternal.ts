@@ -188,6 +188,10 @@ export const pressGuide = internalQuery({
     section: v.optional(v.string()),
     draft: v.optional(v.string()),
     title: v.optional(v.string()),
+    /** 미디어킷 회사 소개 — 넘기면 본문이 원본을 그대로 실었는지 대조한다 */
+    boilerplate: v.optional(v.string()),
+    /** 미디어킷 팩트시트 — 넘기면 본문 수치가 이 집합의 부분집합인지 대조한다 */
+    factSheet: v.optional(v.array(v.object({ label: v.string(), value: v.string() }))),
   },
   returns: v.object({
     guide: v.string(),
@@ -213,13 +217,15 @@ export const pressGuide = internalQuery({
     ),
     note: v.string(),
   }),
-  handler: async (_ctx, { section, draft, title }) => {
+  handler: async (_ctx, { section, draft, title, boilerplate, factSheet }) => {
     const requested = (section ?? "all") as GuideSection;
     const valid: GuideSection[] = ["structure", "writing", "geo", "adlaw", "presskit", "all"];
     const chosen = valid.includes(requested) ? requested : "all";
     return {
       guide: guideSectionText(chosen),
-      lint: draft ? lintPressRelease(title ?? "", draft) : undefined,
+      lint: draft
+        ? lintPressRelease(title ?? "", draft, { boilerplate, factSheet })
+        : undefined,
       note: "표시·광고 계열 규범만 다룹니다. 언론중재법은 범위 밖이며 법률 검토를 대체하지 않습니다.",
     };
   },

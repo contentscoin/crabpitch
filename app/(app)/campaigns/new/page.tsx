@@ -84,9 +84,10 @@ export default function NewCampaignPage() {
 
   const kits = mediaKits ?? [];
   const selectedKitId = kitId || kits[0]?._id || "";
+  const selectedKit = kits.find((k) => k._id === selectedKitId);
 
   function loadBoilerplateFromKit() {
-    const kit = kits.find((k) => k._id === selectedKitId);
+    const kit = selectedKit;
     if (!kit) return;
     const bp = (kit.boilerplate ?? "").trim();
     if (!bp) {
@@ -115,6 +116,11 @@ export default function NewCampaignPage() {
         bodyHint: form.body || undefined,
         newsValue: form.headline || undefined,
         boilerplate: form.boilerplate || undefined,
+        // 선택한 미디어킷의 팩트시트를 대조 기준으로 넘긴다 — 본문에 없던 숫자가
+        // 생겨나면 lint가 잡는다. 프롬프트에는 들어가지 않고 검사에만 쓰인다.
+        factSheet: selectedKit?.factSheet?.length
+          ? selectedKit.factSheet.map((f) => ({ label: f.label, value: f.value }))
+          : undefined,
       });
       // skipped/error 폴백은 입력값 그대로라 폼을 덮어쓰지 않는다.
       if (result.mode !== "skipped" && result.mode !== "error") {

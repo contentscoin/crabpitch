@@ -359,10 +359,13 @@ function MediaKitEditor({ id }: { id: Id<"mediaKits"> }) {
     }
   }, [kit?._id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const companyName = seed.companyName.trim() || (form.name === DEFAULT_KIT_NAME ? "" : form.name.trim());
+
   // 저장 전 입력 기준 점수 — "지금 무엇을 채우면 오르는지"를 즉시 보여 준다.
+  // 회사명을 넘기면 자산 파일명이 회사를 식별하는지까지 본다(모르면 그 조건은 건너뛴다).
   const report = useMemo<MediaKitCompleteness>(
-    () => scoreMediaKit({ ...formToKit(form), ...formToExtras(form) }),
-    [form],
+    () => scoreMediaKit({ ...formToKit(form), ...formToExtras(form) }, { companyName }),
+    [form, companyName],
   );
 
   // AI가 남긴 미확정 표기는 지우지 않고 어디에 있는지만 알린다.
@@ -429,8 +432,6 @@ function MediaKitEditor({ id }: { id: Id<"mediaKits"> }) {
     }));
     setSaved(false);
   }
-
-  const companyName = seed.companyName.trim() || (form.name === DEFAULT_KIT_NAME ? "" : form.name.trim());
 
   /** `skipped`(AI 미연결)·`error`면 폼을 건드리지 않는다. */
   function accepted(mode: string, message?: string): boolean {

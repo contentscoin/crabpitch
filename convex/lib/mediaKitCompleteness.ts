@@ -236,18 +236,70 @@ export function pressKitSection(marker: string): string {
  *
  * 금지 예(`KakaoTalk_2026….jpg`·`스크린샷.png`)는 하이픈 토큰이 부족해 자동으로 걸린다.
  */
-export function followsAssetFilenameRule(url: string | undefined): boolean {
+/**
+ * 의미 없는 파일명 토큰.
+ * 연번(01·002)·기기 접두어·범용 단어만으로 이뤄진 이름은 토큰 수만 채울 뿐
+ * `[기업명]-[제품명]-[핵심키워드]`가 요구하는 정보를 하나도 담지 않는다.
+ */
+const GENERIC_FILENAME_TOKENS = new Set([
+  "img", "image", "images", "photo", "pic", "picture", "screenshot", "screen",
+  "shot", "capture", "final", "new", "copy", "untitled", "asset", "file",
+  "card", "cover", "page", "slide", "output", "out", "temp", "tmp", "test",
+  "kakaotalk", "scr", "dsc", "download", "export", "render", "v1", "v2",
+]);
+
+/** 정보를 담은 토큰인가 — 순수 숫자·1글자·범용 단어는 제외. */
+function isMeaningfulToken(token: string): boolean {
+  const t = token.trim().toLowerCase();
+  if (t.length < 2) return false;
+  if (/^\d+$/.test(t)) return false;
+  // "v2"·"c3"처럼 글자 1 + 숫자 조합도 식별 정보가 아니다.
+  if (/^[a-z]\d+$/.test(t)) return false;
+  return !GENERIC_FILENAME_TOKENS.has(t);
+}
+
+/** 비교용 슬러그 — 회사명이 파일명에 실제로 들어갔는지 볼 때 쓴다. */
+function slugify(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9가-힣]/g, "");
+}
+
+/**
+ * 파일명이 `[기업명]-[제품명]-[핵심키워드]` 규칙을 따르는가.
+ *
+ * ⚠️ 토큰 **개수**만 세면 규칙의 의도를 전혀 담지 않은 이름이 통과한다
+ *    (실제로 `C3-EVENT-001.webp` 같은 생성 도구 기본 파일명이 만점을 받았다).
+ *    그래서 연번·범용 단어를 걸러낸 **의미 토큰** 수로 판정하고,
+ *    회사명을 알 때는 그것이 파일명에 실제로 들어갔는지까지 본다.
+ */
+export function followsAssetFilenameRule(
+  url: string | undefined,
+  opts?: { companyName?: string },
+): boolean {
   if (!url) return false;
   const basename = (url.split(/[?#]/)[0].split("/").pop() ?? "").trim();
   const dot = basename.lastIndexOf(".");
   if (dot <= 0 || dot === basename.length - 1) return false; // 확장자가 없다
+  const name = basename.slice(0, dot);
+  // 규칙 문자열을 그대로 붙여 넣었거나(대괄호 잔존) 공백·미확정 표기가 남으면 규칙 미충족이다.
+  if (/[[\]\s]/.test(name) || hasPlaceholder(basename)) return false;
+
   const pattern = GEO_ASSET_RULES.filenamePattern;
   const requiredTokens = pattern.slice(0, pattern.lastIndexOf(".")).split("-").length;
-  const name = basename.slice(0, dot);
   const tokens = name.split("-").filter((t) => t.trim().length > 0);
   if (tokens.length < requiredTokens) return false;
-  // 규칙 문자열을 그대로 붙여 넣었거나(대괄호 잔존) 공백·미확정 표기가 남으면 규칙 미충족이다.
-  return !/[[\]\s]/.test(name) && !hasPlaceholder(basename);
+
+  // 의미 토큰이 최소 2개는 있어야 기자가 폴더에서 이 파일을 찾을 수 있다.
+  const meaningful = tokens.filter(isMeaningfulToken);
+  if (meaningful.length < 2) return false;
+
+  const company = opts?.companyName?.trim();
+  if (company) {
+    const haystack = slugify(name);
+    // 회사명이 길면 앞부분만으로도 인정한다(파일명이 과하게 길어지는 걸 강요하지 않는다).
+    const needle = slugify(company).slice(0, 6);
+    if (needle.length >= 2 && !haystack.includes(needle)) return false;
+  }
+  return true;
 }
 
 /** 목표치 대비 비례 배점. */
@@ -277,7 +329,10 @@ function fillReason(text: string | undefined, whenEmpty: string, subject: string
 /* ── 채점 ────────────────────────────────────────────────────── */
 
 /** 항목별 점수와 미충족 사유. 화면은 이 결과를, DB는 `score`만 쓴다. */
-export function scoreMediaKit(kit: MediaKitScorable): MediaKitCompleteness {
+export function scoreMediaKit(
+  kit: MediaKitScorable,
+  opts?: { companyName?: string },
+): MediaKitCompleteness {
   const items: CompletenessItem[] = [];
 
   /*
@@ -435,7 +490,11 @@ export function scoreMediaKit(kit: MediaKitScorable): MediaKitCompleteness {
    */
   const visuals = (kit.visuals ?? []).filter((vz) => isFilled(vz.label));
   const visualChecks = [
-    { label: "파일명 규칙", ok: (vz: MediaKitVisual) => followsAssetFilenameRule(vz.url) },
+    {
+      label: "파일명 규칙",
+      ok: (vz: MediaKitVisual) =>
+        followsAssetFilenameRule(vz.url, opts?.companyName ? { companyName: opts.companyName } : undefined),
+    },
     { label: "Alt 텍스트", ok: (vz: MediaKitVisual) => isFilled(vz.alt) },
     { label: "캡션", ok: (vz: MediaKitVisual) => isFilled(vz.caption) },
   ];

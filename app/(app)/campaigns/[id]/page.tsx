@@ -33,6 +33,7 @@ import {
   isEmailTemplatePresetId,
   type EmailTemplatePresetId,
 } from "@/convex/lib/emailTemplate";
+import { needsPilotApproval } from "@/convex/lib/pilotGate";
 import { REPLY_TEMPLATE_VARIANTS } from "@/convex/lib/replyClassifier";
 import type { ReplyType } from "@/convex/lib/replyClassifier";
 
@@ -48,6 +49,7 @@ export default function CampaignDetailPage() {
   const gmail = useQuery(api.gmailAccounts.getConnection);
   const aiStatus = useQuery(api.aiKeys.status);
   const customTemplates = useQuery(api.emailTemplates.list);
+  const similarity = useQuery(api.drafts.campaignSimilarity, { campaignId: id });
 
   const runMatch = useMutation(api.journalists.matchForCampaign);
   const syncOpenCrab = useAction(api.opencrabActions.syncJournalists);
@@ -85,6 +87,9 @@ export default function CampaignDetailPage() {
   const blockedCount =
     drafts?.filter((d) => d.complianceLevel === "fail" || d.complianceLevel === "blocked").length ?? 0;
   const warnCount = drafts?.filter((d) => d.complianceLevel === "warn").length ?? 0;
+  // 파일럿 게이트 — 판정은 서버와 같은 함수를 쓴다(임계값을 화면에 복제하지 않는다).
+  const pendingDrafts = drafts?.filter((d) => d.status === "draft" || d.status === "queued") ?? [];
+  const pilotBlocked = needsPilotApproval(pendingDrafts);
 
   function templateArgs(): {
     preset?: EmailTemplatePresetId;
@@ -306,7 +311,21 @@ export default function CampaignDetailPage() {
               {warnCount > 0 && (
                 <li className="text-warning">· 확인이 필요한 초안 <b>{warnCount}건</b>이 있습니다(발송은 가능합니다).</li>
               )}
+              {similarity?.status === "warn" &&
+                similarity.notes.map((n) => (
+                  <li key={n} className="text-warning">· {n}</li>
+                ))}
             </ul>
+
+            {pilotBlocked && (
+              <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2.5 text-sm">
+                <p className="font-semibold text-warning">초안을 아직 한 건도 확인하지 않았습니다.</p>
+                <p className="mt-1 text-foreground-muted">
+                  위 초안 목록에서 하나를 펼쳐 내용을 읽고 <b>‘이 초안 확인함’</b>을 누르면 발송이 열립니다.
+                  규칙 검사는 표현·수치·구조만 봅니다. 톤이 맞는지는 사람만 판정할 수 있습니다.
+                </p>
+              </div>
+            )}
 
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -357,12 +376,16 @@ export default function CampaignDetailPage() {
                     }
                   })
                 }
-                disabled={!optOutConfirmed || busy === "send" || !drafts || drafts.length === 0}
+                disabled={
+                  !optOutConfirmed || busy === "send" || !drafts || drafts.length === 0 || pilotBlocked
+                }
               >
                 <Send className="h-4 w-4" />{" "}
                 {busy === "send"
                   ? "처리 중…"
-                  : scheduleLocal
+                  : pilotBlocked
+                    ? "초안 확인 필요"
+                    : scheduleLocal
                     ? "예약 발송 (승인)"
                     : gmail?.connected
                       ? "Gmail 초안 생성 (승인)"
@@ -471,14 +494,18 @@ function DraftItem({
     status: string;
     complianceLevel?: string;
     complianceNotes?: string[];
+    approvedAt?: number;
   };
 }) {
   const [open, setOpen] = useState(false);
+  const approveDraft = useMutation(api.drafts.approveDraft);
+  const [approving, setApproving] = useState(false);
   const hasOptOut = hasUsableOptOut(draft.body);
   const level = draft.complianceLevel;
   const notes = draft.complianceNotes ?? [];
   // "blocked"는 쿨다운 등으로 이번 회차에 나가지 않은 초안(삭제하지 않고 사유만 남긴다).
   const blocking = level === "fail" || level === "blocked";
+  const approved = draft.approvedAt !== undefined;
   return (
     <div
       className={
@@ -495,6 +522,11 @@ function DraftItem({
           {level === "fail" && <Badge variant="danger">발송 차단</Badge>}
           {level === "blocked" && <Badge variant="warning">이번 회차 제외</Badge>}
           {level === "warn" && <Badge variant="warning">확인 필요</Badge>}
+          {approved && (
+            <Badge variant="success">
+              <Check className="h-3 w-3" /> 확인함
+            </Badge>
+          )}
           {hasOptOut && (
             <Badge variant="success">
               <Check className="h-3 w-3" /> 수신거부 포함
@@ -511,9 +543,33 @@ function DraftItem({
         </ul>
       )}
       {open && (
-        <pre className="whitespace-pre-wrap border-t border-border bg-surface/50 px-4 py-3 text-sm leading-relaxed text-foreground-muted">
-          {draft.body}
-        </pre>
+        <>
+          <pre className="whitespace-pre-wrap border-t border-border bg-surface/50 px-4 py-3 text-sm leading-relaxed text-foreground-muted">
+            {draft.body}
+          </pre>
+          {draft.status !== "sent" && draft.status !== "published" && (
+            <div className="flex items-center gap-3 border-t border-border px-4 py-2.5">
+              <Button
+                variant={approved ? "ghost" : "subtle"}
+                onClick={() => {
+                  setApproving(true);
+                  approveDraft({ draftId: draft._id as Id<"emailDrafts"> }).finally(() =>
+                    setApproving(false),
+                  );
+                }}
+                disabled={approved || approving}
+              >
+                <Check className="h-4 w-4" />{" "}
+                {approved ? "확인 완료" : approving ? "기록 중…" : "이 초안 확인함"}
+              </Button>
+              <span className="text-xs text-muted">
+                {approved
+                  ? `${new Date(draft.approvedAt!).toLocaleString("ko-KR")} 확인`
+                  : "캠페인 전체 발송 전 최소 1건은 실제로 읽고 확인해야 합니다."}
+              </span>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

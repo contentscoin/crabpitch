@@ -13,6 +13,8 @@ import {
   checkFollowUpEligibility,
   isCopyPaste,
 } from "./lib/followUp";
+import { needsPilotApproval, pilotGateMessage } from "./lib/pilotGate";
+import { checkCampaignSimilarity } from "./lib/campaignSimilarity";
 
 const emailTemplatePresetValidator = v.union(
   v.literal("standard"),
@@ -97,6 +99,8 @@ export interface FinalizeSendResult {
   blockedSuppressed: number;
   blockedCooldown: number;
   blockedCompliance: number;
+  /** 파일럿 승인이 없어 통째로 보류된 경우 */
+  blockedPilot: boolean;
   /** 캠페인당 상한을 넘겨 이번 회차에 나가지 않은 초안 수 */
   overCap: number;
   /** 월 한도를 넘겨 나가지 않은 초안 수 */
@@ -118,6 +122,7 @@ async function finalizeCampaignSend(
     blockedSuppressed: 0,
     blockedCooldown: 0,
     blockedCompliance: 0,
+    blockedPilot: false,
     overCap: 0,
     overMonthly: 0,
   };
@@ -134,6 +139,14 @@ async function finalizeCampaignSend(
       ...(anySent ? { status: "sent" as const } : {}),
       scheduledSendAt: undefined,
     });
+    return result;
+  }
+
+  // ⓪ 파일럿 게이트 — 아무도 열어 보지 않은 캠페인은 통째로 보류한다.
+  //    제외가 아니라 보류이므로 초안은 그대로 두고 예약만 해제한다.
+  if (needsPilotApproval(queued)) {
+    result.blockedPilot = true;
+    await ctx.db.patch(campaignId, { status: "review", scheduledSendAt: undefined });
     return result;
   }
 
@@ -385,6 +398,10 @@ export const sendCampaign = mutation({
     // 발송 직전 수신거부 재대조 (차단분은 초안으로 남기고 한도에서도 제외)
     const { sendable: pending } = await filterSuppressed(ctx, userId, queued);
 
+    // 파일럿 게이트 — finalize도 다시 확인하지만, 사용자 대면 경로에서는 조용히 0통으로
+    // 끝내지 않고 무엇을 눌러야 풀리는지 알려 준다.
+    if (needsPilotApproval(pending)) throw new Error(pilotGateMessage(pending.length));
+
     // 사용자 대면 경로에서는 한도 초과를 조용히 자르지 않고 명확히 알린다.
     if (pending.length > remaining) {
       throw new Error(
@@ -440,6 +457,8 @@ export const scheduleCampaign = mutation({
     ).filter((d) => d.status === "draft" || d.status === "queued");
 
     if (pending.length === 0) throw new Error("예약할 초안이 없습니다.");
+    // 예약은 실행 시점에 사용자가 없다 — 보류로 끝나면 아무도 모른다. 예약 단계에서 막는다.
+    if (needsPilotApproval(pending)) throw new Error(pilotGateMessage(pending.length));
     if (pending.length > remaining) {
       throw new Error(
         `발송 한도 초과: 이번 달 잔여 ${remaining}통, 요청 ${pending.length}통.`,
@@ -739,5 +758,61 @@ export const createFollowUp = mutation({
       complianceLevel: compliance.status,
       ...(compliance.notes.length ? { complianceNotes: compliance.notes } : {}),
     });
+  },
+});
+
+/** 초안 확인 기록 — 파일럿 게이트를 여는 행위. */
+export const approveDraft = mutation({
+  args: { draftId: v.id("emailDrafts") },
+  handler: async (ctx, { draftId }) => {
+    const userId = await requireUser(ctx);
+    const draft = await ctx.db.get(draftId);
+    if (!draft) throw new Error("초안을 찾을 수 없습니다.");
+    const campaign = await ctx.db.get(draft.campaignId);
+    if (!campaign || campaign.userId !== userId) throw new Error("권한이 없습니다.");
+    const approvedAt = Date.now();
+    await ctx.db.patch(draftId, { approvedAt });
+    return { approvedAt };
+  },
+});
+
+/**
+ * Gmail 초안 경로용 파일럿 게이트 조회.
+ *
+ * Gmail 연결 사용자에게는 `pushCampaignToGmail`이 **기본 경로**라, 여기를 비워 두면
+ * 게이트가 사실상 없는 것과 같다. 판정 로직은 `lib/pilotGate` 단일 소스를 쓴다.
+ */
+export const pilotGateStatus = internalQuery({
+  args: { campaignId: v.id("campaigns"), userId: v.id("users") },
+  returns: v.object({ needsApproval: v.boolean(), total: v.number() }),
+  handler: async (ctx, { campaignId, userId }) => {
+    const campaign = await ctx.db.get(campaignId);
+    if (!campaign || campaign.userId !== userId) return { needsApproval: false, total: 0 };
+    const queued = (
+      await ctx.db
+        .query("emailDrafts")
+        .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
+        .collect()
+    ).filter((d) => d.status === "draft" || d.status === "queued");
+    return { needsApproval: needsPilotApproval(queued), total: queued.length };
+  },
+});
+
+/**
+ * 캠페인 내 메일 상호 유사도 — 개인화가 실제로 걸렸는지 본다(warn-only, 발송을 막지 않는다).
+ * 본문만 넘긴다 — 판정에 기자 정보가 전혀 필요 없다.
+ */
+export const campaignSimilarity = query({
+  args: { campaignId: v.id("campaigns") },
+  handler: async (ctx, { campaignId }) => {
+    const userId = await requireUser(ctx);
+    const campaign = await ctx.db.get(campaignId);
+    if (!campaign || campaign.userId !== userId) return null;
+    const drafts = await ctx.db
+      .query("emailDrafts")
+      .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
+      .collect();
+    const pending = drafts.filter((d) => d.status === "draft" || d.status === "queued");
+    return checkCampaignSimilarity(pending.map((d) => d.body));
   },
 });

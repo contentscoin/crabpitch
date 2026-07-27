@@ -45,3 +45,60 @@ describe("pressLint", () => {
     expect(r.violations.some((v) => v.level === "L4")).toBe(true);
   });
 });
+
+/**
+ * 미디어킷 대조 규칙은 **원본이 넘어올 때만** 돈다.
+ * 기존 호출부(2인자)는 동작이 바뀌지 않아야 한다 — 위 테스트 전체가 그 회귀 가드다.
+ */
+describe("pressLint — 미디어킷 대조", () => {
+  const BOILER =
+    "크랩피치는 2023년 설립된 언론 홍보 자동화 기업입니다. 스타트업이 직접 기자에게 소식을 전할 수 있도록 매칭·초안·발송 기록을 한 흐름으로 제공합니다.";
+  const FACTS = [
+    { label: "누적 이용자", value: "30만 명" },
+    { label: "시리즈A", value: "100억원" },
+  ];
+
+  it("원본을 안 주면 대조 규칙이 아예 붙지 않는다", () => {
+    const r = lintPressRelease("제목", CLEAN_BODY);
+    expect(r.violations.some((v) => v.level === "fact")).toBe(false);
+  });
+
+  it("회사 소개가 원본과 다르면 FACT-BOILER-001", () => {
+    const body = `${CLEAN_BODY}\n\n${BOILER.replace("2023년", "2021년")}`;
+    const r = lintPressRelease("제목", body, { boilerplate: BOILER });
+    const hit = r.violations.find((v) => v.ruleId === "FACT-BOILER-001");
+    expect(hit).toBeDefined();
+    expect(hit!.severity).toBe("high");
+  });
+
+  it("회사 소개가 아예 없으면 FACT-BOILER-002", () => {
+    const r = lintPressRelease("제목", CLEAN_BODY, { boilerplate: BOILER });
+    expect(r.violations.some((v) => v.ruleId === "FACT-BOILER-002")).toBe(true);
+  });
+
+  it("원본을 그대로 실으면 대조 위반이 없다", () => {
+    const body = `${CLEAN_BODY}\n\n${BOILER}`;
+    const r = lintPressRelease("제목", body, { boilerplate: BOILER });
+    expect(r.violations.some((v) => v.ruleId.startsWith("FACT-BOILER"))).toBe(false);
+  });
+
+  it("팩트시트에 없는 수치를 FACT-NUM-001로 잡는다", () => {
+    const body = "한국벤처투자 2026년 집계 기준 이용자 50만 명을 확보했다.";
+    const r = lintPressRelease("제목", body, { factSheet: FACTS });
+    const hit = r.violations.find((v) => v.ruleId === "FACT-NUM-001");
+    expect(hit).toBeDefined();
+    expect(hit!.span).toContain("50만");
+  });
+
+  it("팩트시트에 있는 수치만 쓰면 통과한다", () => {
+    const body = "한국벤처투자 2026년 집계 기준 이용자 30만 명, 시리즈A 100억원 규모다.";
+    const r = lintPressRelease("제목", body, { factSheet: FACTS });
+    expect(r.violations.some((v) => v.ruleId === "FACT-NUM-001")).toBe(false);
+  });
+
+  it("수치 위반이 쏟아져도 다섯 건까지만 보여 준다", () => {
+    const body = Array.from({ length: 12 }, (_, i) => `한국은행 집계 ${i + 1}만 명이다.`).join(" ");
+    const r = lintPressRelease("제목", body, { factSheet: FACTS });
+    expect(r.violations.filter((v) => v.ruleId === "FACT-NUM-001")).toHaveLength(5);
+  });
+});

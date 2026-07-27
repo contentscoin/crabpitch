@@ -15,10 +15,9 @@ import { describe, expect, it } from "vitest";
  * 네 번째 경로가 생기거나 누군가 공통 함수를 우회하면 여기서 깨진다.
  */
 
-const SOURCE = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "drafts.ts"),
-  "utf-8",
-);
+const HERE = dirname(fileURLToPath(import.meta.url));
+const SOURCE = readFileSync(join(HERE, "drafts.ts"), "utf-8");
+const GMAIL_SOURCE = readFileSync(join(HERE, "gmailActions.ts"), "utf-8");
 
 /** `export const <name> = ...` 부터 다음 최상위 export 직전까지를 잘라낸다. */
 function exportBlock(name: string): string {
@@ -65,5 +64,39 @@ describe("발송 확정 3경로", () => {
     expect(SOURCE).toContain('withIndex("by_user_journalist"');
     // 사용자 축 없는 전역 기자 인덱스를 쓰면 다른 사용자의 발송 이력이 판정에 섞인다.
     expect(SOURCE).not.toContain('withIndex("by_journalist"');
+  });
+});
+
+/**
+ * 파일럿 게이트 가드.
+ *
+ * 초안을 실제로 확정하는 경로는 네 개다 — 위 세 개에 **Gmail 초안 생성**이 더해진다.
+ * Gmail 경로는 연결 사용자에게 기본 경로이므로, 여기를 빠뜨리면 게이트가 사실상 없는 것과
+ * 같다(실제로 이 경로는 수신거부 재대조만 하고 나머지 게이트를 건너뛴다 — 별개 문제).
+ */
+describe("파일럿 게이트", () => {
+  it("판정 로직은 lib/pilotGate 단일 소스만 쓴다", () => {
+    expect(SOURCE).toContain('from "./lib/pilotGate"');
+    // 임계값을 경로마다 다시 적으면 하나가 반드시 어긋난다.
+    expect(SOURCE).not.toContain("PILOT_GATE_MIN_DRAFTS =");
+  });
+
+  it("공통 확정 함수가 게이트를 통과한다", () => {
+    const start = SOURCE.indexOf("async function finalizeCampaignSend");
+    const block = SOURCE.slice(start, SOURCE.indexOf("\nexport const", start));
+    expect(block).toContain("needsPilotApproval(");
+  });
+
+  for (const path of ["sendCampaign", "scheduleCampaign"] as const) {
+    it(`${path}는 조용히 0통으로 끝내지 않고 사유를 던진다`, () => {
+      const block = exportBlock(path);
+      expect(block).toContain("needsPilotApproval(");
+      expect(block).toContain("pilotGateMessage(");
+    });
+  }
+
+  it("Gmail 초안 경로도 게이트를 통과한다", () => {
+    expect(GMAIL_SOURCE).toContain("internal.drafts.pilotGateStatus");
+    expect(GMAIL_SOURCE).toContain("pilotGateMessage(");
   });
 });

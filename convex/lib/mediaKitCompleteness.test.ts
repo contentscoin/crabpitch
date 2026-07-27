@@ -304,3 +304,33 @@ describe("mediaKitCompleteness", () => {
     expect(unmet.every((i) => (i.reason ?? "").length > 0)).toBe(true);
   });
 });
+
+describe("파일명 규칙 — 의미 기반 판정", () => {
+  it("생성 도구 기본 파일명은 토큰 수를 채워도 통과하지 못한다", () => {
+    // 이전 구현은 하이픈 3토큰만 세어 이런 이름을 만점 처리했다.
+    expect(followsAssetFilenameRule("out/C3-EVENT-001.webp")).toBe(false);
+    expect(followsAssetFilenameRule("IMG-2026-0713.png")).toBe(false);
+    expect(followsAssetFilenameRule("screenshot-01-final.png")).toBe(false);
+  });
+
+  it("의미를 담은 파일명은 통과한다", () => {
+    expect(followsAssetFilenameRule("크랩피치-메일게이트-차단율.png")).toBe(true);
+    expect(followsAssetFilenameRule("dalpha-ai-agent-benchmark.png")).toBe(true);
+  });
+
+  it("토큰이 모자라거나 규칙 문자열이 남으면 여전히 탈락한다", () => {
+    expect(followsAssetFilenameRule("card-02.png")).toBe(false);
+    expect(followsAssetFilenameRule("[기업명]-[제품명]-[핵심키워드].png")).toBe(false);
+    expect(followsAssetFilenameRule("확장자없는-파일-이름")).toBe(false);
+  });
+
+  it("회사명을 알면 파일명에 실제로 들어갔는지까지 본다", () => {
+    const opts = { companyName: "크랩피치" };
+    expect(followsAssetFilenameRule("크랩피치-메일게이트-차단율.png", opts)).toBe(true);
+    expect(followsAssetFilenameRule("경쟁사-제품컷-정면.png", opts)).toBe(false);
+  });
+
+  it("회사명을 모르면 그 검사는 건너뛴다(기존 데이터 보호)", () => {
+    expect(followsAssetFilenameRule("경쟁사-제품컷-정면.png")).toBe(true);
+  });
+});
