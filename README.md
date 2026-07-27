@@ -18,7 +18,7 @@ pnpm dev           # http://localhost:3000  (로그인 후 대시보드 '데모 
 - 아키텍처·도메인 모델·통합 심(seam)·배포 절차: **`docs/ARCHITECTURE.md`**
 - 프로젝트 현황·성숙도·후속 백로그: **`docs/PROJECT_ANALYSIS.md`**
 - 자격증명 없이도 데모 시드로 전 기능 동작. OpenCrab/Anthropic/Gmail 실 배선 지점은 `.env.example` 참조.
-- **유료 MCP**: Solo/Growth/Agency에서 `/ai`로 `cp_mcp_…` 키 발급 → Claude/ChatGPT/Gemini/Cursor 플러그인 등록. 가이드: **`docs/MCP-SETUP.md`**
+- **MCP**: `/ai`에서 `cp_mcp_…` 키 발급(Free 포함) → Claude/ChatGPT/Gemini/Cursor 플러그인 등록. **Free는 보도자료 작성 도구까지**, 기자 매칭·메일 템플릿·회신 분류는 Solo 이상(웹앱에서는 Free도 이용 가능). 가이드: **`docs/MCP-SETUP.md`**
 
 ### 🔒 기자 개인정보 보호 (앱 기본값)
 기자 **실명·이메일·연락처는 화면에 절대 표시하지 않습니다**(익명 코드 `기자 #XXXX`로 대체).
@@ -120,7 +120,7 @@ for d in skills/*/ skills-pro/*/; do n=$(basename "$d"); [ -f "$d/SKILL.md" ] &&
 이 방향이 유저 구독을 활용하는 유일한 구조입니다):
 
 1. `/ai`에서 스킬 프롬프트 복사 → 내 AI 채팅에 붙여넣기 (공개 스킬 팩 기준)
-2. (Solo 이상) MCP 연결 키 발급 → 채팅에서 「기자 찾아줘」 직접 호출
+2. MCP 연결 키 발급(Free 포함) → 채팅에서 도구 직접 호출. Free는 「보도자료 규범 알려줘」까지, 「기자 찾아줘」는 Solo 이상
 3. (선택) **CLI 설치 스크립트** (`/crabpitch-byo-ai-setup.sh` · `.ps1`) — 터미널 사용자용
 
 ### ② 본인 API 키 연결 (BYOK) — 웹에서 바로 실행 (선택·고급)

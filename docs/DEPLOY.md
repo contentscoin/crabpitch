@@ -149,7 +149,7 @@ Agency REST (Agency 플랜 + `/agency`에서 `cp_live_…` 키 발급):
 | GET | `…/api/v1/campaigns?clientId=` | 캠페인 목록 |
 | POST | `…/api/v1/press-releases` | 보도자료+캠페인 (`clientId`, `title`, `body`) |
 
-### 유저 MCP (유료 Solo/Growth/Agency)
+### 유저 MCP (키 발급은 Free 포함 · 매칭·템플릿·분류 도구는 Solo 이상)
 
 앱 `/ai`에서 `cp_mcp_…` 키 발급. Free는 발급·호출 거부.
 
@@ -179,5 +179,5 @@ Agency REST (Agency 플랜 + `/agency`에서 `cp_live_…` 키 발급):
 - [ ] `OPENCRAB_API_URL` / `OPENCRAB_API_KEY` (prod) — `scripts/set-prod-integrations.sh` 또는 PowerShell `$env:…`
 - [ ] Google OAuth에 `https://<prod>.convex.site/gmail/callback` 추가 (`AUTH_GOOGLE_*` 폴백 사용 시)
 - [ ] `curl https://<prod>.convex.site/health` → `opencrab`/`gmailOAuth`/`mcp` 확인
-- [ ] 유료 플랜 → `/ai` MCP 키 발급 → Cursor `mcp.json` 연결 스모크
+- [ ] `/ai` MCP 키 발급 → Cursor `mcp.json` 연결 스모크 (Free는 도구 2종, Solo 이상은 5종 노출 확인)
 - [ ] 앱 설정 → 서버 연동 상태 · OpenCrab 동기화 테스트

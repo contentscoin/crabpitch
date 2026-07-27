@@ -78,7 +78,7 @@ agencyClients · agencyApiKeys` (+ Convex Auth `users`/`authSessions` 등)
 | 분석 | `usage.getAnalytics` | 게재율·회신 유형·미처리·예약 |
 | 인터뷰 일정 | `replies.confirmInterviewSlot` | KST 슬롯 3안 제안·확정 |
 | Agency API | `/agency` UI + `agencyApiKeys` | `Bearer cp_live_…` → `/api/v1/clients|campaigns|press-releases` |
-| 유저 MCP (유료) | `/ai` + `userMcpKeys` | `cp_mcp_…` → `/api/mcp` JSON-RPC (`mcpHttp` / `mcpInternal`) |
+| 유저 MCP | `/ai` + `userMcpKeys` | `cp_mcp_…` → `/api/mcp` JSON-RPC (`mcpHttp` / `mcpInternal`). 도구 노출은 플랜별 — `lib/plans`의 `SKILL_ENTITLEMENTS` |
 
 Agency REST (Convex site URL):
 
@@ -88,7 +88,7 @@ Agency REST (Convex site URL):
 | GET | `/api/v1/campaigns?clientId=` | 캠페인 목록 |
 | POST | `/api/v1/press-releases` | 보도자료+캠페인 생성 (`clientId`, `title`, `body`) |
 
-유저 MCP (Solo/Growth/Agency, Free 거부) — 스니펫 URL은 **`CONVEX_SITE_URL`** (`.convex.site`) 기준:
+유저 MCP (키 발급은 Free 포함, 도구는 플랜별) — 스니펫 URL은 **`CONVEX_SITE_URL`** (`.convex.site`) 기준:
 
 | Method | Path | 설명 |
 |---|---|---|
