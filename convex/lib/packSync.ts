@@ -142,6 +142,32 @@ export function packFingerprint(
  * 청크 재조립 → JSON 파싱 → `reporters[]` 순으로 진행하며, 어느 단계든 실패하면
  * `complete:false`로 표시해 호출 측이 `partial`로 기록하게 한다.
  */
+/**
+ * JSONL 문서에서 기자 레코드만 건져낸다.
+ *
+ * 머리말(`Exit code:` · `Output:` · `# 제목`)과 청크 경계에서 잘린 줄은 조용히 버린다.
+ * 잘린 줄을 살리려 들면 깨진 레코드가 DB에 들어간다 — 온전한 줄만 취한다.
+ *
+ * `reporter_name`이 없는 줄은 기자 레코드가 아니므로 제외한다(요약·메타 줄 방어).
+ */
+export function parseReporterJsonLines(text: string): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line.startsWith("{") || !line.endsWith("}")) continue;
+    let obj: unknown;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      continue; // 청크 경계에서 잘린 줄
+    }
+    if (isRecord(obj) && typeof obj.reporter_name === "string" && obj.reporter_name.trim()) {
+      out.push(obj);
+    }
+  }
+  return out;
+}
+
 export function parsePackPayload(payload: unknown): PackFetchResult {
   const chunks = extractChunks(payload);
   const doc = reassembleDocument(chunks);
@@ -159,6 +185,23 @@ export function parsePackPayload(payload: unknown): PackFetchResult {
   try {
     parsed = JSON.parse(doc.text);
   } catch (e) {
+    // 단일 JSON이 아니면 JSONL을 시도한다.
+    //
+    // v2 시리즈(contact-index-v2 · topic-routing-v2)는 "Exit code: 0 / Output: / # 제목"
+    // 머리말 뒤에 **한 줄에 기자 하나씩** 실려 온다. 배치 팩처럼 문서 전체가 하나의
+    // JSON 객체가 아니므로 첫 글자에서 JSON.parse가 죽는다.
+    //
+    // 이 형식이 오히려 결손에 강하다 — 줄이 자기완결적이라 청크가 빠져도 그 구간의
+    // 기자만 잃고 나머지는 살아남는다. 배치 팩은 한 청크만 빠져도 전량을 잃는다.
+    const lineReporters = parseReporterJsonLines(doc.text);
+    if (lineReporters.length > 0) {
+      return {
+        reporters: lineReporters,
+        complete: doc.complete,
+        gaps: doc.gaps,
+        fingerprint: packFingerprint(undefined, doc.chars, lineReporters.length),
+      };
+    }
     return {
       reporters: [],
       complete: false,
