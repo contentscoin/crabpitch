@@ -383,6 +383,37 @@ const kitValidator = v.object({
   spokesperson: v.string(),
   quotes: v.array(v.string()),
   contact: v.string(),
+  // v2 확장 4필드 — 전부 optional이라 기존 호출부는 그대로 통과한다.
+  // 이 인자를 받아야 보강이 사용자가 채운 비주얼·자산 규정·최근 보도를 **읽고** 다듬을 수 있다.
+  oneLiner: v.optional(v.string()),
+  visuals: v.optional(
+    v.array(
+      v.object({
+        label: v.string(),
+        url: v.optional(v.string()),
+        alt: v.optional(v.string()),
+        caption: v.optional(v.string()),
+      }),
+    ),
+  ),
+  assetPolicy: v.optional(
+    v.object({
+      usageScope: v.optional(v.string()),
+      modificationLimits: v.optional(v.string()),
+      credit: v.optional(v.string()),
+      trademarkContact: v.optional(v.string()),
+    }),
+  ),
+  coverage: v.optional(
+    v.array(
+      v.object({
+        outlet: v.string(),
+        title: v.string(),
+        url: v.optional(v.string()),
+        publishedAtText: v.optional(v.string()),
+      }),
+    ),
+  ),
 });
 
 /** 회사 정보 몇 줄 → 미디어킷 7필드 초안. */

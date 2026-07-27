@@ -16,11 +16,22 @@ import { ByoAiConnectPanel } from "@/components/app/ByoAiConnect";
 // 완성도 채점은 서버(`mediaKits.update`)와 같은 순수 함수를 쓴다 — 화면은 항목별 사유까지 꺼내 쓴다.
 import {
   hasPlaceholder,
+  LEGACY_COMPLETENESS_MAX,
+  pressKitSection,
   PLACEHOLDER_MARKERS,
   scoreMediaKit,
   unmetItems,
+  V2_COMPLETENESS_MAX,
+  V2_KEYS,
+  type CompletenessItem,
+  type CompletenessKey,
+  type MediaKitAssetPolicy,
   type MediaKitCompleteness,
+  type MediaKitCoverageItem,
+  type MediaKitVisual,
 } from "@/convex/lib/mediaKitCompleteness";
+// 자산 규칙·규정 4항 문구는 팩(pressGuide)이 정본 — 화면에서 다시 쓰지 않는다.
+import { ASSET_POLICY_ITEMS, GEO_ASSET_RULES } from "@/convex/lib/pressGuide";
 
 const DEFAULT_KIT_NAME = "새 미디어킷";
 /** 미확정 표기 정본 — AI가 남기면 지우지 말고 사용자가 확인해야 한다. */
@@ -98,7 +109,11 @@ export default function MediaKitPage() {
 
 /* ── 폼 ↔ 킷 변환 ───────────────────────────────────────────── */
 
-/** `generateMediaKit`·`enhanceMediaKit`가 주고받는 7필드. */
+/**
+ * `generateMediaKit`·`enhanceMediaKit`가 주고받는 기본 7필드.
+ * v2 확장 4필드는 보강 호출에 함께 실어 보낸다(`aiActions.kitValidator`가 optional로 받는다) —
+ * 그래야 모델이 사용자가 채운 비주얼·자산 규정·최근 보도를 읽고 다듬을 수 있다.
+ */
 type KitFields = {
   boilerplate: string;
   keyMessages: string[];
@@ -109,13 +124,35 @@ type KitFields = {
   contact: string;
 };
 
-type FormState = { name: string } & Record<
-  "boilerplate" | "keyMessages" | "factSheet" | "narrative" | "spokesperson" | "quotes" | "contact",
-  string
->;
+/** 저장·채점에만 쓰는 v2 확장 4필드(프레스킷 목차 ①·⑥·⑦·⑨). */
+type KitExtras = {
+  oneLiner: string;
+  visuals: MediaKitVisual[];
+  assetPolicy: MediaKitAssetPolicy;
+  coverage: MediaKitCoverageItem[];
+};
+
+type FormKey =
+  | "oneLiner"
+  | "boilerplate"
+  | "keyMessages"
+  | "factSheet"
+  | "narrative"
+  | "spokesperson"
+  | "quotes"
+  | "contact"
+  | "visuals"
+  | "coverage"
+  | "policyUsage"
+  | "policyModification"
+  | "policyCredit"
+  | "policyTrademark";
+
+type FormState = { name: string } & Record<FormKey, string>;
 
 const EMPTY_FORM: FormState = {
   name: "",
+  oneLiner: "",
   boilerplate: "",
   keyMessages: "",
   factSheet: "",
@@ -123,16 +160,44 @@ const EMPTY_FORM: FormState = {
   spokesperson: "",
   quotes: "",
   contact: "",
+  visuals: "",
+  coverage: "",
+  policyUsage: "",
+  policyModification: "",
+  policyCredit: "",
+  policyTrademark: "",
 };
 
-/** 팩트시트 한 줄의 출처 구분자 — `항목: 내용 | 출처`. 수치 항목 출처는 완성도 10점이다. */
-const SOURCE_SEP = "|";
+/** 자산 사용 규정 입력 4칸 — 라벨은 팩 4항(`ASSET_POLICY_ITEMS`)을 그대로 쓴다. */
+const POLICY_FIELDS = [
+  { form: "policyUsage", field: "usageScope", placeholder: "보도 목적에 한해 사용할 수 있습니다." },
+  { form: "policyModification", field: "modificationLimits", placeholder: "로고 비율·색상 변경 금지" },
+  { form: "policyCredit", field: "credit", placeholder: "사진 사용 시 '○○ 제공' 표기" },
+  { form: "policyTrademark", field: "trademarkContact", placeholder: "상표 사용 문의 press@example.com" },
+] as const satisfies ReadonlyArray<{ form: FormKey; field: keyof MediaKitAssetPolicy; placeholder: string }>;
+
+/** 한 줄에 여러 값을 담을 때의 구분자 — 팩트시트 출처·비주얼·최근 보도가 공유한다. */
+const FIELD_SEP = "|";
+/** 팩트시트 한 줄의 출처 구분자 — `항목: 내용 | 출처`. 수치 항목 출처는 완성도 점수에 들어간다. */
+const SOURCE_SEP = FIELD_SEP;
 
 function toLines(text: string): string[] {
   return text
     .split("\n")
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+/** `A | B | C` 한 줄을 고정 개수 칸으로 가른다(빈 칸은 빈 문자열). */
+function splitFields(line: string, count: number): string[] {
+  const parts = line.split(FIELD_SEP).map((s) => s.trim());
+  return Array.from({ length: count }, (_, i) => parts[i] ?? "");
+}
+
+function joinFields(values: Array<string | undefined>): string {
+  const trimmed = values.map((v) => v ?? "");
+  while (trimmed.length > 1 && !trimmed[trimmed.length - 1]) trimmed.pop();
+  return trimmed.join(` ${FIELD_SEP} `);
 }
 
 function parseFactSheet(text: string): KitFields["factSheet"] {
@@ -157,6 +222,46 @@ function formatFactSheet(items: KitFields["factSheet"]): string {
     .join("\n");
 }
 
+/** 비주얼 한 줄: `라벨 | 파일명·URL | Alt | 캡션`. */
+function parseVisuals(text: string): MediaKitVisual[] {
+  return toLines(text)
+    .map((line) => {
+      const [label, url, alt, caption] = splitFields(line, 4);
+      return {
+        label,
+        ...(url ? { url } : {}),
+        ...(alt ? { alt } : {}),
+        ...(caption ? { caption } : {}),
+      };
+    })
+    .filter((v) => v.label);
+}
+
+function formatVisuals(items: readonly MediaKitVisual[] | undefined): string {
+  return (items ?? []).map((v) => joinFields([v.label, v.url, v.alt, v.caption])).join("\n");
+}
+
+/** 최근 보도 한 줄: `매체 | 제목 | 링크 | 보도일`. */
+function parseCoverage(text: string): MediaKitCoverageItem[] {
+  return toLines(text)
+    .map((line) => {
+      const [outlet, title, url, publishedAtText] = splitFields(line, 4);
+      return {
+        outlet,
+        title,
+        ...(url ? { url } : {}),
+        ...(publishedAtText ? { publishedAtText } : {}),
+      };
+    })
+    .filter((c) => c.outlet && c.title);
+}
+
+function formatCoverage(items: readonly MediaKitCoverageItem[] | undefined): string {
+  return (items ?? [])
+    .map((c) => joinFields([c.outlet, c.title, c.url, c.publishedAtText]))
+    .join("\n");
+}
+
 function formToKit(form: FormState): KitFields {
   return {
     boilerplate: form.boilerplate.trim(),
@@ -166,6 +271,32 @@ function formToKit(form: FormState): KitFields {
     spokesperson: form.spokesperson.trim(),
     quotes: toLines(form.quotes),
     contact: form.contact.trim(),
+  };
+}
+
+/** 보강 호출용 — 기본 7필드 + 값이 있는 v2 확장 필드. */
+function formToEnhanceInput(form: FormState) {
+  const extras = formToExtras(form);
+  return {
+    ...formToKit(form),
+    ...(extras.oneLiner ? { oneLiner: extras.oneLiner } : {}),
+    ...(extras.visuals.length ? { visuals: extras.visuals } : {}),
+    ...(Object.keys(extras.assetPolicy).length ? { assetPolicy: extras.assetPolicy } : {}),
+    ...(extras.coverage.length ? { coverage: extras.coverage } : {}),
+  };
+}
+
+function formToExtras(form: FormState): KitExtras {
+  const assetPolicy: MediaKitAssetPolicy = {};
+  for (const { form: key, field } of POLICY_FIELDS) {
+    const value = form[key].trim();
+    if (value) assetPolicy[field] = value;
+  }
+  return {
+    oneLiner: form.oneLiner.trim(),
+    visuals: parseVisuals(form.visuals),
+    assetPolicy,
+    coverage: parseCoverage(form.coverage),
   };
 }
 
@@ -196,8 +327,11 @@ function MediaKitEditor({ id }: { id: Id<"mediaKits"> }) {
 
   useEffect(() => {
     if (kit) {
+      const policy = kit.assetPolicy ?? {};
       setForm({
+        ...EMPTY_FORM,
         name: kit.name,
+        oneLiner: kit.oneLiner ?? "",
         boilerplate: kit.boilerplate ?? "",
         keyMessages: kit.keyMessages.join("\n"),
         factSheet: formatFactSheet(kit.factSheet),
@@ -205,11 +339,17 @@ function MediaKitEditor({ id }: { id: Id<"mediaKits"> }) {
         spokesperson: kit.spokesperson ?? "",
         quotes: kit.quotes.join("\n"),
         contact: kit.contact ?? "",
+        visuals: formatVisuals(kit.visuals),
+        coverage: formatCoverage(kit.coverage),
+        policyUsage: policy.usageScope ?? "",
+        policyModification: policy.modificationLimits ?? "",
+        policyCredit: policy.credit ?? "",
+        policyTrademark: policy.trademarkContact ?? "",
       });
       setSeed({
         companyName: kit.name === DEFAULT_KIT_NAME ? "" : kit.name,
         industry: "",
-        oneLiner: "",
+        oneLiner: kit.oneLiner ?? "",
         numbers: "",
       });
       setGaps([]);
@@ -220,13 +360,17 @@ function MediaKitEditor({ id }: { id: Id<"mediaKits"> }) {
   }, [kit?._id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 저장 전 입력 기준 점수 — "지금 무엇을 채우면 오르는지"를 즉시 보여 준다.
-  const report = useMemo<MediaKitCompleteness>(() => scoreMediaKit(formToKit(form)), [form]);
+  const report = useMemo<MediaKitCompleteness>(
+    () => scoreMediaKit({ ...formToKit(form), ...formToExtras(form) }),
+    [form],
+  );
 
   // AI가 남긴 미확정 표기는 지우지 않고 어디에 있는지만 알린다.
   const placeholderFields = useMemo(
     () =>
       (
         [
+          ["한 문장 정의", form.oneLiner],
           ["회사 소개", form.boilerplate],
           ["핵심 메시지", form.keyMessages],
           ["팩트시트", form.factSheet],
@@ -234,6 +378,9 @@ function MediaKitEditor({ id }: { id: Id<"mediaKits"> }) {
           ["대표 프로필", form.spokesperson],
           ["인용문", form.quotes],
           ["언론 문의", form.contact],
+          ["비주얼 자산", form.visuals],
+          ["최근 보도", form.coverage],
+          ["자산 사용 규정", POLICY_FIELDS.map((p) => form[p.form]).join("\n")],
         ] as const
       )
         .filter(([, value]) => hasPlaceholder(value))
@@ -244,13 +391,28 @@ function MediaKitEditor({ id }: { id: Id<"mediaKits"> }) {
   if (kit === undefined) return <div className="h-96 animate-pulse rounded-lg border border-border bg-card" />;
   if (kit === null) return <p className="text-muted">미디어킷을 찾을 수 없습니다.</p>;
 
+  /** 접어 둔 3개 섹션의 배점 합 — 숫자를 화면에 직접 쓰지 않고 채점표에서 받아 온다. */
+  const extrasMax = (["visuals", "coverage", "assetPolicy"] as const).reduce(
+    (sum, key) => sum + (itemOf(report, key)?.max ?? 0),
+    0,
+  );
+
   function set<K extends keyof FormState>(k: K, v: string) {
     setForm((f) => ({ ...f, [k]: v }));
     setSaved(false);
   }
 
-  /** AI 결과를 **폼에만** 반영한다. placeholder는 그대로 둔다. */
-  function applyKit(k: KitFields) {
+  /**
+   * AI 결과를 **폼에만** 반영한다. placeholder는 그대로 둔다.
+   * 확장 4필드는 **모델이 실제로 준 경우에만** 덮어쓴다 — 보강 액션은 7필드만 주고받으므로
+   * 왕복 한 번에 사용자가 직접 채운 비주얼·보도 목록이 지워지면 안 된다.
+   */
+  function applyKit(k: KitFields & Partial<KitExtras>) {
+    const policyPatch: Partial<Record<FormKey, string>> = {};
+    for (const { form: key, field } of POLICY_FIELDS) {
+      const value = k.assetPolicy?.[field]?.trim();
+      if (value) policyPatch[key] = value;
+    }
     setForm((f) => ({
       ...f,
       boilerplate: k.boilerplate,
@@ -260,6 +422,10 @@ function MediaKitEditor({ id }: { id: Id<"mediaKits"> }) {
       spokesperson: k.spokesperson,
       quotes: k.quotes.join("\n"),
       contact: k.contact,
+      ...(k.oneLiner ? { oneLiner: k.oneLiner } : {}),
+      ...(k.visuals?.length ? { visuals: formatVisuals(k.visuals) } : {}),
+      ...(k.coverage?.length ? { coverage: formatCoverage(k.coverage) } : {}),
+      ...policyPatch,
     }));
     setSaved(false);
   }
@@ -301,7 +467,7 @@ function MediaKitEditor({ id }: { id: Id<"mediaKits"> }) {
         setGaps([]);
         setAiNote(res.message ?? "초안을 폼에 채웠습니다. 확인 후 저장하세요.");
       } else {
-        const res = await enhanceKit({ companyName, kit: formToKit(form) });
+        const res = await enhanceKit({ companyName, kit: formToEnhanceInput(form) });
         if (!accepted(res.mode, res.message)) return;
         applyKit(res.kit);
         setGaps(res.gaps);
@@ -315,8 +481,8 @@ function MediaKitEditor({ id }: { id: Id<"mediaKits"> }) {
   }
 
   async function save() {
-    const next = formToKit(form);
-    await update({ id, name: form.name, ...next });
+    // 저장은 사용자가 명시적으로 한다 — AI는 폼까지만 채운다.
+    await update({ id, name: form.name, ...formToKit(form), ...formToExtras(form) });
     setSaved(true);
   }
 
@@ -420,24 +586,34 @@ function MediaKitEditor({ id }: { id: Id<"mediaKits"> }) {
             <Input id="mk-name" value={form.name} onChange={(e) => set("name", e.target.value)} />
           </div>
           <div>
-            <Label htmlFor="mk-bp">① 보일러플레이트 (한 줄 소개)</Label>
+            <Label htmlFor="mk-one">① 한 문장 정의</Label>
+            <Input
+              id="mk-one"
+              value={form.oneLiner}
+              onChange={(e) => set("oneLiner", e.target.value)}
+              placeholder="○○는 …하는 회사입니다"
+            />
+            <p className="mt-1 text-xs text-muted">{pressKitSection("①")}</p>
+          </div>
+          <div>
+            <Label htmlFor="mk-bp">② 보일러플레이트 (표준 회사 소개문)</Label>
             <Textarea id="mk-bp" rows={2} value={form.boilerplate} onChange={(e) => set("boilerplate", e.target.value)} placeholder="○○는 …하는 회사로, 2024년 설립되어 …" />
           </div>
           <div>
-            <Label htmlFor="mk-km">② 핵심 메시지 (한 줄에 하나, 3개 권장)</Label>
+            <Label htmlFor="mk-km">③ 핵심 메시지 (한 줄에 하나, 3개 권장)</Label>
             <Textarea id="mk-km" rows={3} value={form.keyMessages} onChange={(e) => set("keyMessages", e.target.value)} placeholder={"메시지1\n메시지2\n메시지3"} />
           </div>
           <div>
-            <Label htmlFor="mk-fs">③ 팩트시트 (한 줄에 &lsquo;항목: 내용 | 출처&rsquo;, 출처는 선택)</Label>
+            <Label htmlFor="mk-fs">④ 팩트시트 (한 줄에 &lsquo;항목: 내용 | 출처&rsquo;, 출처는 선택)</Label>
             <Textarea id="mk-fs" rows={4} value={form.factSheet} onChange={(e) => set("factSheet", e.target.value)} placeholder={"설립: 2024년\n대표: 홍길동\n이용자: 1만 매장 | 2026-07 자사 집계"} />
           </div>
           <div>
-            <Label htmlFor="mk-nr">④ 회사 스토리</Label>
+            <Label htmlFor="mk-nr">⑤ 회사 스토리</Label>
             <Textarea id="mk-nr" rows={3} value={form.narrative} onChange={(e) => set("narrative", e.target.value)} placeholder="창업 계기 → 문제 → 해결 → 현재 → 비전" />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <Label htmlFor="mk-sp">⑤ 대표 프로필</Label>
+              <Label htmlFor="mk-sp">⑥ 대표 프로필</Label>
               <Textarea id="mk-sp" rows={2} value={form.spokesperson} onChange={(e) => set("spokesperson", e.target.value)} placeholder="이름·직함·경력 3줄" />
             </div>
             <div>
@@ -446,8 +622,68 @@ function MediaKitEditor({ id }: { id: Id<"mediaKits"> }) {
             </div>
           </div>
           <div>
-            <Label htmlFor="mk-q">⑥ 인용문 뱅크 (한 줄에 하나, 3개 이상)</Label>
+            <Label htmlFor="mk-q">⑦ 인용문 뱅크 (한 줄에 하나, 3개 이상)</Label>
             <Textarea id="mk-q" rows={3} value={form.quotes} onChange={(e) => set("quotes", e.target.value)} placeholder={"제품 관련 인용\n비전 관련 인용\n시장 관련 인용"} />
+          </div>
+
+          {/* 확장 섹션 — 화면이 길어지지 않도록 접어 둔다. 요약 줄에 항목 점수를 띄워 접힌 채로도 다음 행동이 보인다. */}
+          <div className="space-y-2 pt-1">
+            <p className="text-xs font-semibold text-foreground-muted">
+              확장 섹션 — 기자가 자산을 바로 쓰게 하는 3개 섹션 (합계 {extrasMax}점)
+            </p>
+
+            <KitSection title="⑨ 비주얼 자산" item={itemOf(report, "visuals")}>
+              <p className="text-xs text-muted">
+                한 줄에 하나씩 <code>라벨 {FIELD_SEP} 파일명·URL {FIELD_SEP} Alt {FIELD_SEP} 캡션</code> 순으로 적습니다.
+              </p>
+              <ul className="space-y-1 text-xs text-muted">
+                <li>
+                  · 파일명 <code>{GEO_ASSET_RULES.filenamePattern}</code> (금지 예:{" "}
+                  {GEO_ASSET_RULES.filenameBadExamples.join(", ")})
+                </li>
+                <li>· Alt — {GEO_ASSET_RULES.alt}</li>
+                <li>· 캡션 — {GEO_ASSET_RULES.caption}</li>
+              </ul>
+              <Textarea
+                id="mk-vs"
+                rows={3}
+                value={form.visuals}
+                onChange={(e) => set("visuals", e.target.value)}
+                placeholder={`로고 ${FIELD_SEP} 크랩피치-프레스킷-로고.png ${FIELD_SEP} 크랩피치 국문 로고 ${FIELD_SEP} 크랩피치 국문 로고(가로형)`}
+              />
+            </KitSection>
+
+            <KitSection title="⑩ 최근 보도" item={itemOf(report, "coverage")}>
+              <p className="text-xs text-muted">
+                한 줄에 하나씩 <code>매체 {FIELD_SEP} 기사 제목 {FIELD_SEP} 링크 {FIELD_SEP} 보도일</code> 순으로
+                적습니다. <b>실제로 확인한 보도만</b> 넣으세요 — AI는 이 목록을 지어내지 않습니다.
+              </p>
+              <Textarea
+                id="mk-cv"
+                rows={3}
+                value={form.coverage}
+                onChange={(e) => set("coverage", e.target.value)}
+                placeholder={`전자신문 ${FIELD_SEP} 크랩피치, 기자 매칭 기능 공개 ${FIELD_SEP} https://example.com/a ${FIELD_SEP} 2026-06-11`}
+              />
+            </KitSection>
+
+            <KitSection title="⑪ 자산 사용 규정" item={itemOf(report, "assetPolicy")}>
+              <p className="text-xs text-muted">
+                로고·사진을 기자가 안심하고 쓰려면 아래 4항이 모두 필요합니다. 사내 확정 전이면 {PLACEHOLDER}로 남기세요.
+              </p>
+              {POLICY_FIELDS.map((p, idx) => (
+                <div key={p.form}>
+                  <Label htmlFor={`mk-${p.form}`}>{ASSET_POLICY_ITEMS[idx]}</Label>
+                  <Textarea
+                    id={`mk-${p.form}`}
+                    rows={2}
+                    value={form[p.form]}
+                    onChange={(e) => set(p.form, e.target.value)}
+                    placeholder={p.placeholder}
+                  />
+                </div>
+              ))}
+            </KitSection>
           </div>
 
           <CompletenessPanel report={report} savedScore={kit.completeness} />
@@ -462,12 +698,54 @@ function MediaKitEditor({ id }: { id: Id<"mediaKits"> }) {
   );
 }
 
+/* ── 확장 섹션 ──────────────────────────────────────────────── */
+
+function itemOf(report: MediaKitCompleteness, key: CompletenessKey): CompletenessItem | undefined {
+  return report.items.find((i) => i.key === key);
+}
+
+/**
+ * 접이식 섹션. 요약 줄에 항목 점수를 함께 띄워 **접힌 상태에서도** 무엇이 비었는지 보이게 한다.
+ * (신규 섹션을 접어 두면 존재를 모른 채 점수만 떨어졌다고 느끼기 쉽다.)
+ */
+function KitSection({
+  title,
+  item,
+  children,
+}: {
+  title: string;
+  item?: CompletenessItem;
+  children: React.ReactNode;
+}) {
+  const done = item ? item.earned >= item.max : false;
+  return (
+    <details className="rounded-lg border border-border bg-surface px-4 py-3">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-sm font-semibold">
+        <span>{title}</span>
+        {item && (
+          <span
+            className={
+              "shrink-0 rounded px-1.5 py-0.5 text-xs font-bold tabular-nums " +
+              (done ? "bg-success/10 text-success" : "bg-surface-2 text-foreground-muted")
+            }
+          >
+            {item.earned}/{item.max}점
+          </span>
+        )}
+      </summary>
+      <div className="mt-3 space-y-3">{children}</div>
+    </details>
+  );
+}
+
 /* ── 완성도 ─────────────────────────────────────────────────── */
 
 /** 점수와 함께 **미충족 사유**를 항상 같이 보여 준다 — %만으로는 다음 행동을 못 잡는다. */
 function CompletenessPanel({ report, savedScore }: { report: MediaKitCompleteness; savedScore: number }) {
   const unmet = unmetItems(report);
   const tone = report.score >= 80 ? "success" : report.score >= 50 ? "brand" : "warning";
+  // 배점 개편 안내 — 신규 항목을 하나도 건드리지 않았을 때만 띄운다("왜 % 가 내려갔나"에 대한 답).
+  const v2Untouched = V2_KEYS.every((key) => (itemOf(report, key)?.earned ?? 0) === 0);
 
   return (
     <div className="rounded-lg border border-border bg-surface p-4">
@@ -478,6 +756,13 @@ function CompletenessPanel({ report, savedScore }: { report: MediaKitCompletenes
       <Progress value={report.score} tone={tone} className="mt-2" />
       {report.score !== savedScore && (
         <p className="mt-1.5 text-xs text-muted">저장된 값 {savedScore}% · 저장하면 현재 입력 기준으로 갱신됩니다.</p>
+      )}
+      {v2Untouched && (
+        <p className="mt-1.5 text-xs text-muted">
+          배점이 개편되어 프레스킷 목차 기반 신규 4개 항목 {V2_COMPLETENESS_MAX}점이 추가됐습니다 — 기존 항목만 채운
+          킷의 상한은 {LEGACY_COMPLETENESS_MAX}%입니다. 기존 항목의 배점은 그대로 두고 신규 항목만 더한 구조라, 아래
+          안내대로 채우면 그만큼 올라갑니다.
+        </p>
       )}
 
       {unmet.length === 0 ? (
