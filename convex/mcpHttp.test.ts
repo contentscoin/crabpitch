@@ -30,6 +30,11 @@ function makeCtx(overrides: Record<string, QueryHandler> = {}) {
       return null;
     },
     "mcpInternal:touchKey": () => null,
+    "mcpInternal:matchJournalists": (args) => ({
+      topicTags: ["핀테크"],
+      matches: [],
+      _topK: args.topK,
+    }),
     "mcpInternal:status": () => ({
       service: "crabpitch",
       plan: "solo",
@@ -235,5 +240,46 @@ describe("MCP HTTP 엔드포인트", () => {
     );
     const body = await res.json();
     expect(body.error.code).toBe(-32601);
+  });
+});
+
+describe("crabpitch_match_journalists — 인원 상한", () => {
+  async function call(limit: number) {
+    const { ctx } = makeCtx();
+    const res = await handleMcpRequest(
+      ctx,
+      post(VALID_KEY, {
+        jsonrpc: "2.0",
+        id: 90,
+        method: "tools/call",
+        params: {
+          name: "crabpitch_match_journalists",
+          arguments: { query: "핀테크", limit },
+        },
+      }),
+    );
+    return JSON.parse((await res.json()).result.content[0].text);
+  }
+
+  it("20명을 넘겨도 잘라내지 않는다 — 권장치이지 금지선이 아니다", async () => {
+    const body = await call(50);
+    expect(body._topK).toBe(50);
+  });
+
+  it("권장치를 넘으면 스팸 위험을 안내한다", async () => {
+    const body = await call(50);
+    expect(body.sendingGuidance).toMatch(/스팸/);
+    expect(body.sendingGuidance).toMatch(/20/);
+  });
+
+  it("권장치 이내면 기본 안내만 붙는다", async () => {
+    const body = await call(10);
+    expect(body._topK).toBe(10);
+    expect(body.sendingGuidance).toMatch(/20명 이하를 권장/);
+  });
+
+  it("남용 방지 상한(100)은 유지한다", async () => {
+    const body = await call(5000);
+    expect(body._topK).toBe(100);
   });
 });
