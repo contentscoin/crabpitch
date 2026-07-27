@@ -27,7 +27,6 @@ import {
 } from "./lib/packSync";
 import {
   JOURNALIST_PROJECT_NAME,
-  JOURNALIST_WORKSPACE_ID,
   PR_PRESSKIT_PROJECT_NAME,
   SYNC_SOURCE_PACKS,
   classifyPackSeries,
@@ -300,9 +299,10 @@ async function runPackSync(
   for (const target of targets) {
     const startedAt = Date.now();
     try {
-      const payload = await fetchPackDocuments(call, target.packageId, {
-        workspaceId: JOURNALIST_WORKSPACE_ID,
-      });
+      // workspace_id를 고정하지 않는다. package_id가 이미 정확한 스코프이고,
+      // 워크스페이스를 함께 보내면 다른 워크스페이스에 올라온 팩이 0건으로 나온다
+      // (jsonl-v3가 실제로 그랬다 — 팩은 멀쩡한데 조회만 비었다).
+      const payload = await fetchPackDocuments(call, target.packageId);
       const parsed = parsePackPayload(payload);
       const journalists = normalizePackReporters(parsed.reporters);
 
