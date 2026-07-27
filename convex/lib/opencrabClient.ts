@@ -37,6 +37,7 @@ async function mcpRpc(
   endpoint: string,
   body: Record<string, unknown>,
   sessionId?: string,
+  apiKey?: string,
 ): Promise<{ json: unknown; sessionId?: string }> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -44,6 +45,10 @@ async function mcpRpc(
     "MCP-Protocol-Version": "2025-03-26",
   };
   if (sessionId) headers["Mcp-Session-Id"] = sessionId;
+  // 경로에 키가 박혀 있어도 헤더를 함께 보낸다.
+  // 경로 인증만 쓰면 initialize는 통과하고 tools/call만 "Unauthorized MCP request"로
+  // 떨어지는 게이트웨이가 있다 — 실제로 팩 27개가 전부 그렇게 실패했다.
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 
   const res = await fetch(endpoint, {
     method: "POST",
@@ -112,23 +117,30 @@ function unwrapToolResult(rpc: unknown): unknown {
  */
 export async function openOpenCrabMcpSession(
   endpoint: string,
+  apiKey?: string,
 ): Promise<(toolName: string, args: Record<string, unknown>) => Promise<unknown>> {
-  const init = await mcpRpc(endpoint, {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "initialize",
-    params: {
-      protocolVersion: "2025-03-26",
-      capabilities: {},
-      clientInfo: { name: "crabpitch", version: "0.1.0" },
+  const init = await mcpRpc(
+    endpoint,
+    {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "crabpitch", version: "0.1.0" },
+      },
     },
-  });
+    undefined,
+    apiKey,
+  );
   const sid = init.sessionId;
   try {
     await mcpRpc(
       endpoint,
       { jsonrpc: "2.0", method: "notifications/initialized" },
       sid,
+      apiKey,
     );
   } catch {
     // 일부 게이트웨이는 notification을 무시/실패해도 tools/call 가능
@@ -146,6 +158,7 @@ export async function openOpenCrabMcpSession(
         params: { name: toolName, arguments: args },
       },
       sid,
+      apiKey,
     );
     return unwrapToolResult(called.json);
   };
