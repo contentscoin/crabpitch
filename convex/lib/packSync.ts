@@ -32,6 +32,8 @@ export interface PackChunk {
   /** 원문 순번 — 저장 순번(evidenceIndex)과 어긋나면 결손 신호 */
   sourceChunkIndex?: number;
   evidenceIndex?: number;
+  /** 오프셋이 없어 순서를 알 수 없는 청크 — 재조립 불가, JSONL 폴백 전용 */
+  unordered?: boolean;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -62,7 +64,14 @@ export function extractChunks(payload: unknown): PackChunk[] {
     const meta = isRecord(ev.metadata) ? ev.metadata : {};
     const charStart = asNum(meta.char_start) ?? asNum(ev.char_start);
     const charEnd = asNum(meta.char_end) ?? asNum(ev.char_end);
-    if (charStart === undefined || charEnd === undefined) continue;
+    // 오프셋이 없는 팩도 있다(재인제스트본은 char_count만 싣는다). 예전에는 여기서
+    // 전부 버려 "청크가 없습니다"로 끝났다. 순서 재조립은 못 해도 JSONL 폴백은
+    // 줄 단위라 순서가 필요 없으므로, 버리지 말고 넘긴다.
+    if (charStart === undefined || charEnd === undefined) {
+      const len = asNum(meta.char_count) ?? text.length;
+      out.push({ text, charStart: -1, charEnd: -1 + len, unordered: true });
+      continue;
+    }
     out.push({
       text,
       charStart,
@@ -90,8 +99,24 @@ export interface ReassembledDocument {
  * ⚠️ `search_documents`는 관련도(score) 내림차순으로 반환하므로 **반드시 char_start로
  *    재정렬**해야 한다. 이어붙일 때 구분자를 넣으면 안 된다(원문 무손실 슬라이스).
  */
+/**
+ * 오프셋 없는 청크는 순서를 알 수 없다 — 이어붙이기만 하고 결손 판정은 하지 않는다.
+ * 이 텍스트는 JSONL 폴백에서만 의미가 있다(줄 단위라 순서가 무관하다).
+ */
+function concatUnordered(chunks: PackChunk[]): { text: string; chars: number } {
+  const text = chunks.map((c) => c.text).join("\n");
+  return { text, chars: text.length };
+}
+
 export function reassembleDocument(chunks: PackChunk[]): ReassembledDocument {
   if (chunks.length === 0) return { text: "", complete: false, gaps: [], chars: 0 };
+
+  // 오프셋 없는 팩은 위치를 모르니 결손 구간도 계산할 수 없다.
+  // complete=false로 두어 "완전하다"고 잘못 주장하지 않는다.
+  if (chunks.every((c) => c.unordered)) {
+    const { text, chars } = concatUnordered(chunks);
+    return { text, complete: false, gaps: [], chars };
+  }
 
   const sorted = [...chunks].sort((a, b) => a.charStart - b.charStart);
   const deduped: PackChunk[] = [];
