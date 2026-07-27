@@ -34,6 +34,21 @@ export interface PackEntry {
 
 /** 기자단 팩 워크스페이스 */
 export const JOURNALIST_WORKSPACE_ID = "f5a34200-17fb-4ce5-bea6-b979dfa1a3cd";
+
+/**
+ * 오픈크랩 **프로젝트** — 팩 탐색의 1차 진실 원천.
+ *
+ * 이전에는 `opencrab_search_packs`에 "journalist"·"presskit" 키워드를 던져 팩을 찾았다.
+ * 키워드는 팩 제목에 의존하므로, 제목 규칙이 바뀐 신규 시리즈는 조용히 빠진다.
+ * 실제로 이 프로젝트의 39팩 중 13팩(index-v2 10 · topic-routing-v2 3)이
+ * 그렇게 누락돼 있었다.
+ *
+ * 프로젝트는 사람이 큐레이션한 명시적 집합이라 이 문제가 없다.
+ * **프로젝트에 들어 있다는 사실 자체가 기자단 팩이라는 신뢰 신호**다.
+ */
+export const JOURNALIST_PROJECT_NAME = "korean-journalist-contact-intelligence";
+/** PR 지식 팩 프로젝트 (기자단과 별개) */
+export const PR_PRESSKIT_PROJECT_NAME = "pr_presskit_intelligence_project";
 /** PR 지식 팩 워크스페이스 (기자단과 별개) */
 export const PR_WORKSPACE_ID = "ab2da385-2c53-4548-a90e-cef5290e1408";
 
@@ -149,4 +164,17 @@ export function extractBatch(slugOrName: string): string | undefined {
 /** 시리즈가 자동 동기화 대상인지 — 신규/파생 시리즈는 관리자 승인 전까지 false. */
 export function isAutoSyncSeries(series: PackSeries): boolean {
   return series === "journalist-contacts" || series === "journalist-reference";
+}
+
+/**
+ * 이 팩을 자동 동기화할지.
+ *
+ * 시리즈 판별은 팩 **제목 문자열**에 기대므로 새 명명 규칙에 약하다.
+ * 반면 프로젝트 소속은 사람이 넣은 것이라 훨씬 강한 신호다 —
+ * 기자단 프로젝트에 들어 있으면 제목이 무엇이든 동기화 대상으로 본다.
+ *
+ * 프로젝트 밖에서 키워드로 발견된 팩은 종전대로 관리자 승인을 기다린다.
+ */
+export function shouldAutoSync(series: PackSeries, fromProject: boolean): boolean {
+  return fromProject || isAutoSyncSeries(series);
 }

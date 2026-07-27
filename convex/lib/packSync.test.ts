@@ -10,10 +10,12 @@ import {
   parseBeatDistribution,
   parsePackListPayload,
   parsePackPayload,
+  parseProjectPacksPayload,
   reassembleDocument,
   splitList,
   splitPipe,
 } from "./packSync";
+import { classifyPackSeries, shouldAutoSync } from "./packRegistry";
 
 /**
  * 픽스처는 **익명화**했다 — 실제 팩의 기자 실명·이메일·연락처를 테스트에 넣지 않는다.
@@ -233,5 +235,101 @@ describe("packSync 팩 목록·마스킹", () => {
     expect(masked).not.toContain("reporter1@example.com");
     expect(masked).toContain("re***@example.com");
     expect(masked).not.toContain("b@c.co.kr");
+  });
+});
+
+describe("parseProjectPacksPayload", () => {
+  // 실제 opencrab_project_manage 응답 형태(2026-07-27 관측).
+  const payload = {
+    status: "ok",
+    projects: [
+      {
+        project_id: "acef210f-a7dd-41be-8c65-9cb1d0eddf30",
+        name: "korean-journalist-contact-intelligence",
+        package_count: 3,
+        packages: [
+          {
+            package_id: "03c74611-07a5-4fdb-a3ec-b48c53328a78",
+            title: "korean-journalist-contacts-batch-023",
+            snapshot: { documents: 1, chunks: 8 },
+          },
+          {
+            package_id: "aaaa1111-0000-0000-0000-000000000001",
+            title: "korean-journalist-contact-index-v2-001",
+            snapshot: { chunks: 8 },
+          },
+          {
+            package_id: "bbbb2222-0000-0000-0000-000000000002",
+            title: "korean-journalist-topic-routing-v2-001",
+            snapshot: { chunks: 8 },
+          },
+        ],
+      },
+      {
+        project_id: "other",
+        name: "wadiz_gif_visual_ontology_staging_20260711",
+        packages: [{ package_id: "zzzz9999", title: "wadiz-shard-001" }],
+      },
+    ],
+  };
+
+  it("지정 프로젝트의 팩만 뽑는다", () => {
+    const packs = parseProjectPacksPayload(
+      payload,
+      "korean-journalist-contact-intelligence",
+    );
+    expect(packs.map((p) => p.packageId)).toEqual([
+      "03c74611-07a5-4fdb-a3ec-b48c53328a78",
+      "aaaa1111-0000-0000-0000-000000000001",
+      "bbbb2222-0000-0000-0000-000000000002",
+    ]);
+  });
+
+  it("다른 프로젝트의 팩은 섞이지 않는다", () => {
+    // query가 부분 일치라 엉뚱한 프로젝트가 함께 온다 — 이름을 정확히 대조해야 한다.
+    const packs = parseProjectPacksPayload(
+      payload,
+      "korean-journalist-contact-intelligence",
+    );
+    expect(packs.some((p) => p.packageId === "zzzz9999")).toBe(false);
+  });
+
+  it("title을 name으로 싣는다 — 시리즈 판별 입력이 된다", () => {
+    const packs = parseProjectPacksPayload(
+      payload,
+      "korean-journalist-contact-intelligence",
+    );
+    expect(packs[1].name).toBe("korean-journalist-contact-index-v2-001");
+  });
+
+  it("이름이 안 맞으면 빈 배열", () => {
+    expect(parseProjectPacksPayload(payload, "존재하지-않는-프로젝트")).toEqual([]);
+  });
+
+  it("깨진 응답에도 던지지 않는다", () => {
+    expect(parseProjectPacksPayload(null, "x")).toEqual([]);
+    expect(parseProjectPacksPayload({ projects: "nope" }, "x")).toEqual([]);
+    expect(parseProjectPacksPayload({}, "x")).toEqual([]);
+  });
+});
+
+describe("shouldAutoSync — v2 시리즈 누락 회귀", () => {
+  it("index·topic-routing 시리즈는 여전히 other로 분류된다", () => {
+    // 제목 기반 분류의 한계. 이 자체는 바꾸지 않는다.
+    expect(classifyPackSeries("korean-journalist-contact-index-v2-001")).toBe("other");
+    expect(classifyPackSeries("korean-journalist-topic-routing-v2-001")).toBe("other");
+  });
+
+  it("프로젝트에 담겨 있으면 other여도 동기화한다", () => {
+    // 이 13팩이 영구히 동기화되지 않던 원인.
+    expect(shouldAutoSync("other", true)).toBe(true);
+  });
+
+  it("프로젝트 밖에서 발견된 other는 관리자 승인을 기다린다", () => {
+    expect(shouldAutoSync("other", false)).toBe(false);
+  });
+
+  it("기자단 contacts 시리즈는 프로젝트 밖이어도 동기화한다", () => {
+    expect(shouldAutoSync("journalist-contacts", false)).toBe(true);
   });
 });
