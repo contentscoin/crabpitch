@@ -69,8 +69,25 @@ export const matchForCampaign = mutation({
     const excludeStale = staleSetting?.boolValue === true;
     const staleBefore = Date.now() - STALE_MATCH_DAYS * 24 * 60 * 60 * 1000;
 
+    // 보류 회신 뒤 사용자가 "다시 접근하지 않음"으로 판단한 기자 — 수신거부(법적 억제)와는
+    // 다른 축이며, 사용자가 언제든 다시 켤 수 있다.
+    const noReapproach = new Set<string>();
+    for (const c of await ctx.db
+      .query("campaigns")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect()) {
+      const replies = await ctx.db
+        .query("replies")
+        .withIndex("by_campaign", (q) => q.eq("campaignId", c._id))
+        .collect();
+      for (const r of replies) {
+        if (r.reapproachOk === false) noReapproach.add(String(r.journalistId));
+      }
+    }
+
     const journalists = (await ctx.db.query("journalists").collect()).filter((j) => {
       if (suppressed.has(j.email)) return false;
+      if (noReapproach.has(String(j._id))) return false;
       if (!excludeStale) return true;
       // 팩 유래가 아닌 레코드(seed·manual)는 이 판정 대상이 아니다.
       if (j.source !== "opencrab") return true;

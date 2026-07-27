@@ -809,12 +809,18 @@ function ReplyItem({
     interviewPickedSlot?: string;
     questionSubtype?: string;
     needsEscalation?: boolean;
+    correctionRequestedAt?: number;
+    reapproachOk?: boolean;
   };
 }) {
   const markHandled = useMutation(api.replies.markHandled);
   const confirmSlot = useMutation(api.replies.confirmInterviewSlot);
   const refreshSlots = useMutation(api.replies.refreshInterviewSlots);
   const applyTemplate = useMutation(api.replies.applyReplyTemplate);
+  const requestCorrection = useMutation(api.replies.requestCorrection);
+  const setReapproach = useMutation(api.replies.setReapproach);
+  const [correctionOpen, setCorrectionOpen] = useState(false);
+  const [correctionNote, setCorrectionNote] = useState("");
   const [variantBusy, setVariantBusy] = useState(false);
   const [variantError, setVariantError] = useState<string | null>(null);
   const variants = REPLY_TEMPLATE_VARIANTS[reply.type as ReplyType] ?? [];
@@ -909,6 +915,103 @@ function ReplyItem({
           <Button size="sm" variant="ghost" onClick={() => refreshSlots({ id: reply._id as Id<"replies"> })}>
             일정 다시 제안
           </Button>
+        </div>
+      )}
+
+      {reply.type === "published" && (
+        <div className="mt-3">
+          {reply.correctionRequestedAt ? (
+            <p className="text-xs text-warning">
+              정정 요청 초안을 만들었습니다. 사실관계가 걸린 사안이니 보내기 전에 직접 확인하세요.
+            </p>
+          ) : (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setCorrectionOpen((v) => !v);
+                  setVariantError(null);
+                }}
+              >
+                기사에 사실과 다른 내용이 있나요?
+              </Button>
+              {correctionOpen && (
+                <div className="mt-2 space-y-2">
+                  <Textarea
+                    rows={2}
+                    value={correctionNote}
+                    onChange={(e) => setCorrectionNote(e.target.value)}
+                    placeholder="무엇이 어떻게 다른지 한 문장으로. 예) 투자 규모가 5억인데 기사에는 50억으로 표기됐습니다."
+                  />
+                  <Button
+                    size="sm"
+                    disabled={variantBusy || correctionNote.trim().length < 5}
+                    onClick={async () => {
+                      setVariantBusy(true);
+                      setVariantError(null);
+                      try {
+                        await requestCorrection({
+                          id: reply._id as Id<"replies">,
+                          correctionNote,
+                        });
+                        setCorrectionOpen(false);
+                        setCorrectionNote("");
+                      } catch (e) {
+                        setVariantError(e instanceof Error ? e.message : "정정 요청에 실패했습니다.");
+                      } finally {
+                        setVariantBusy(false);
+                      }
+                    }}
+                  >
+                    정정 요청 초안 만들기
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {reply.type === "hold" && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span className="font-semibold text-muted">다음 소식 때 다시 연락해도 될까요?</span>
+          {([
+            { value: true, label: "가능" },
+            { value: false, label: "연락 안 함" },
+          ] as const).map((opt) => (
+            <button
+              key={String(opt.value)}
+              type="button"
+              aria-pressed={reply.reapproachOk === opt.value}
+              disabled={variantBusy}
+              onClick={async () => {
+                setVariantBusy(true);
+                setVariantError(null);
+                try {
+                  await setReapproach({
+                    id: reply._id as Id<"replies">,
+                    reapproachOk: opt.value,
+                  });
+                } catch (e) {
+                  setVariantError(e instanceof Error ? e.message : "저장에 실패했습니다.");
+                } finally {
+                  setVariantBusy(false);
+                }
+              }}
+              className={
+                "rounded-full border px-2.5 py-0.5 transition-colors disabled:opacity-60 " +
+                (reply.reapproachOk === opt.value
+                  ? "border-brand bg-brand-soft/40 font-semibold text-foreground"
+                  : "border-border text-foreground-muted hover:bg-surface")
+              }
+            >
+              {opt.label}
+            </button>
+          ))}
+          {reply.reapproachOk === false && (
+            <span className="text-muted">· 이후 매칭 후보에서 제외됩니다</span>
+          )}
         </div>
       )}
     </div>

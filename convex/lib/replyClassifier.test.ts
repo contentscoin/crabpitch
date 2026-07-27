@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReplyDraft, classifyReply } from "./replyClassifier";
+import { buildReplyDraft, classifyReply, buildReplyDraftVariant, REPLY_TEMPLATE_VARIANTS } from "./replyClassifier";
 
 describe("replyClassifier", () => {
   it("수신거부를 최우선으로 분류한다", () => {
@@ -117,5 +117,24 @@ describe("응대 초안 — 약속한 자료만", () => {
   it("게재 통보 응대는 인용 정확성 점검을 안내한다", () => {
     const draft = buildReplyDraft("published");
     expect(draft).toContain("보내기 전 확인");
+  });
+});
+
+describe("게재 정정 요청 (S12)", () => {
+  it("정정 요청 초안은 감사 인사보다 확인 요청을 앞세운다", () => {
+    const draft = buildReplyDraftVariant("published", "correction", {
+      correctionNote: "투자 규모가 5억인데 기사에는 50억으로 표기됐습니다.",
+    });
+    expect(draft).toContain("확인이 필요한 부분");
+    expect(draft).toContain("50억으로 표기");
+  });
+
+  it("정정 내용이 없으면 빈칸 슬롯을 남긴다 — 사실을 지어내지 않는다", () => {
+    const draft = buildReplyDraftVariant("published", "correction", {});
+    expect(draft).toContain("(무엇이 어떻게 다른지 한 문장으로)");
+  });
+
+  it("게재 유형에 정정 요청 변형이 노출된다", () => {
+    expect(REPLY_TEMPLATE_VARIANTS.published.map((v) => v.id)).toContain("correction");
   });
 });

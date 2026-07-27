@@ -367,3 +367,84 @@ export const applyAiClassification = internalMutation({
     };
   },
 });
+
+/* ── 게재 후 처리 (S12) ─────────────────────────────────────── */
+
+/**
+ * 게재 통보에 대한 정정 요청.
+ * 기사에 사실과 다른 내용이 있으면 감사 인사보다 정정이 먼저다. 무엇이 어떻게 다른지는
+ * 사용자가 적고, 서버는 그 문장을 초안에 그대로 넣는다(사실을 생성하지 않는다).
+ */
+export const requestCorrection = mutation({
+  args: { id: v.id("replies"), correctionNote: v.string() },
+  handler: async (ctx, { id, correctionNote }) => {
+    const userId = await requireUser(ctx);
+    const r = await ctx.db.get(id);
+    if (!r) throw new Error("회신을 찾을 수 없습니다.");
+    const campaign = await ctx.db.get(r.campaignId);
+    if (!campaign || campaign.userId !== userId) throw new Error("권한이 없습니다.");
+    if (r.type !== "published") {
+      throw new Error("게재 통보에만 정정을 요청할 수 있습니다.");
+    }
+    const note = correctionNote.trim();
+    if (note.length < 5) {
+      throw new Error("무엇이 어떻게 다른지 한 문장으로 적어 주세요.");
+    }
+
+    const draftResponse = buildReplyDraftVariant("published", "correction", {
+      correctionNote: note,
+    });
+    await ctx.db.patch(id, {
+      draftResponse,
+      templateVariant: "correction",
+      correctionRequestedAt: Date.now(),
+      correctionNote: note,
+      // 정정은 사실관계가 걸린 사안이라 담당자가 직접 확인하고 보낸다.
+      needsEscalation: true,
+      handled: false,
+    });
+    return { ok: true };
+  },
+});
+
+/**
+ * 보류 회신 뒤 재접근 가능 여부 기록.
+ * `false`면 이 사용자의 이후 매칭에서 해당 기자를 제외한다 — 수신거부(법적 억제)와는
+ * 다른 축이고, 사용자 판단이므로 다시 켤 수 있다.
+ */
+export const setReapproach = mutation({
+  args: { id: v.id("replies"), reapproachOk: v.boolean() },
+  handler: async (ctx, { id, reapproachOk }) => {
+    const userId = await requireUser(ctx);
+    const r = await ctx.db.get(id);
+    if (!r) throw new Error("회신을 찾을 수 없습니다.");
+    const campaign = await ctx.db.get(r.campaignId);
+    if (!campaign || campaign.userId !== userId) throw new Error("권한이 없습니다.");
+    await ctx.db.patch(id, { reapproachOk });
+    return { reapproachOk };
+  },
+});
+
+/** 이 사용자가 "다시 접근하지 않음"으로 표시한 기자 목록(매칭 제외용). */
+export const listNoReapproach = query({
+  args: {},
+  returns: v.array(v.id("journalists")),
+  handler: async (ctx) => {
+    const userId = await requireUser(ctx);
+    const campaigns = await ctx.db
+      .query("campaigns")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    const out = new Set<string>();
+    for (const c of campaigns) {
+      const replies = await ctx.db
+        .query("replies")
+        .withIndex("by_campaign", (q) => q.eq("campaignId", c._id))
+        .collect();
+      for (const r of replies) {
+        if (r.reapproachOk === false) out.add(String(r.journalistId));
+      }
+    }
+    return [...out] as Id<"journalists">[];
+  },
+});

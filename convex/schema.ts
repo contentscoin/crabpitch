@@ -272,6 +272,15 @@ export default defineSchema({
     questionSubtype: v.optional(v.string()),
     /** complaint·negative 등 담당자 직접 확인이 필요한 회신 */
     needsEscalation: v.optional(v.boolean()),
+    /** 게재 통보에 대해 정정을 요청한 시각 */
+    correctionRequestedAt: v.optional(v.number()),
+    /** 정정 요청 내용(무엇이 어떻게 틀렸는지) */
+    correctionNote: v.optional(v.string()),
+    /**
+     * 보류 회신 뒤 재접근 가능 여부 — 사용자가 직접 판단해 기록한다.
+     * false면 이 사용자의 이후 매칭에서 해당 기자를 제외한다(수신거부와는 다른 축이다).
+     */
+    reapproachOk: v.optional(v.boolean()),
   }).index("by_campaign", ["campaignId"]),
 
   // 억제 리스트(수신거부 영구 제외)

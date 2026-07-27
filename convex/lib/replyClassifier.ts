@@ -159,6 +159,8 @@ export interface ReplyDraftContext {
   /** 보도자료에 실제로 걸어둔 자료 링크 — "약속한 자료만" 안내하기 위해 필요하다 */
   links?: string[];
   questionSubtype?: QuestionSubtype;
+  /** 게재 기사에서 무엇이 어떻게 다른지 — 정정 요청 초안에 그대로 들어간다 */
+  correctionNote?: string;
 }
 
 /* ── 유형별 응대 템플릿 변형 ──────────────────────────────────
@@ -364,6 +366,22 @@ const VARIANT_BUILDERS: Record<ReplyType, Array<ReplyTemplateVariant & { build: 
       description: "감사 인사에 다음 소식 예고와 채널 공유 안내를 더합니다.",
       build: () =>
         `${NAME}, 좋은 기사로 다뤄주셔서 진심으로 감사합니다.\n기사는 저희 채널에도 출처와 함께 소개하겠습니다.\n다음 분기 (예: 신제품/실적) 소식이 준비되는 대로 기자님께 가장 먼저 전해드리겠습니다.\n\n※ 보내기 전 확인: 기사에 인용된 수치·직함·회사 표기가 저희 자료와 일치하는지 점검하세요.`,
+    },
+    {
+      id: "correction",
+      label: "정정 요청",
+      description: "기사에 사실과 다른 내용이 있을 때 — 감사 인사보다 정정이 먼저입니다.",
+      build: (ctx) =>
+        [
+          `${NAME}, 기사 잘 보았습니다. 다만 확인이 필요한 부분이 있어 먼저 말씀드립니다.`,
+          "",
+          ctx.correctionNote?.trim()
+            ? `· 확인 요청: ${ctx.correctionNote.trim()}`
+            : "· 확인 요청: (무엇이 어떻게 다른지 한 문장으로)",
+          "· 저희 자료 기준: (정확한 값과 출처)",
+          "",
+          "저희 쪽 자료 전달 과정에서 혼선이 있었다면 사과드립니다. 확인해 주시면 감사하겠습니다.",
+        ].join("\n"),
     },
   ],
   hold: [
