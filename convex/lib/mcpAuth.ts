@@ -22,7 +22,7 @@ export async function requireMcpPlan(
   if (!profile) throw new Error("프로필이 없습니다.");
   if (!planAllowsMcp(profile.plan as Plan)) {
     throw new Error(
-      "내 AI 연결은 Solo·Growth·Agency에서만 사용할 수 있습니다. 설정에서 플랜을 바꿔 주세요.",
+      "이 플랜에서는 MCP 키를 발급할 수 없습니다. 설정에서 플랜을 확인해 주세요.",
     );
   }
   return profile;

@@ -42,10 +42,12 @@ export function McpGuidePanel() {
             <Plug className="h-4 w-4 text-brand" />
             <span className="text-sm font-semibold">내 AI에 붙이기</span>
             {access && (
-              <Badge variant={access.allowed ? "brand" : "outline"}>
-                {access.allowed
-                  ? "사용 가능"
-                  : "Solo 이상에서 사용"}
+              <Badge variant={access.allowed && access.lockedSkills.length === 0 ? "brand" : "outline"}>
+                {!access.allowed
+                  ? "사용 불가"
+                  : access.lockedSkills.length === 0
+                    ? "사용 가능"
+                    : "보도자료 작성만"}
               </Badge>
             )}
           </div>
@@ -53,13 +55,15 @@ export function McpGuidePanel() {
             이미 쓰는 Claude·ChatGPT·Gemini·Cursor 채팅에서 기자 찾기, 메일 초안,
             회신 분류를 바로 요청할 수 있습니다. 연결 키만 한 번 등록하면 됩니다.
           </p>
-          {!access?.allowed && (
+          {access?.allowed && access.lockedSkills.length > 0 && (
             <p className="text-xs text-foreground-muted">
-              지금 Free 플랜입니다.{" "}
+              지금 Free 플랜입니다. 채팅에서는 <b className="text-foreground">보도자료 작성</b> 도구만
+              열립니다. 기자 매칭·메일 템플릿·회신 분류는 <b className="text-foreground">이 웹앱에서 지금도 무료로</b>{" "}
+              쓸 수 있고,{" "}
               <Link href="/settings" className="underline underline-offset-2">
-                설정에서 Solo 이상으로 바꾸면
+                Solo 이상으로 바꾸면
               </Link>{" "}
-              연결 키를 만들 수 있습니다.
+              채팅에서도 열립니다.
             </p>
           )}
         </CardContent>
@@ -172,8 +176,12 @@ export function McpDashboardCard() {
           <div className="flex items-center gap-2">
             <Plug className="h-4 w-4 text-brand" />
             <span className="text-sm font-semibold">내 AI 연결</span>
-            <Badge variant={access.allowed ? "brand" : "outline"}>
-              {access.allowed ? "사용 가능" : "Solo 이상"}
+            <Badge variant={access.allowed && access.lockedSkills.length === 0 ? "brand" : "outline"}>
+              {!access.allowed
+                ? "사용 불가"
+                : access.lockedSkills.length === 0
+                  ? "사용 가능"
+                  : "보도자료 작성만"}
             </Badge>
           </div>
           <Link href="/ai">
@@ -183,13 +191,14 @@ export function McpDashboardCard() {
           </Link>
         </div>
         <p className="text-sm text-foreground-muted">
-          Claude·ChatGPT·Gemini·Cursor에서 기자 찾기·메일 초안·회신 분류를
-          요청할 수 있습니다.
+          {access.lockedSkills.length === 0
+            ? "Claude·ChatGPT·Gemini·Cursor에서 기자 찾기·메일 초안·회신 분류를 요청할 수 있습니다."
+            : "Claude·ChatGPT·Gemini·Cursor에서 보도자료 작성을 요청할 수 있습니다. 기자 찾기·메일 초안·회신 분류는 이 웹앱에서 쓰세요."}
           {access.allowed
             ? activeCount > 0
               ? ` 연결 ${activeCount}개.`
               : " 아직 연결 키가 없습니다."
-            : " Solo 이상에서 연결할 수 있습니다."}
+            : " 이 플랜에서는 연결 키를 만들 수 없습니다."}
         </p>
       </CardContent>
     </Card>

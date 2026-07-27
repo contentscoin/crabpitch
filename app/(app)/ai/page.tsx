@@ -36,10 +36,12 @@ export default function AiHubPage() {
       </div>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-bold">1. 쓰던 AI 채팅에 연결 — MCP (Solo 이상)</h2>
+        <h2 className="text-lg font-bold">1. 쓰던 AI 채팅에 연결 — MCP</h2>
         <p className="text-sm text-foreground-muted">
           별도 API 키 없이, 이미 구독으로 로그인돼 있는 ChatGPT·Claude·Gemini·Cursor에
-          크랩피치 도구(기자 찾기·메일 초안·회신 분류)를 붙입니다.
+          크랩피치 도구를 붙입니다. <b className="text-foreground">무료 플랜은 보도자료 작성</b>
+          까지 쓸 수 있고, 기자 찾기·메일 초안·회신 분류는 Solo 이상에서 열립니다
+          (이 기능들은 무료 플랜도 웹앱에서는 그대로 이용할 수 있습니다).
         </p>
         <UserMcpKeysPanel />
         <McpGuidePanel />

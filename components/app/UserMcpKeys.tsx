@@ -78,11 +78,9 @@ export function UserMcpKeysPanel() {
           <div className="flex items-center gap-2">
             <KeyRound className="h-4 w-4 text-brand" />
             <span className="text-sm font-semibold">연결 키</span>
-            <Badge variant="outline">Solo 이상</Badge>
+            <Badge variant="outline">사용 불가</Badge>
           </div>
-          <p className="text-sm text-foreground-muted">
-            내 AI에 크랩피치를 붙이려면 Solo / Growth / Agency 플랜이 필요합니다.
-          </p>
+          <p className="text-sm text-foreground-muted">{access.message}</p>
           <Link href="/settings">
             <Button type="button" size="sm" variant="subtle">
               설정에서 플랜 변경

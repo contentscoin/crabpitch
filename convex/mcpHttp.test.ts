@@ -10,6 +10,7 @@ import { handleMcpRequest } from "./mcpHttp";
 
 const VALID_KEY = "cp_mcp_" + "a".repeat(48);
 const FREE_KEY = "cp_mcp_" + "b".repeat(48);
+const REVOKED_KEY = "cp_mcp_" + "c".repeat(48);
 
 type QueryHandler = (args: Record<string, unknown>) => unknown;
 
@@ -21,7 +22,11 @@ function makeCtx(overrides: Record<string, QueryHandler> = {}) {
       if (bearer === VALID_KEY) {
         return { userId: "user_1", keyId: "key_1", plan: "solo" };
       }
-      // 무료 플랜·폐기·미존재 키는 모두 null (mcpAuth.resolveUserMcpKey 동작)
+      // 무료도 연결은 된다 — 제한은 도구 단위로 건다.
+      if (bearer === FREE_KEY) {
+        return { userId: "user_2", keyId: "key_2", plan: "free" };
+      }
+      // 폐기·미존재 키만 null (mcpAuth.resolveUserMcpKey 동작)
       return null;
     },
     "mcpInternal:touchKey": () => null,
@@ -139,15 +144,75 @@ describe("MCP HTTP 엔드포인트", () => {
     expect(body.error.message).toMatch(/cp_mcp_/);
   });
 
-  it("무료 플랜·폐기 키는 401 — 유료 안내 메시지를 준다", async () => {
+  it("폐기·미존재 키는 401 — 키 발급 경로를 안내한다", async () => {
     const { ctx } = makeCtx();
     const res = await handleMcpRequest(
       ctx,
-      post(FREE_KEY, { jsonrpc: "2.0", id: 5, method: "tools/list" }),
+      post(REVOKED_KEY, { jsonrpc: "2.0", id: 5, method: "tools/list" }),
     );
     expect(res.status).toBe(401);
     const body = await res.json();
-    expect(body.error.message).toMatch(/유료 플랜|Solo/);
+    expect(body.error.message).toMatch(/키/);
+  });
+
+  it("무료 키는 인증은 되고 도구 목록만 좁아진다", async () => {
+    const { ctx } = makeCtx();
+    const res = await handleMcpRequest(
+      ctx,
+      post(FREE_KEY, { jsonrpc: "2.0", id: 6, method: "tools/list" }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const names = (body.result.tools as Array<{ name: string }>).map((t) => t.name);
+    expect(names.sort()).toEqual(["crabpitch_press_guide", "crabpitch_status"]);
+  });
+
+  it("유료 키에는 도구 5종이 모두 보인다", async () => {
+    const { ctx } = makeCtx();
+    const res = await handleMcpRequest(
+      ctx,
+      post(VALID_KEY, { jsonrpc: "2.0", id: 7, method: "tools/list" }),
+    );
+    const body = await res.json();
+    expect((body.result.tools as unknown[]).length).toBe(5);
+  });
+
+  it("무료가 유료 도구를 직접 호출하면 막고 사유를 준다", async () => {
+    // 목록을 건너뛰고 부르는 클라이언트가 있으므로 호출 경로도 막아야 한다.
+    const { ctx, calls } = makeCtx();
+    const res = await handleMcpRequest(
+      ctx,
+      post(FREE_KEY, {
+        jsonrpc: "2.0",
+        id: 8,
+        method: "tools/call",
+        params: { name: "crabpitch_match_journalists", arguments: { query: "핀테크" } },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.result.isError).toBe(true);
+    expect(body.result.content[0].text).toMatch(/유료 플랜 전용/);
+    // 게이트에서 끊겼으므로 매칭 질의 자체가 실행되지 않아야 한다.
+    expect(calls).not.toContain("mcpInternal:matchJournalists");
+  });
+
+  it("무료도 보도자료 도구는 정상 호출된다", async () => {
+    const { ctx, calls } = makeCtx({
+      "mcpInternal:pressGuide": () => ({ guide: "## 구조", note: "n" }),
+    });
+    const res = await handleMcpRequest(
+      ctx,
+      post(FREE_KEY, {
+        jsonrpc: "2.0",
+        id: 9,
+        method: "tools/call",
+        params: { name: "crabpitch_press_guide", arguments: { section: "structure" } },
+      }),
+    );
+    const body = await res.json();
+    expect(body.result.isError).toBeUndefined();
+    expect(calls).toContain("mcpInternal:pressGuide");
   });
 
   it("OPTIONS — CORS 프리플라이트를 허용한다", async () => {
