@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery, mutation, query } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { planValidator } from "./schema";
 import { currentMonth, PLAN_LIMITS, type Plan } from "./lib/plans";
 import {
@@ -8,6 +8,7 @@ import {
   requirePlatformAdmin,
 } from "./lib/platformAdmin";
 import { requireUser, getProfile } from "./model";
+import { journalistCode } from "./lib/mask";
 import { EXCLUDE_STALE_KEY, STALE_MATCH_DAYS } from "./journalists";
 import { PR_PRESSKIT_PACK } from "./lib/packRegistry";
 
@@ -293,6 +294,77 @@ export const planLimits = query({
  * ⚠️ PII 무노출 원칙: 이 영역의 모든 쿼리는 **집계·메타만** 돌려준다.
  *    기자 이름·이메일·연락처를 열람하는 UI를 만들지 않는다.
  */
+
+/**
+ * 관리자용 기자 디렉터리 — **집계 + 마스킹 목록**.
+ *
+ * "리스트가 다 안 뜬다"를 진단하려면 DB에 실제로 무엇이 몇 건 있는지, 그중 몇 건이
+ * 매칭에서 걸러지는지를 봐야 한다. 총계만으로는 원인을 못 가린다.
+ *
+ * ⚠️ 위 PII 무노출 원칙을 그대로 지킨다 — 이름·이메일·연락처는 넣지 않는다.
+ *    진단에 필요한 건 출처·신선도·신뢰도이지 신원이 아니다.
+ */
+export const listJournalists = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, { limit }) => {
+    await requirePlatformAdmin(ctx);
+    const all = await ctx.db.query("journalists").collect();
+
+    const staleBefore = Date.now() - STALE_MATCH_DAYS * 24 * 60 * 60 * 1000;
+    const setting = await ctx.db
+      .query("platformSettings")
+      .withIndex("by_key", (q) => q.eq("key", EXCLUDE_STALE_KEY))
+      .unique();
+    const excludeStale = setting?.boolValue === true;
+
+    /** 팩 유래인데 30일 넘게 팩에서 확인되지 않은 레코드(이직·퇴사 추정). */
+    const isStale = (j: Doc<"journalists">) =>
+      j.source === "opencrab" &&
+      !(j.lastSeenInPackAt !== undefined && j.lastSeenInPackAt >= staleBefore);
+
+    const bySource: Record<string, number> = {};
+    const byConfidence: Record<string, number> = {};
+    for (const j of all) {
+      const src = j.source ?? "unknown";
+      bySource[src] = (bySource[src] ?? 0) + 1;
+      byConfidence[j.contactConfidence] = (byConfidence[j.contactConfidence] ?? 0) + 1;
+    }
+
+    const staleCount = all.filter(isStale).length;
+
+    const rows = all
+      .slice()
+      .sort((a, b) => b.referenceArticleCount - a.referenceArticleCount)
+      .slice(0, limit ?? 200)
+      .map((j) => ({
+        _id: j._id,
+        code: journalistCode(j._id),
+        outlet: j.outlet,
+        beatPrimary: j.beatPrimary,
+        beatSecondary: j.beatSecondary,
+        contactConfidence: j.contactConfidence,
+        referenceArticleCount: j.referenceArticleCount,
+        source: j.source ?? "unknown",
+        outletCategory: j.outletCategory ?? null,
+        lastSeenInPackAt: j.lastSeenInPackAt ?? null,
+        packSyncedAt: j.packSyncedAt ?? null,
+        stale: isStale(j),
+      }));
+
+    return {
+      total: all.length,
+      shown: rows.length,
+      bySource,
+      byConfidence,
+      staleCount,
+      /** 켜져 있으면 stale 레코드가 매칭 후보에서 빠진다 */
+      excludeStale,
+      /** 매칭 1회가 만드는 최대 후보 수 — "왜 15명만 나오지"의 답 */
+      matchTopKDefault: 15,
+      journalists: rows,
+    };
+  },
+});
 
 /** 액션에서 관리자 권한을 확인할 때 사용(액션은 ctx.db가 없다). */
 export const assertPlatformAdminInternal = internalQuery({

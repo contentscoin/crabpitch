@@ -111,6 +111,10 @@ export default function AdminPage() {
     api.admin.packSyncOverview,
     access?.allowed ? {} : "skip",
   );
+  const journalists = useQuery(
+    api.admin.listJournalists,
+    access?.allowed ? {} : "skip",
+  );
   const setPlan = useMutation(api.admin.setUserPlan);
   const setAdmin = useMutation(api.admin.setPlatformAdminFlag);
   const revokeKey = useMutation(api.admin.revokeMcpKey);
@@ -863,6 +867,145 @@ export default function AdminPage() {
             )}
           </CardContent>
         </Card>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-lg font-bold">기자 디렉터리</h2>
+          {journalists && (
+            <span className="text-xs text-foreground-muted">
+              전체 {journalists.total}명 · 표시 {journalists.shown}명
+            </span>
+          )}
+        </div>
+
+        {journalists === undefined ? (
+          <div className="h-40 animate-pulse rounded-lg bg-surface" />
+        ) : journalists.total === 0 ? (
+          <Card>
+            <CardContent className="space-y-2 pt-5 text-sm">
+              <p className="font-semibold">기자 데이터가 없습니다.</p>
+              <p className="text-foreground-muted">
+                오픈크랩 연동이 꺼져 있거나 팩 동기화가 한 번도 돌지 않은 상태입니다. 위
+                「오픈크랩 팩 동기화」에서 수동 동기화를 실행해 보세요.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <StatCard label="전체" value={String(journalists.total)} />
+              <StatCard
+                label="팩(오픈크랩)"
+                value={String(journalists.bySource.opencrab ?? 0)}
+              />
+              <StatCard
+                label="시드·수동"
+                value={String(
+                  (journalists.bySource.seed ?? 0) +
+                    (journalists.bySource.manual ?? 0) +
+                    (journalists.bySource.unknown ?? 0),
+                )}
+              />
+              <StatCard
+                label="stale (30일+)"
+                value={String(journalists.staleCount)}
+              />
+            </div>
+
+            {/* "왜 N명만 뜨지"의 실제 원인을 숫자로 보여준다. 총계만으로는 못 가린다. */}
+            <Card>
+              <CardContent className="space-y-2 pt-5 text-sm">
+                <p className="font-semibold">매칭에 몇 명이 뜨는지</p>
+                <p className="text-foreground-muted">
+                  매칭 1회는{" "}
+                  <b className="text-foreground">
+                    최대 {journalists.matchTopKDefault}명
+                  </b>
+                  을 만듭니다. 디렉터리에 {journalists.total}명이 있어도 그 이상은 나오지
+                  않습니다. 여기에{" "}
+                  <b className="text-foreground">주제 태그가 하나도 겹치지 않는 기자</b>는
+                  점수 0으로 아예 빠지고, 수신거부·재접근 제외도 추가로 걸립니다.
+                  {journalists.excludeStale && journalists.staleCount > 0 ? (
+                    <>
+                      {" "}
+                      지금은 stale 제외가 켜져 있어{" "}
+                      <b className="text-foreground">{journalists.staleCount}명</b>이 더
+                      빠집니다.
+                    </>
+                  ) : null}
+                </p>
+                <p className="text-xs text-muted">
+                  신뢰도 low인 기자는 목록에는 나오지만 승인 화면에서 기본 해제됩니다 —{" "}
+                  {journalists.byConfidence.low ?? 0}명.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="pt-5">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[42rem] text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left text-xs text-foreground-muted">
+                        <th className="pb-2 pr-3 font-medium">코드</th>
+                        <th className="pb-2 pr-3 font-medium">매체</th>
+                        <th className="pb-2 pr-3 font-medium">beat</th>
+                        <th className="pb-2 pr-3 font-medium">신뢰도</th>
+                        <th className="pb-2 pr-3 font-medium">근거</th>
+                        <th className="pb-2 pr-3 font-medium">출처</th>
+                        <th className="pb-2 font-medium">팩 확인</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {journalists.journalists.map((j) => (
+                        <tr key={j._id} className="border-b border-border/50">
+                          <td className="py-2 pr-3 font-mono text-xs">{j.code}</td>
+                          <td className="py-2 pr-3">{j.outlet}</td>
+                          <td className="py-2 pr-3 text-foreground-muted">
+                            {j.beatPrimary}
+                          </td>
+                          <td className="py-2 pr-3">
+                            <Badge
+                              variant={
+                                j.contactConfidence === "high"
+                                  ? "brand"
+                                  : j.contactConfidence === "low"
+                                    ? "warning"
+                                    : "outline"
+                              }
+                            >
+                              {j.contactConfidence}
+                            </Badge>
+                          </td>
+                          <td className="py-2 pr-3 tabular-nums text-foreground-muted">
+                            {j.referenceArticleCount}
+                          </td>
+                          <td className="py-2 pr-3 text-xs text-foreground-muted">
+                            {j.source}
+                          </td>
+                          <td className="py-2 text-xs text-foreground-muted">
+                            {j.stale ? (
+                              <span className="text-warning">
+                                {fmtDate(j.lastSeenInPackAt ?? undefined)} (stale)
+                              </span>
+                            ) : (
+                              fmtDate(j.lastSeenInPackAt ?? undefined)
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-3 text-xs text-muted">
+                  기자 실명·이메일·연락처는 관리자 화면에도 표시하지 않습니다. 발송 시점의
+                  Gmail 수신자로만 사용됩니다.
+                </p>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </section>
     </div>
   );
