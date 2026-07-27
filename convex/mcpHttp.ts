@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import type { DataModel, Id } from "./_generated/dataModel";
 import { jsonResponse } from "./lib/http";
 import { extractMcpBearer, tagsFromQuery } from "./lib/mcpHttpAuth";
+import { MCP_TOOL_SKILL, planAllowsSkill, upgradeRequiredMessage } from "./lib/plans";
 
 type ActionCtx = GenericActionCtx<DataModel>;
 
@@ -32,7 +33,7 @@ const TOOLS = [
   {
     name: "crabpitch_status",
     description:
-      "CrabPitch MCP 연결 상태와 현재 플랜을 확인합니다. 유료 플랜 키가 필요합니다.",
+      "CrabPitch MCP 연결 상태·플랜과, 이 플랜에서 쓸 수 있는 스킬(skills)·잠긴 스킬(lockedSkills)을 확인합니다.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -144,6 +145,20 @@ function parseFactSheet(value: unknown): Array<{ label: string; value: string }>
   return rows.length > 0 ? rows : undefined;
 }
 
+/**
+ * 이 플랜이 실제로 쓸 수 있는 도구만 노출한다.
+ *
+ * 호출 시 막는 것만으로는 부족하다 — 목록에 보이면 에이전트가 계획을 세우고 호출한 뒤에야
+ * 실패한다. 아예 보이지 않아야 다른 방법을 찾는다. `crabpitch_status`는 무엇이 잠겼는지
+ * 알려 주는 도구라 항상 남긴다.
+ */
+function toolsForPlan(plan: string) {
+  return TOOLS.filter((t) => {
+    const skill = MCP_TOOL_SKILL[t.name];
+    return skill === undefined || planAllowsSkill(plan, skill);
+  });
+}
+
 function textResult(text: string, isError = false): ToolCallResult {
   return {
     content: [{ type: "text", text }],
@@ -181,7 +196,7 @@ async function authenticate(
   ctx: ActionCtx,
   request: Request,
 ): Promise<
-  | { ok: true; userId: Id<"users">; keyId: Id<"userMcpKeys"> }
+  | { ok: true; userId: Id<"users">; keyId: Id<"userMcpKeys">; plan: string }
   | { ok: false; status: number; message: string }
 > {
   const rawKey = extractMcpBearer(request);
@@ -201,7 +216,7 @@ async function authenticate(
       ok: false,
       status: 401,
       message:
-        "유효하지 않은 MCP 키이거나 유료 플랜이 아닙니다. Solo/Growth/Agency에서 키를 발급하세요.",
+        "유효하지 않거나 해지된 MCP 키입니다. CrabPitch 웹앱 「내 AI 연동」에서 키를 발급하세요.",
     };
   }
 
@@ -209,16 +224,27 @@ async function authenticate(
     keyId: resolved.keyId,
   });
 
-  return { ok: true, userId: resolved.userId, keyId: resolved.keyId };
+  return {
+    ok: true,
+    userId: resolved.userId,
+    keyId: resolved.keyId,
+    plan: resolved.plan,
+  };
 }
 
 async function callTool(
   ctx: ActionCtx,
   userId: Id<"users">,
+  plan: string,
   name: string,
   args: Record<string, unknown>,
 ): Promise<ToolCallResult> {
   try {
+    // 목록에서 감추는 것과 별개로 호출도 막는다 — 목록을 건너뛰고 부르는 클라이언트가 있다.
+    const requiredSkill = MCP_TOOL_SKILL[name];
+    if (requiredSkill !== undefined && !planAllowsSkill(plan, requiredSkill)) {
+      return textResult(upgradeRequiredMessage(requiredSkill), true);
+    }
     switch (name) {
       case "crabpitch_status": {
         const status = await ctx.runQuery(internal.mcpInternal.status, {
@@ -301,6 +327,7 @@ async function callTool(
 async function handleRpc(
   ctx: ActionCtx,
   userId: Id<"users">,
+  plan: string,
   message: JsonRpcRequest,
 ): Promise<unknown | null> {
   const method = message.method ?? "";
@@ -320,14 +347,14 @@ async function handleRpc(
         },
         serverInfo: SERVER_INFO,
         instructions:
-          "CrabPitch MCP — 보도자료 피치용 도구입니다. 기자 실명/이메일은 반환하지 않습니다. 발송은 CrabPitch 웹앱에서 진행하세요. 유료 플랜 전용.",
+          "CrabPitch MCP — 보도자료 피치용 도구입니다. 기자 실명/이메일은 반환하지 않습니다. 발송은 CrabPitch 웹앱에서 진행하세요. 무료 플랜은 보도자료 작성 도구만 노출되며, 매칭·메일 템플릿·회신 분류는 Solo 이상에서 열립니다(웹앱에서는 무료로도 이용 가능).",
       });
     case "notifications/initialized":
       return null;
     case "ping":
       return jsonRpcResult(id, {});
     case "tools/list":
-      return jsonRpcResult(id, { tools: TOOLS });
+      return jsonRpcResult(id, { tools: toolsForPlan(plan) });
     case "tools/call": {
       const name = typeof params.name === "string" ? params.name : "";
       const args =
@@ -336,7 +363,7 @@ async function handleRpc(
         !Array.isArray(params.arguments)
           ? (params.arguments as Record<string, unknown>)
           : {};
-      const result = await callTool(ctx, userId, name, args);
+      const result = await callTool(ctx, userId, plan, name, args);
       return jsonRpcResult(id, result);
     }
     case "resources/list":
@@ -418,6 +445,7 @@ export async function handleMcpRequest(
     const response = await handleRpc(
       ctx,
       auth.userId,
+      auth.plan,
       raw as JsonRpcRequest,
     );
     if (response !== null) {

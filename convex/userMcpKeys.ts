@@ -1,7 +1,13 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { getProfile, requireUser } from "./model";
-import { planAllowsMcp, type Plan } from "./lib/plans";
+import {
+  planAllowsMcp,
+  planAllowsSkill,
+  skillsForPlan,
+  SKILL_IDS,
+  type Plan,
+} from "./lib/plans";
 import {
   buildUserMcpSnippet,
   generateMcpKey,
@@ -26,12 +32,18 @@ export const getAccess = query({
     message: v.string(),
     maxKeys: v.number(),
     activeKeyCount: v.number(),
+    /** 이 플랜이 MCP에서 쓸 수 있는 스킬 */
+    skills: v.array(v.string()),
+    /** 업그레이드해야 MCP에서 열리는 스킬 — 웹앱에서는 지금도 쓸 수 있다 */
+    lockedSkills: v.array(v.string()),
   }),
   handler: async (ctx) => {
     const userId = await requireUser(ctx);
     const profile = await getProfile(ctx, userId);
     const plan = (profile?.plan as Plan) ?? "free";
     const allowed = planAllowsMcp(plan);
+    const skills = skillsForPlan(plan);
+    const lockedSkills = SKILL_IDS.filter((s) => !planAllowsSkill(plan, s));
     const keys = await ctx.db
       .query("userMcpKeys")
       .withIndex("by_user", (q) => q.eq("userId", userId))
@@ -40,11 +52,16 @@ export const getAccess = query({
       allowed,
       plan,
       siteUrl: siteBase(),
-      message: allowed
-        ? "연결 키를 만들어 Claude·ChatGPT·Gemini·Cursor에 붙일 수 있습니다."
-        : "내 AI 연결은 Solo / Growth / Agency에서 사용할 수 있습니다. 설정에서 플랜을 바꿔 주세요.",
+      // 무료도 연결 자체는 된다 — 다만 도구가 보도자료 작성 계열 하나뿐이다.
+      message: !allowed
+        ? "이 플랜에서는 MCP 연결 키를 만들 수 없습니다."
+        : lockedSkills.length === 0
+          ? "연결 키를 만들어 Claude·ChatGPT·Gemini·Cursor에 붙일 수 있습니다."
+          : "연결 키를 만들 수 있습니다. 무료 플랜은 채팅에서 보도자료 작성 도구만 쓸 수 있고, 기자 매칭·메일 템플릿·회신 분류는 CrabPitch 웹앱에서 이용하세요.",
       maxKeys: MAX_ACTIVE_MCP_KEYS,
       activeKeyCount: keys.filter((k) => !k.revoked).length,
+      skills,
+      lockedSkills,
     };
   },
 });

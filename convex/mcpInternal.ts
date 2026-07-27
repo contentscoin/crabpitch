@@ -1,7 +1,14 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { getProfile } from "./model";
-import { planAllowsMcp, type Plan } from "./lib/plans";
+import {
+  planAllowsMcp,
+  planAllowsSkill,
+  skillsForPlan,
+  SKILL_IDS,
+  upgradeRequiredMessage,
+  type Plan,
+} from "./lib/plans";
 import { resolveUserMcpKey } from "./lib/mcpAuth";
 import { scoreJournalist } from "./lib/scoring";
 import { journalistCode } from "./lib/mask";
@@ -45,6 +52,7 @@ export const status = internalQuery({
     mcpAllowed: v.boolean(),
     companyName: v.union(v.string(), v.null()),
     skills: v.array(v.string()),
+    lockedSkills: v.array(v.string()),
     skillPack: v.string(),
     compliance: v.string(),
   }),
@@ -56,12 +64,10 @@ export const status = internalQuery({
       plan,
       mcpAllowed: planAllowsMcp(plan),
       companyName: profile?.companyName ?? null,
-      skills: [
-        "press-release-writer",
-        "media-kit-builder",
-        "journalist-outreach",
-        "reply-handler",
-      ],
+      // 이 플랜에서 실제로 쓸 수 있는 스킬만. 무료는 보도자료 작성 하나뿐이다.
+      // 스킬 팩이 진입 게이트에서 이 목록을 보고 멈춘다.
+      skills: skillsForPlan(plan),
+      lockedSkills: SKILL_IDS.filter((s) => !planAllowsSkill(plan, s)),
       skillPack: "https://github.com/contentscoin/crabpitch-skill",
       compliance:
         "기자 실명·이메일은 MCP 응답에 포함되지 않습니다. 발송은 사용자 승인 후에만.",
@@ -91,9 +97,10 @@ export const matchJournalists = internalQuery({
     ),
   }),
   handler: async (ctx, { userId, topicTags, topK }) => {
+    // 도구 디스패치 계층에서 이미 막지만 여기서도 본다 — 내부 호출이 늘어도 새지 않도록.
     const profile = await getProfile(ctx, userId);
-    if (!profile || !planAllowsMcp(profile.plan as Plan)) {
-      return { error: "mcp_plan_required", matches: [] };
+    if (!planAllowsSkill(profile?.plan as Plan, "journalist-outreach")) {
+      return { error: upgradeRequiredMessage("journalist-outreach"), matches: [] };
     }
     const suppressed = new Set(
       (

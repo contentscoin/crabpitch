@@ -1,6 +1,44 @@
-/** 요금제별 한도 — 기획서 6.3 요금제 표. (무료: 월 10통, 보도자료 3건, 매칭 발송 후보 3명) */
+/**
+ * 요금제별 한도·기능 권한.
+ *
+ * ⚠️ 두 경로의 정책이 **다르다.**
+ *    - **웹앱**: 무료도 매칭·발송·미디어킷을 쓴다(`PLAN_LIMITS`의 수치 한도만 적용).
+ *    - **MCP**: 무료는 **보도자료 작성 계열만**(`SKILL_ENTITLEMENTS`).
+ *
+ *    MCP를 더 좁게 잡는 이유는 그쪽이 자동화 경로이기 때문이다. 웹앱은 사람이 화면을 보며
+ *    한 건씩 승인하지만, MCP는 에이전트가 반복 호출한다 — 기자단 데이터와 발송 인프라를
+ *    무료로 자동화 대상에 올려 두면 남용 비용이 곧바로 커진다.
+ */
 
 export type Plan = "free" | "solo" | "growth" | "agency";
+
+/**
+ * 스킬 = 제품 기능 단위. MCP 도구와 공개 스킬 팩이 이 이름을 공유한다.
+ * 이름은 `crabpitch-skill` 저장소의 디렉터리명과 일치해야 한다.
+ */
+export const SKILL_IDS = [
+  "press-release-writer",
+  "media-kit-builder",
+  "journalist-outreach",
+  "reply-handler",
+] as const;
+
+export type SkillId = (typeof SKILL_IDS)[number];
+
+/**
+ * **MCP 경로**의 플랜별 사용 가능 스킬 — 이 표가 단일 소스다.
+ *
+ * 무료가 보도자료 작성만 열려 있는 이유: 보도자료는 사용자가 자기 원고를 쓰는 일이라
+ * 기자 데이터도, 발송 인프라도 건드리지 않는다. 나머지 셋은 그렇지 않다.
+ *
+ * ⚠️ 웹앱에는 적용하지 않는다. 웹앱의 무료 범위는 `PLAN_LIMITS`의 수치 한도가 정한다.
+ */
+export const SKILL_ENTITLEMENTS: Record<Plan, readonly SkillId[]> = {
+  free: ["press-release-writer"],
+  solo: SKILL_IDS,
+  growth: SKILL_IDS,
+  agency: SKILL_IDS,
+};
 
 export interface PlanLimits {
   label: string;
@@ -20,6 +58,8 @@ export interface PlanLimits {
 }
 
 export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
+  // ⚠️ 웹앱 한도는 그대로다 — 무료 사용자도 웹에서는 매칭·발송·미디어킷을 쓴다.
+  //    무료 제한은 **MCP 경로에만** 적용된다(SKILL_ENTITLEMENTS).
   free: {
     label: "Free",
     price: 0,
@@ -27,7 +67,8 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     pressReleases: 3,
     matchReveal: 3,
     mediaKits: 1,
-    mcp: false,
+    // MCP 키 발급 자체는 무료도 가능하다. 다만 도구는 보도자료 작성 계열만 열린다.
+    mcp: true,
     campaignSendCap: 10,
   },
   solo: {
@@ -64,6 +105,44 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
 
 export function isPaidPlan(plan: Plan | string | undefined): boolean {
   return plan === "solo" || plan === "growth" || plan === "agency";
+}
+
+/** 알 수 없는 값은 무료로 떨어뜨린다 — 권한 판정은 실패 시 좁은 쪽으로 간다. */
+function normalizePlan(plan: Plan | string | undefined): Plan {
+  return plan && plan in PLAN_LIMITS ? (plan as Plan) : "free";
+}
+
+/** 이 플랜이 MCP에서 해당 스킬을 쓸 수 있는가. MCP 권한 판정의 단일 진입점. */
+export function planAllowsSkill(plan: Plan | string | undefined, skill: SkillId): boolean {
+  return SKILL_ENTITLEMENTS[normalizePlan(plan)].includes(skill);
+}
+
+/** 이 플랜이 MCP에서 쓸 수 있는 스킬 목록 — `crabpitch_status`가 그대로 돌려준다. */
+export function skillsForPlan(plan: Plan | string | undefined): SkillId[] {
+  return [...SKILL_ENTITLEMENTS[normalizePlan(plan)]];
+}
+
+/** MCP 도구별 담당 스킬 — 도구를 늘리면 여기에 함께 등록해야 게이트가 걸린다. */
+export const MCP_TOOL_SKILL: Record<string, SkillId> = {
+  crabpitch_press_guide: "press-release-writer",
+  crabpitch_match_journalists: "journalist-outreach",
+  crabpitch_email_template: "journalist-outreach",
+  crabpitch_classify: "reply-handler",
+  // crabpitch_status는 게이트 대상이 아니다 — 무엇이 잠겼는지 알려 주는 도구다.
+};
+
+/**
+ * 유료 전용 기능에 무료 사용자가 닿았을 때의 안내 문구.
+ * **웹앱으로 우회할 수 있다는 사실을 반드시 함께 알린다** — 기능이 사라진 게 아니다.
+ */
+export function upgradeRequiredMessage(skill: SkillId): string {
+  const label: Record<SkillId, string> = {
+    "press-release-writer": "보도자료 작성",
+    "media-kit-builder": "미디어킷",
+    "journalist-outreach": "기자 매칭·메일 템플릿",
+    "reply-handler": "회신 분류",
+  };
+  return `${label[skill]}은(는) MCP에서 유료 플랜 전용입니다. 무료 플랜은 MCP에서 보도자료 작성(crabpitch_press_guide)만 쓸 수 있습니다. 이 기능은 CrabPitch 웹앱에서는 무료로도 이용할 수 있고, Solo 이상으로 업그레이드하면 MCP에서도 열립니다.`;
 }
 
 export function planAllowsMcp(plan: Plan | string | undefined): boolean {
