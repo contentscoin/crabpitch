@@ -56,6 +56,11 @@ export interface OpenCrabJournalistInput {
   contact_verification?: string;
   contact_evidence_count?: number;
   contact_source_urls?: string[] | string;
+  /** v2 시리즈 단수형 */
+  contact_source_url?: string;
+  /** topic-routing-v2 — top_ 접두 없음 */
+  reference_title?: string;
+  reference_url?: string;
   beat_distribution?: unknown;
   classification_confidence?: string;
   reference_articles?: unknown;
@@ -173,8 +178,15 @@ export function normalizeJournalistRecord(
   const beatPrimary = asString(r.beat_primary) ?? asString(r.beatPrimary) ?? "미분류";
   if (!name || !outlet || !email || !email.includes("@")) return null;
 
-  const topReferenceTitle = asString(r.top_reference_title) ?? asString(r.topReferenceTitle);
-  const topReferenceUrl = asString(r.top_reference_url) ?? asString(r.topReferenceUrl);
+  // topic-routing-v2는 top_ 접두 없이 reference_title/url로 싣는다 — 같은 뜻이라 함께 본다.
+  const topReferenceTitle =
+    asString(r.top_reference_title) ??
+    asString(r.topReferenceTitle) ??
+    asString(r.reference_title);
+  const topReferenceUrl =
+    asString(r.top_reference_url) ??
+    asString(r.topReferenceUrl) ??
+    asString(r.reference_url);
   const referenceArticles = normalizeReferenceArticles(
     r.reference_articles,
     topReferenceTitle,
@@ -191,7 +203,9 @@ export function normalizeJournalistRecord(
   // ⚠️ phone(팩 전량 빈값)·official_popularity_rank(전량 null)는 수집하지 않는다(PII 최소화).
   // ⚠️ contact_source_urls는 파이프 구분 문자열이다 — URL에 슬래시·콤마가 있어
   //    범용 다중 구분자로 자르면 파손된다.
-  const contactSourceUrls = splitPipe(r.contact_source_urls);
+  // v2는 단수 contact_source_url로 싣는다.
+  const contactSourceUrls =
+    splitPipe(r.contact_source_urls) ?? splitPipe(r.contact_source_url);
   const beatDistribution = parseBeatDistribution(r.beat_distribution);
 
   return {

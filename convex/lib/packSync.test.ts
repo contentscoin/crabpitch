@@ -11,11 +11,13 @@ import {
   parsePackListPayload,
   parsePackPayload,
   parseProjectPacksPayload,
+  parseReporterJsonLines,
   reassembleDocument,
   splitList,
   splitPipe,
 } from "./packSync";
 import { classifyPackSeries, shouldAutoSync } from "./packRegistry";
+import { normalizePackReporters } from "./opencrabMap";
 
 /**
  * 픽스처는 **익명화**했다 — 실제 팩의 기자 실명·이메일·연락처를 테스트에 넣지 않는다.
@@ -331,5 +333,91 @@ describe("shouldAutoSync — v2 시리즈 누락 회귀", () => {
 
   it("기자단 contacts 시리즈는 프로젝트 밖이어도 동기화한다", () => {
     expect(shouldAutoSync("journalist-contacts", false)).toBe(true);
+  });
+});
+
+describe("parseReporterJsonLines — v2 시리즈(JSONL)", () => {
+  // 실제 contact-index-v2-001 본문 형태(2026-07-27 관측).
+  const INDEX_V2 = [
+    "Exit code: 0",
+    "Wall time: 1.1 seconds",
+    "Output:",
+    "# Korean Journalist Contact Index 001",
+    "",
+    "Publicly disclosed professional contact records. Mailing is not authorized.",
+    "",
+    '{"reporter_name":"김민성","outlet_name":"뉴시스","email":"kms@newsis.com","beat_primary":"AI/데이터","contact_confidence":"high","reference_article_count":2,"top_reference_title":"제목","mailing_status":"candidate"}',
+    '{"reporter_name":"김양수","outlet_name":"뉴시스","email":"kys0505@newsis.com","beat_primary":"AI/데이터","contact_confidence":"medium","mailing_status":"candidate"}',
+  ].join("\n");
+
+  it("머리말을 건너뛰고 기자 줄만 뽑는다", () => {
+    const rows = parseReporterJsonLines(INDEX_V2);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].reporter_name).toBe("김민성");
+    expect(rows[1].email).toBe("kys0505@newsis.com");
+  });
+
+  it("청크 경계에서 잘린 줄은 버린다", () => {
+    // 잘린 줄을 살리려 들면 깨진 레코드가 DB에 들어간다.
+    const truncated =
+      INDEX_V2 + '\n{"reporter_name":"박윤호","outlet_name":"전자신문","email":"yuno@etne';
+    expect(parseReporterJsonLines(truncated)).toHaveLength(2);
+  });
+
+  it("reporter_name 없는 줄은 기자 레코드가 아니다", () => {
+    const withMeta = '{"summary":"총 8건","batch":1}\n' + INDEX_V2;
+    expect(parseReporterJsonLines(withMeta)).toHaveLength(2);
+  });
+
+  it("topic-routing-v2의 rank/score 줄도 기자로 인식한다", () => {
+    const routing =
+      '{"rank":4,"topic":"AI/데이터","reporter_name":"이원지","outlet_name":"전자신문",' +
+      '"email":"news21g@etnews.com","score":14.62,"reference_title":"제목",' +
+      '"reference_url":"https://www.etnews.com/20260721000086","mailing_status":"candidate"}';
+    const rows = parseReporterJsonLines(routing);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].reporter_name).toBe("이원지");
+  });
+
+  it("JSONL이 전혀 없으면 빈 배열", () => {
+    expect(parseReporterJsonLines("# 제목만 있는 문서\n본문")).toEqual([]);
+  });
+});
+
+describe("normalizePackReporters — v2 필드 별칭", () => {
+  it("topic-routing-v2의 reference_title/url을 근거 기사로 싣는다", () => {
+    // v2는 top_ 접두 없이 보낸다. 별칭을 안 보면 근거 기사가 비어 매칭 점수가 깎인다.
+    const [j] = normalizePackReporters([
+      {
+        rank: 4,
+        topic: "AI/데이터",
+        reporter_name: "이원지",
+        outlet_name: "전자신문",
+        email: "news21g@etnews.com",
+        beat_primary: "AI/데이터",
+        contact_confidence: "high",
+        reference_title: "RSA, 생성형 AI 피싱 대응",
+        reference_url: "https://www.etnews.com/20260721000086",
+        mailing_status: "candidate",
+      },
+    ]);
+    expect(j.name).toBe("이원지");
+    expect(j.topReferenceTitle).toBe("RSA, 생성형 AI 피싱 대응");
+    expect(j.topReferenceUrl).toBe("https://www.etnews.com/20260721000086");
+  });
+
+  it("index-v2의 top_reference_title도 그대로 동작한다", () => {
+    const [j] = normalizePackReporters([
+      {
+        reporter_name: "김민성",
+        outlet_name: "뉴시스",
+        email: "kms@newsis.com",
+        beat_primary: "AI/데이터",
+        contact_confidence: "high",
+        top_reference_title: "정의선 회장 직접 찾은 아프리카",
+        mailing_status: "candidate",
+      },
+    ]);
+    expect(j.topReferenceTitle).toBe("정의선 회장 직접 찾은 아프리카");
   });
 });
