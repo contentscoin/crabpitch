@@ -90,6 +90,56 @@ function summarizeSync(res: {
   );
 }
 
+/** 목록이 길어지면 화면이 세로로 끝없이 늘어난다 — 한 번에 이만큼만 보여준다. */
+const PACK_PAGE_SIZE = 10;
+
+function Pager({
+  page,
+  total,
+  pageSize,
+  onPage,
+}: {
+  page: number;
+  total: number;
+  pageSize: number;
+  onPage: (p: number) => void;
+}) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  if (pages <= 1) return null;
+  const from = page * pageSize + 1;
+  const to = Math.min(total, (page + 1) * pageSize);
+  return (
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-foreground-muted">
+      <span className="tabular-nums">
+        {from}–{to} / {total}
+      </span>
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="subtle"
+          disabled={page === 0}
+          onClick={() => onPage(page - 1)}
+        >
+          이전
+        </Button>
+        <span className="tabular-nums">
+          {page + 1} / {pages}
+        </span>
+        <Button
+          type="button"
+          size="sm"
+          variant="subtle"
+          disabled={page >= pages - 1}
+          onClick={() => onPage(page + 1)}
+        >
+          다음
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function PackStatusBadge({ status }: { status?: string }) {
   const s = status ? PACK_STATUS[status as PackStatus] : undefined;
   if (!s) return <Badge variant="outline">{status ?? "미실행"}</Badge>;
@@ -122,6 +172,8 @@ export default function AdminPage() {
   const matchingPolicy = useQuery(api.admin.getMatchingPolicy);
   const setMatchingPolicy = useMutation(api.admin.setMatchingPolicy);
   const [policyBusy, setPolicyBusy] = useState(false);
+  const [brokenPage, setBrokenPage] = useState(0);
+  const [packPage, setPackPage] = useState(0);
   const syncPacks = useAction(api.opencrabActions.syncPacksManual);
 
   const [msg, setMsg] = useState<string | null>(null);
@@ -146,6 +198,16 @@ export default function AdminPage() {
       ),
     [packs],
   );
+  // 동기화로 목록이 줄면 보고 있던 페이지가 범위를 벗어나 빈 화면이 된다 — 마지막 페이지로 당긴다.
+  const brokenPageSafe = Math.min(
+    brokenPage,
+    Math.max(0, Math.ceil(brokenPacks.length / PACK_PAGE_SIZE) - 1),
+  );
+  const packPageSafe = Math.min(
+    packPage,
+    Math.max(0, Math.ceil(packs.length / PACK_PAGE_SIZE) - 1),
+  );
+
   const packNames = useMemo(() => {
     const m = new Map<string, string>();
     for (const p of packs) m.set(p.packageId, packLabel(p));
@@ -424,7 +486,9 @@ export default function AdminPage() {
                 {brokenPacks.length}개 — 확인이 필요합니다
               </div>
               <ul className="space-y-2 text-sm">
-                {brokenPacks.map((p) => {
+                {brokenPacks
+                  .slice(brokenPageSafe * PACK_PAGE_SIZE, (brokenPageSafe + 1) * PACK_PAGE_SIZE)
+                  .map((p) => {
                   const known = p.batch
                     ? UNRECOVERABLE_PACKS[p.batch]
                     : undefined;
@@ -452,6 +516,15 @@ export default function AdminPage() {
                   );
                 })}
               </ul>
+              <Pager
+                page={brokenPageSafe}
+                total={brokenPacks.length}
+                pageSize={PACK_PAGE_SIZE}
+                onPage={setBrokenPage}
+              />
+              <p className="text-xs text-muted">
+                다시 동기화해 성공하면 이 목록에서 자동으로 빠집니다 — 마지막 실행 상태만 봅니다.
+              </p>
             </CardContent>
           </Card>
         )}
@@ -478,7 +551,9 @@ export default function AdminPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {packs.map((p) => {
+                    {packs
+                      .slice(packPageSafe * PACK_PAGE_SIZE, (packPageSafe + 1) * PACK_PAGE_SIZE)
+                      .map((p) => {
                       const known = p.batch
                         ? UNRECOVERABLE_PACKS[p.batch]
                         : undefined;
@@ -543,6 +618,12 @@ export default function AdminPage() {
                     })}
                   </tbody>
                 </table>
+                <Pager
+                  page={packPageSafe}
+                  total={packs.length}
+                  pageSize={PACK_PAGE_SIZE}
+                  onPage={setPackPage}
+                />
               </div>
             )}
           </CardContent>
