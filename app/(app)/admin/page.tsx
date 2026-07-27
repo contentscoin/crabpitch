@@ -175,6 +175,7 @@ export default function AdminPage() {
   const [brokenPage, setBrokenPage] = useState(0);
   const [packPage, setPackPage] = useState(0);
   const syncPacks = useAction(api.opencrabActions.syncPacksManual);
+  const seedTestJournalist = useMutation(api.admin.seedTestJournalist);
 
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -953,11 +954,31 @@ export default function AdminPage() {
       <section className="space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-lg font-bold">기자 디렉터리</h2>
-          {journalists && (
-            <span className="text-xs text-foreground-muted">
-              전체 {journalists.total}명 · 표시 {journalists.shown}명
-            </span>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {journalists && (
+              <span className="text-xs text-foreground-muted">
+                전체 {journalists.total}명 · 표시 {journalists.shown}명
+              </span>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="subtle"
+              disabled={packBusy}
+              onClick={() =>
+                // run()은 콜백 뒤에 label로 메시지를 덮어써 결과별 안내가 사라진다.
+                // runPackJob은 반환 문자열을 그대로 쓴다.
+                void runPackJob("테스트 기자 시드", async () => {
+                  const r = await seedTestJournalist({});
+                  return r.created
+                    ? "테스트 기자(김테스트 · hiway@kakao.com)를 추가했습니다."
+                    : "이미 있습니다 — 중복 생성하지 않았습니다.";
+                })
+              }
+            >
+              테스트 기자 시드
+            </Button>
+          </div>
         </div>
 
         {journalists === undefined ? (

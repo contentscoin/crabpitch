@@ -29,6 +29,28 @@ const SERVER_INFO = {
 
 const PROTOCOL_VERSION = "2024-11-05";
 
+/**
+ * 한 번에 접촉하기 적절한 기자 수. **금지선이 아니라 권장치다.**
+ * 사용자가 더 필요하다고 판단하면 지정할 수 있어야 하고, 대신 왜 위험한지 알려 준다.
+ */
+const RECOMMENDED_MATCH_LIMIT = 20;
+/** 남용·응답 폭주 방지선. 권장치와 구분한다. */
+const MAX_MATCH_LIMIT = 100;
+
+function sendingGuidance(topK: number): string {
+  const base =
+    "발송은 CrabPitch 웹앱에서 사용자 승인 후에만 진행됩니다. 기자별로 내용을 달리한 개인화 메일만 보내세요.";
+  if (topK > RECOMMENDED_MATCH_LIMIT) {
+    return (
+      `${topK}명은 권장치(${RECOMMENDED_MATCH_LIMIT}명)를 넘습니다. ` +
+      "동시에 많은 수에 발송하면 수신 서버가 스팸으로 판정해 도메인 평판이 깎일 수 있습니다. " +
+      `나눠 보내거나 상위 ${RECOMMENDED_MATCH_LIMIT}명부터 시작하는 편을 권합니다. ` +
+      base
+    );
+  }
+  return `한 번에 ${RECOMMENDED_MATCH_LIMIT}명 이하를 권장합니다. ${base}`;
+}
+
 const TOOLS = [
   {
     name: "crabpitch_status",
@@ -58,7 +80,8 @@ const TOOLS = [
         },
         limit: {
           type: "number",
-          description: "최대 결과 수 (기본 10, 최대 20)",
+          description:
+            "최대 결과 수 (기본 10). 한 번에 20명 이하를 권장합니다 — 더 지정할 수 있지만, 동시에 많이 보내면 수신 서버가 스팸으로 판정할 수 있습니다.",
         },
       },
       additionalProperties: false,
@@ -263,13 +286,24 @@ async function callTool(
             : tagsFromQuery(query);
         const limitRaw =
           typeof args.limit === "number" ? Math.floor(args.limit) : 10;
-        const topK = Math.min(20, Math.max(1, limitRaw));
+        // 20은 권장치이지 금지선이 아니다 — 필요하면 더 볼 수 있어야 한다.
+        // 상한(MAX)은 남용·응답 폭주 방지선일 뿐이다.
+        const topK = Math.min(MAX_MATCH_LIMIT, Math.max(1, limitRaw));
         const result = await ctx.runQuery(internal.mcpInternal.matchJournalists, {
           userId,
           topicTags: topicTags.length ? topicTags : ["IT·스타트업"],
           topK,
         });
-        return textResult(JSON.stringify(result, null, 2));
+        return textResult(
+          JSON.stringify(
+            {
+              ...result,
+              sendingGuidance: sendingGuidance(topK),
+            },
+            null,
+            2,
+          ),
+        );
       }
       case "crabpitch_email_template": {
         const angle = typeof args.angle === "string" ? args.angle : "";

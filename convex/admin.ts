@@ -367,6 +367,54 @@ export const listJournalists = query({
   },
 });
 
+/**
+ * 발송 테스트용 기자 1명 시드.
+ *
+ * `seed.run`은 기자 DB가 비었을 때만 돌아서, 팩 동기화로 데이터가 들어온 뒤에는
+ * 쓸 수 없다. 실제 수신 가능한 주소로 발송 경로 전체(매칭 → 초안 → 승인 → Gmail)를
+ * 끝까지 확인하려면 별도 경로가 필요하다.
+ *
+ * - `source: "manual"` — 팩 유래가 아니므로 stale 판정 대상이 아니다.
+ * - `contactConfidence: "high"` — low면 승인 화면에서 기본 해제돼 테스트가 한 단계 늘어난다.
+ * - beat를 넓게 잡아 어떤 주제의 캠페인에도 매칭에 걸리게 한다.
+ * - `mailingStatus: "candidate"` — 테스트라고 컴플라이언스 전제를 바꾸지 않는다.
+ *
+ * 이메일이 같으면 다시 만들지 않는다(중복 발송 방지).
+ */
+export const seedTestJournalist = mutation({
+  args: {},
+  returns: v.object({ created: v.boolean(), journalistId: v.id("journalists") }),
+  handler: async (ctx) => {
+    await requirePlatformAdmin(ctx);
+    const email = "hiway@kakao.com";
+    const existing = (await ctx.db.query("journalists").collect()).find(
+      (j) => j.email === email,
+    );
+    if (existing) return { created: false, journalistId: existing._id };
+
+    const journalistId = await ctx.db.insert("journalists", {
+      name: "김테스트",
+      outlet: "테스트매체",
+      email,
+      beatPrimary: "AI/데이터",
+      beatSecondary: [
+        "IT/과학",
+        "스타트업",
+        "플랫폼/인터넷",
+        "정책/공공",
+        "유통/커머스",
+        "기타",
+      ],
+      contactConfidence: "high",
+      referenceArticleCount: 1,
+      topReferenceTitle: "발송 테스트용 레코드",
+      mailingStatus: "candidate",
+      source: "manual",
+    });
+    return { created: true, journalistId };
+  },
+});
+
 /** 액션에서 관리자 권한을 확인할 때 사용(액션은 ctx.db가 없다). */
 export const assertPlatformAdminInternal = internalQuery({
   args: { userId: v.id("users") },
