@@ -335,7 +335,8 @@ export const listJournalists = query({
     const rows = all
       .slice()
       .sort((a, b) => b.referenceArticleCount - a.referenceArticleCount)
-      .slice(0, limit ?? 200)
+      // 관리자에는 전체가 보여야 한다 — 몇 건이 어디서 왔는지 대조하는 화면이다.
+      .slice(0, limit ?? all.length)
       .map((j) => ({
         _id: j._id,
         code: journalistCode(j._id),

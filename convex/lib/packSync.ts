@@ -247,6 +247,47 @@ export function parsePackListPayload(payload: unknown): PackListPage {
   return { packs, hasMore, ...(nextCursor ? { nextCursor } : {}) };
 }
 
+/**
+ * `opencrab_project_manage` 응답에서 **지정 프로젝트의** 팩 목록만 뽑는다.
+ *
+ * `query`는 부분 일치라 다른 프로젝트가 섞여 올 수 있다. 이름을 정확히 대조해
+ * 엉뚱한 프로젝트의 팩을 기자단으로 들이지 않는다.
+ */
+export function parseProjectPacksPayload(
+  payload: unknown,
+  projectName: string,
+): PackListEntry[] {
+  if (!isRecord(payload)) return [];
+  const projects = payload.projects;
+  if (!Array.isArray(projects)) return [];
+
+  const wanted = projectName.trim().toLowerCase();
+  const out: PackListEntry[] = [];
+  const seen = new Set<string>();
+
+  for (const proj of projects) {
+    if (!isRecord(proj)) continue;
+    const name = asStr(proj.name)?.trim().toLowerCase();
+    if (name !== wanted) continue;
+
+    const packages = proj.packages;
+    if (!Array.isArray(packages)) continue;
+    for (const item of packages) {
+      if (!isRecord(item)) continue;
+      const packageId = asStr(item.package_id) ?? asStr(item.packageId) ?? asStr(item.id);
+      if (!packageId || seen.has(packageId)) continue;
+      seen.add(packageId);
+      const snapshot = isRecord(item.snapshot) ? item.snapshot : {};
+      out.push({
+        packageId,
+        name: asStr(item.title) ?? asStr(item.name) ?? asStr(item.slug),
+        capturedAt: asStr(item.captured_at) ?? asStr(snapshot.captured_at),
+      });
+    }
+  }
+  return out;
+}
+
 /** 팩 선언 수 대비 실제 취득 건수로 동기화 상태를 판정한다. */
 export function classifySyncStatus(
   fetched: number,

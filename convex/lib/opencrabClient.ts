@@ -231,6 +231,23 @@ export async function fetchPackDocuments(
   });
 }
 
+/**
+ * 프로젝트에 담긴 팩 목록 조회 — 팩 탐색의 1차 경로.
+ *
+ * `opencrab_project_manage`는 프로젝트마다 `packages[]`를 통째로 실어 보내므로
+ * 별도 페이지네이션이 필요 없다. `query`로 프로젝트 이름을 좁힌다.
+ */
+export async function fetchProjectPacks(
+  call: (toolName: string, args: Record<string, unknown>) => Promise<unknown>,
+  projectName: string,
+): Promise<unknown> {
+  return await call("opencrab_project_manage", {
+    action: "list",
+    query: projectName,
+    limit: 50,
+  });
+}
+
 /** 팩 목록 조회 — offset 기반 페이지네이션(next_cursor가 숫자 문자열). */
 export async function fetchPackList(
   call: (toolName: string, args: Record<string, unknown>) => Promise<unknown>,

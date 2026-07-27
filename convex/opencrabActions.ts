@@ -14,20 +14,24 @@ import {
   fetchOpenCrabViaMcp,
   fetchPackDocuments,
   fetchPackList,
+  fetchProjectPacks,
   openOpenCrabMcpSession,
   resolveOpenCrabTransport,
 } from "./lib/opencrabClient";
 import {
   classifySyncStatus,
   parsePackListPayload,
+  parseProjectPacksPayload,
   parsePackPayload,
 } from "./lib/packSync";
 import {
+  JOURNALIST_PROJECT_NAME,
   JOURNALIST_WORKSPACE_ID,
+  PR_PRESSKIT_PROJECT_NAME,
   SYNC_SOURCE_PACKS,
   classifyPackSeries,
   extractBatch,
-  isAutoSyncSeries,
+  shouldAutoSync,
 } from "./lib/packRegistry";
 
 /**
@@ -61,7 +65,9 @@ export const syncJournalists = action({
       };
     }
 
-    const topK = args.topK ?? 15;
+    // 기본 15는 한 번 돌려도 15명밖에 안 들어와 디렉터리가 계속 얇았다.
+    // 팩 전체(현재 306청크 규모)를 한 번에 받도록 넉넉히 잡는다.
+    const topK = args.topK ?? 200;
     const body = buildOpenCrabQueryBody(args.topicTags ?? [], topK);
     const transport = resolveOpenCrabTransport(baseUrl, apiKey);
 
@@ -134,7 +140,30 @@ async function refreshPackRegistry(
   ctx: { runMutation: (ref: any, args: any) => Promise<any> },
   call: (toolName: string, args: Record<string, unknown>) => Promise<unknown>,
 ): Promise<void> {
-  const seen = new Map<string, { name?: string; capturedAt?: string }>();
+  const seen = new Map<
+    string,
+    { name?: string; capturedAt?: string; fromProject: boolean }
+  >();
+
+  // ① 프로젝트 우선 — 사람이 큐레이션한 명시적 집합이다.
+  //    키워드 탐색만 쓰던 시절, 제목 규칙이 다른 신규 시리즈 13팩이 조용히 빠져 있었다.
+  for (const projectName of [JOURNALIST_PROJECT_NAME, PR_PRESSKIT_PROJECT_NAME]) {
+    try {
+      const payload = await fetchProjectPacks(call, projectName);
+      for (const p of parseProjectPacksPayload(payload, projectName)) {
+        seen.set(p.packageId, {
+          name: p.name,
+          capturedAt: p.capturedAt,
+          fromProject: true,
+        });
+      }
+    } catch {
+      // 프로젝트 조회 실패는 치명적이지 않다 — 아래 키워드 탐색으로 이어간다.
+    }
+  }
+
+  // ② 키워드 탐색 — 프로젝트에 아직 안 담긴 팩을 줍는 보조 경로.
+  //    여기서만 발견된 팩은 fromProject=false라 관리자 승인을 기다린다.
   for (const query of ["journalist", "presskit"]) {
     let cursor: string | undefined;
     // 커서 완주(무한 루프 방지 상한 20페이지)
@@ -143,7 +172,11 @@ async function refreshPackRegistry(
       const parsed = parsePackListPayload(payload);
       for (const p of parsed.packs) {
         if (!seen.has(p.packageId)) {
-          seen.set(p.packageId, { name: p.name, capturedAt: p.capturedAt });
+          seen.set(p.packageId, {
+            name: p.name,
+            capturedAt: p.capturedAt,
+            fromProject: false,
+          });
         }
       }
       if (!parsed.hasMore || !parsed.nextCursor) break;
@@ -161,8 +194,8 @@ async function refreshPackRegistry(
       batch: extractBatch(label),
       name: meta.name,
       capturedAt: meta.capturedAt,
-      // 신규·파생 시리즈는 관리자 승인 전까지 자동 동기화하지 않는다.
-      autoSync: isAutoSyncSeries(series),
+      // 프로젝트 소속이면 제목이 무엇이든 동기화 대상. 그 밖은 관리자 승인 대기.
+      autoSync: shouldAutoSync(series, meta.fromProject),
     };
   });
   await ctx.runMutation(internal.opencrab.upsertPackMeta, { packs });

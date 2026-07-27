@@ -43,6 +43,7 @@ export default function CampaignDetailPage() {
 
   const data = useQuery(api.campaigns.get, { id });
   const matches = useQuery(api.journalists.listMatches, { campaignId: id });
+  const beyond = useQuery(api.journalists.listBeyondMatches, { campaignId: id });
   const drafts = useQuery(api.drafts.listByCampaign, { campaignId: id });
   const replies = useQuery(api.replies.listByCampaign, { campaignId: id });
   const usage = useQuery(api.usage.getMyUsage);
@@ -54,6 +55,8 @@ export default function CampaignDetailPage() {
   const runMatch = useMutation(api.journalists.matchForCampaign);
   const syncOpenCrab = useAction(api.opencrabActions.syncJournalists);
   const toggleInclude = useMutation(api.journalists.toggleInclude);
+  const addToMatches = useMutation(api.journalists.addToMatches);
+  const [showAll, setShowAll] = useState(false);
   const genDrafts = useMutation(api.drafts.generateForCampaign);
   const enhanceDrafts = useAction(api.aiActions.enhanceCampaignDrafts);
   const sendCampaign = useMutation(api.drafts.sendCampaign);
@@ -225,6 +228,87 @@ export default function CampaignDetailPage() {
           <p className="mt-3 text-xs text-muted">
             🔒 기자 실명·이메일·연락처는 표시하지 않습니다(익명 코드). 실제 연락처는 발송 시점에만 사용됩니다.
           </p>
+        )}
+
+        {/* 매칭은 상한이 있어 그 위는 보이지 않는다 — 매처가 놓친 기자를 직접 고를 수 있어야 한다. */}
+        {beyond && beyond.total > 0 && (
+          <div className="mt-4 rounded-lg border border-border bg-surface/40 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm">
+                <b className="font-semibold">전체 기자 {beyond.total}명</b>
+                <span className="text-foreground-muted"> · 매칭에 없는 기자를 추천순으로 봅니다</span>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="subtle"
+                onClick={() => setShowAll((v) => !v)}
+              >
+                {showAll ? "접기" : "전체 기자 보기"}
+              </Button>
+            </div>
+
+            {showAll && (
+              <>
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full min-w-[34rem] text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left text-xs text-foreground-muted">
+                        <th className="pb-2 pr-3 font-medium">기자</th>
+                        <th className="pb-2 pr-3 font-medium">매체</th>
+                        <th className="hidden pb-2 pr-3 font-medium md:table-cell">beat</th>
+                        <th className="pb-2 pr-3 font-medium">적합도</th>
+                        <th className="pb-2 font-medium"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {beyond.journalists.map((j) => (
+                        <tr key={j.journalistId} className="border-b border-border/50">
+                          <td className="py-2 pr-3 font-semibold tabular-nums">{j.code}</td>
+                          <td className="py-2 pr-3">{j.outlet}</td>
+                          <td className="hidden py-2 pr-3 text-xs text-foreground-muted md:table-cell">
+                            {j.beatPrimary}
+                          </td>
+                          <td className="py-2 pr-3 tabular-nums">
+                            {j.score > 0 ? (
+                              j.score
+                            ) : (
+                              <span className="text-muted">주제 무관</span>
+                            )}
+                          </td>
+                          <td className="py-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="subtle"
+                              onClick={() =>
+                                void addToMatches({
+                                  campaignId: id,
+                                  journalistId: j.journalistId,
+                                })
+                              }
+                            >
+                              후보 추가
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {beyond.lockedCount > 0 && (
+                  <p className="mt-3 text-xs text-foreground-muted">
+                    {beyond.lockedCount}명이 더 있습니다 — 무료 플랜은 {beyond.journalists.length}명까지
+                    표시됩니다.{" "}
+                    <Link href="/settings" className="underline underline-offset-2">
+                      Solo 이상으로 바꾸면
+                    </Link>{" "}
+                    전체가 보입니다.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
         )}
       </StepSection>
 

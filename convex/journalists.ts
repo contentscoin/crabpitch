@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireUser } from "./model";
+import { requireUser, getProfile } from "./model";
+import { PLAN_LIMITS, type Plan } from "./lib/plans";
 import { scoreJournalist } from "./lib/scoring";
 import { journalistCode } from "./lib/mask";
 
@@ -121,6 +122,147 @@ export const matchForCampaign = mutation({
 
     await ctx.db.patch(campaignId, { status: "matched" });
     return scored.length;
+  },
+});
+
+/**
+ * 매칭 상위에 들지 못한 **나머지 기자 전체**를 같은 캠페인 주제로 점수화해 추천순으로 돌려준다.
+ *
+ * 매칭은 상한(기본 15명)이 걸려 있어, 디렉터리에 기자가 아무리 많아도 그 위는 보이지 않는다.
+ * 매처가 놓친 사람을 사용자가 직접 고를 수 있어야 한다.
+ *
+ * 노출 인원은 플랜의 `matchReveal`을 따른다 — 무료 3명, 유료 무제한.
+ * 이 필드가 원래 "매칭 결과 발송 후보 인원"을 뜻하므로 새 정책을 만들지 않는다.
+ *
+ * 제외 기준은 매칭과 동일하다(수신거부·재접근 거부·이미 매칭된 기자).
+ * 점수 0(주제 무관)도 포함하되 뒤로 민다 — "전체 목록"이 요구사항이기 때문이다.
+ */
+export const listBeyondMatches = query({
+  args: { campaignId: v.id("campaigns") },
+  handler: async (ctx, { campaignId }) => {
+    const userId = await requireUser(ctx);
+    const campaign = await ctx.db.get(campaignId);
+    if (!campaign || campaign.userId !== userId) return null;
+    const pr = await ctx.db.get(campaign.pressReleaseId);
+    if (!pr) return null;
+
+    const profile = await getProfile(ctx, userId);
+    const plan: Plan = (profile?.plan as Plan) ?? "free";
+    const reveal = PLAN_LIMITS[plan].matchReveal;
+
+    const matchedIds = new Set(
+      (
+        await ctx.db
+          .query("matches")
+          .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
+          .collect()
+      ).map((m) => String(m.journalistId)),
+    );
+
+    const suppressed = new Set(
+      (
+        await ctx.db
+          .query("suppressionList")
+          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .collect()
+      ).map((s) => s.email),
+    );
+
+    const noReapproach = new Set<string>();
+    for (const c of await ctx.db
+      .query("campaigns")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect()) {
+      for (const r of await ctx.db
+        .query("replies")
+        .withIndex("by_campaign", (q) => q.eq("campaignId", c._id))
+        .collect()) {
+        if (r.reapproachOk === false) noReapproach.add(String(r.journalistId));
+      }
+    }
+
+    const rest = (await ctx.db.query("journalists").collect()).filter(
+      (j) =>
+        !matchedIds.has(String(j._id)) &&
+        !suppressed.has(j.email) &&
+        !noReapproach.has(String(j._id)),
+    );
+
+    const scored = rest
+      .map((j) => ({ j, ...scoreJournalist(j, pr.topicTags) }))
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          b.j.referenceArticleCount - a.j.referenceArticleCount,
+      );
+
+    const shown = scored.slice(0, reveal);
+
+    return {
+      plan,
+      /** 매칭 밖 후보 총수 */
+      total: scored.length,
+      /** 플랜 한도에 막혀 가려진 수 — 0이면 전부 보인다 */
+      lockedCount: Math.max(0, scored.length - shown.length),
+      journalists: shown.map((x) => ({
+        journalistId: x.j._id,
+        code: journalistCode(x.j._id),
+        outlet: x.j.outlet,
+        beatPrimary: x.j.beatPrimary,
+        contactConfidence: x.j.contactConfidence,
+        referenceArticleCount: x.j.referenceArticleCount,
+        topReferenceTitle: x.j.topReferenceTitle,
+        score: x.score,
+        reason: x.reason,
+      })),
+    };
+  },
+});
+
+/**
+ * 매칭 밖 기자를 이 캠페인 후보로 직접 추가한다.
+ *
+ * 목록만 보여주고 끝내면 사용자는 본 사람을 쓸 수 없다. 추가 시점에도 매칭과 **같은
+ * 제외 기준**을 다시 확인한다 — 목록을 띄운 뒤 수신거부가 들어왔을 수 있다.
+ */
+export const addToMatches = mutation({
+  args: { campaignId: v.id("campaigns"), journalistId: v.id("journalists") },
+  handler: async (ctx, { campaignId, journalistId }) => {
+    const userId = await requireUser(ctx);
+    const campaign = await ctx.db.get(campaignId);
+    if (!campaign || campaign.userId !== userId) throw new Error("캠페인을 찾을 수 없습니다.");
+    const pr = await ctx.db.get(campaign.pressReleaseId);
+    if (!pr) throw new Error("보도자료를 찾을 수 없습니다.");
+    const j = await ctx.db.get(journalistId);
+    if (!j) throw new Error("기자를 찾을 수 없습니다.");
+
+    const existing = await ctx.db
+      .query("matches")
+      .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
+      .collect();
+    if (existing.some((m) => m.journalistId === journalistId)) {
+      throw new Error("이미 이 캠페인의 후보입니다.");
+    }
+
+    // 목록 조회 후 수신거부가 들어왔을 수 있으므로 발송 전 마지막으로 다시 본다.
+    const suppressed = await ctx.db
+      .query("suppressionList")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    if (suppressed.some((sup) => sup.email === j.email)) {
+      throw new Error("수신거부한 기자입니다. 후보로 추가할 수 없습니다.");
+    }
+
+    const { score, reason } = scoreJournalist(j, pr.topicTags);
+    await ctx.db.insert("matches", {
+      campaignId,
+      journalistId,
+      score,
+      reason,
+      // 사용자가 직접 고른 기자다 — 매칭 결과와 달리 기본 포함으로 둔다.
+      included: true,
+    });
+    return null;
   },
 });
 
