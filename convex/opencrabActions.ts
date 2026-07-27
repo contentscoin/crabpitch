@@ -133,6 +133,8 @@ interface PackSyncSummary {
   inserted: number;
   updated: number;
   message?: string;
+  /** 인증 거부로 중단한 경우의 사유 — 남은 팩은 시도하지 않았다 */
+  authError?: string;
 }
 
 /** 팩 목록을 완주해 레지스트리 테이블에 반영한다(실패해도 상수 폴백으로 계속). */
@@ -231,7 +233,7 @@ async function runPackSync(
 
   let call: (toolName: string, args: Record<string, unknown>) => Promise<unknown>;
   try {
-    call = await openOpenCrabMcpSession(transport.endpoint);
+    call = await openOpenCrabMcpSession(transport.endpoint, apiKey);
   } catch (e) {
     return {
       ...empty,
@@ -241,10 +243,14 @@ async function runPackSync(
   }
 
   // ① 목록 완주 → 레지스트리 반영(실패는 치명적이지 않다 — 상수 폴백)
+  //    다만 사유는 남긴다. 조용히 삼키면 "팩 27개"가 폴백 개수인지 실제인지 알 수 없다.
+  let discoveryNote: string | undefined;
   try {
     await refreshPackRegistry(ctx, call);
-  } catch {
-    // 목록 조회 실패 시 packRegistry 상수로 진행한다.
+  } catch (e) {
+    discoveryNote = `팩 목록 조회 실패(상수 ${SYNC_SOURCE_PACKS.length}개로 진행): ${
+      e instanceof Error ? e.message : "원인 불명"
+    }`;
   }
 
   // ② 동기화 대상 결정
@@ -320,6 +326,7 @@ async function runPackSync(
       else if (status === "partial") summary.partial += 1;
       else summary.failed += 1;
     } catch (e) {
+      const reason = e instanceof Error ? e.message : "팩 동기화 실패";
       summary.failed += 1;
       await ctx.runMutation(internal.opencrab.recordSyncRun, {
         packageId: target.packageId,
@@ -328,13 +335,24 @@ async function runPackSync(
         fetched: 0,
         inserted: 0,
         updated: 0,
-        error: e instanceof Error ? e.message : "팩 동기화 실패",
+        error: reason,
         trigger,
       });
+      // 인증이 거부되면 남은 팩도 전부 같은 이유로 실패한다. 27번 더 실패시켜도
+      // 정보는 늘지 않고 원인만 27줄에 묻힌다 — 여기서 끊고 사유를 요약에 올린다.
+      if (/unauthorized|401|forbidden|403/i.test(reason)) {
+        summary.authError = reason;
+        break;
+      }
     }
   }
 
   summary.message = `팩 ${summary.packsAttempted}개 중 정상 ${summary.ok} · 결손 ${summary.partial} · 실패 ${summary.failed} (신규 ${summary.inserted} · 갱신 ${summary.updated})`;
+  if (summary.authError) {
+    summary.mode = "error";
+    summary.message += ` — 인증 거부로 중단했습니다: ${summary.authError}. OPENCRAB_API_KEY를 확인하세요(Convex 환경변수).`;
+  }
+  if (discoveryNote) summary.message += ` · ${discoveryNote}`;
   return summary;
 }
 
