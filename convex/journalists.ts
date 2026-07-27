@@ -35,6 +35,11 @@ export const list = query({
   },
 });
 
+/** 팩에서 이 기간 이상 확인되지 않으면 stale로 본다(승인 화면 배지와 같은 기준). */
+export const STALE_MATCH_DAYS = 30;
+/** 관리자 스위치 키 — platformSettings. */
+export const EXCLUDE_STALE_KEY = "excludeStaleMatches";
+
 /** 캠페인 보도자료 주제로 기자 매칭 실행(적합도 점수 + 근거 기록). */
 export const matchForCampaign = mutation({
   args: { campaignId: v.id("campaigns"), topK: v.optional(v.number()) },
@@ -55,9 +60,39 @@ export const matchForCampaign = mutation({
       ).map((s) => s.email),
     );
 
-    const journalists = (await ctx.db.query("journalists").collect()).filter(
-      (j) => !suppressed.has(j.email),
-    );
+    // 팩에서 오래 확인되지 않은 레코드(이직·퇴사 추정)를 매칭에서 뺄지 — 관리자 스위치.
+    // 완전한 stale 마킹·감점은 2차. 여기서는 "기본 제외" 여부만 다룬다.
+    const staleSetting = await ctx.db
+      .query("platformSettings")
+      .withIndex("by_key", (q) => q.eq("key", EXCLUDE_STALE_KEY))
+      .unique();
+    const excludeStale = staleSetting?.boolValue === true;
+    const staleBefore = Date.now() - STALE_MATCH_DAYS * 24 * 60 * 60 * 1000;
+
+    // 보류 회신 뒤 사용자가 "다시 접근하지 않음"으로 판단한 기자 — 수신거부(법적 억제)와는
+    // 다른 축이며, 사용자가 언제든 다시 켤 수 있다.
+    const noReapproach = new Set<string>();
+    for (const c of await ctx.db
+      .query("campaigns")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect()) {
+      const replies = await ctx.db
+        .query("replies")
+        .withIndex("by_campaign", (q) => q.eq("campaignId", c._id))
+        .collect();
+      for (const r of replies) {
+        if (r.reapproachOk === false) noReapproach.add(String(r.journalistId));
+      }
+    }
+
+    const journalists = (await ctx.db.query("journalists").collect()).filter((j) => {
+      if (suppressed.has(j.email)) return false;
+      if (noReapproach.has(String(j._id))) return false;
+      if (!excludeStale) return true;
+      // 팩 유래가 아닌 레코드(seed·manual)는 이 판정 대상이 아니다.
+      if (j.source !== "opencrab") return true;
+      return j.lastSeenInPackAt !== undefined && j.lastSeenInPackAt >= staleBefore;
+    });
 
     const scored = journalists
       .map((j) => ({ j, ...scoreJournalist(j, pr.topicTags) }))
@@ -103,9 +138,16 @@ export const listMatches = query({
       .collect();
     matches.sort((a, b) => b.score - a.score);
 
+    const now = Date.now();
     return Promise.all(
       matches.map(async (m, idx) => {
         const j = await ctx.db.get(m.journalistId);
+        // 팩에서 마지막으로 확인된 지 며칠 지났는지 — 이직·퇴사로 팩에서 사라진 기자의
+        // 낡은 이메일로 발송되는 걸 사용자가 알아채게 하는 신호(집계값이라 PII 무관).
+        const packAgeDays =
+          j?.lastSeenInPackAt !== undefined
+            ? Math.floor((now - j.lastSeenInPackAt) / (24 * 60 * 60 * 1000))
+            : undefined;
         return {
           _id: m._id,
           journalistId: m.journalistId,
@@ -118,6 +160,8 @@ export const listMatches = query({
           beatPrimary: j?.beatPrimary ?? "",
           contactConfidence: j?.contactConfidence ?? "low",
           topReferenceTitle: j?.topReferenceTitle,
+          outletCategory: j?.outletCategory,
+          packAgeDays,
         };
       }),
     );

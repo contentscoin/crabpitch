@@ -123,12 +123,23 @@ npx convex env set SITE_URL https://crabpitch.vercel.app --prod
 
 | 변수 | 용도 |
 |---|---|
-| `OPENCRAB_API_URL` / `OPENCRAB_API_KEY` | 기자 온톨로지. MCP는 `URL=https://opencrab.sh/api/mcp` + `KEY=ocm_…`. HTTP는 기존 POST+Bearer |
+| `OPENCRAB_API_URL` / `OPENCRAB_API_KEY` | 기자 온톨로지 + **기자단 팩 동기화**. MCP는 `URL=https://opencrab.sh/api/mcp` + `KEY=ocm_…`. HTTP는 기존 POST+Bearer. 팩 동기화는 MCP 키에서만 동작 |
 | `ANTHROPIC_API_KEY` | (선택) 보도자료·메일 AI 개인화. 없으면 템플릿 유지 |
 | `GMAIL_OAUTH_CLIENT_ID` / `GMAIL_OAUTH_CLIENT_SECRET` | (선택) Gmail BYO. **없으면 `AUTH_GOOGLE_*` 폴백**. 콜백: `https://<deployment>.convex.site/gmail/callback` |
 
 프로덕션 일괄 설정 스크립트: `scripts/set-prod-integrations.sh`  
 (`CONVEX_DEPLOY_KEY` + `OPENCRAB_API_KEY` export 후 실행)
+
+### 기자단 팩 동기화 운영
+
+오픈크랩 기자단 배치 팩 26개 + reference 팩을 `journalists` 테이블로 반입합니다. **신규 환경변수는 없습니다** — 위 `OPENCRAB_API_*`를 그대로 씁니다.
+
+- **자동**: 매일 1회 크론(`sync journalist packs`, UTC 18:30 = KST 03:30)
+- **수동**: `/admin` → 「오픈크랩 팩 동기화」 → 전체 동기화 / 실패·결손만 재시도
+- **실패 격리**: 팩 1개 단위로 커밋하므로 한 팩이 실패해도 나머지는 진행됩니다. 결과는 `packSyncRuns`에 남고 `/admin`에서 확인합니다.
+- **결손(partial)**: 팩이 선언한 레코드 수보다 적게 파싱되면 `partial`로 기록됩니다. 상류 인제스트 단계에서 청크가 유실된 팩(예: batch-025는 원문의 약 41%만 저장)은 재시도해도 복구되지 않으며, 해당 기자는 reference 팩 병합으로 보완되거나 메일 후킹에서 generic 폴백으로 처리됩니다.
+- **신규 시리즈**: 목록에서 새 팩이 감지돼도 **자동 전환하지 않습니다.** `/admin`의 승인 대기 목록에서 관리자가 켜야 동기화 대상이 됩니다.
+- **PII**: `/admin`은 집계·메타만 노출합니다. 기자 실명·이메일 열람 UI는 없으며, 동기화 오류 로그의 이메일은 저장 전 마스킹됩니다.
 
 Agency REST (Agency 플랜 + `/agency`에서 `cp_live_…` 키 발급):
 

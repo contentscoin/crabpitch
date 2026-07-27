@@ -11,6 +11,12 @@ export interface PlanLimits {
   mediaKits: number;
   /** Claude/ChatGPT/Gemini MCP 플러그인 키 발급·호출 */
   mcp: boolean;
+  /**
+   * 캠페인 1건당 발송 통수 상한 — 월 한도와 **별개**.
+   * 한 번에 수백 통을 뿌리는 대량발송을 구조적으로 막는 컴플라이언스 장치이며,
+   * 예약·즉시·크론 백업 3경로 모두에서 서버가 재검증한다.
+   */
+  campaignSendCap: number;
 }
 
 export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
@@ -22,6 +28,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     matchReveal: 3,
     mediaKits: 1,
     mcp: false,
+    campaignSendCap: 10,
   },
   solo: {
     label: "Solo",
@@ -31,6 +38,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     matchReveal: 9999,
     mediaKits: 3,
     mcp: true,
+    campaignSendCap: 50,
   },
   growth: {
     label: "Growth",
@@ -40,6 +48,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     matchReveal: 99999,
     mediaKits: 99999,
     mcp: true,
+    campaignSendCap: 150,
   },
   agency: {
     label: "Agency",
@@ -49,6 +58,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     matchReveal: 999999,
     mediaKits: 999999,
     mcp: true,
+    campaignSendCap: 300,
   },
 };
 

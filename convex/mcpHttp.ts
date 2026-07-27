@@ -92,7 +92,57 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: "crabpitch_press_guide",
+    description:
+      "보도자료 작성 규범(구조·작성 전략·GEO·표시광고법 게이트·프레스킷 목차)을 조회하고, 초안을 주면 결정적 규칙 검사 결과를 함께 돌려줍니다. 표시·광고 계열만 다루며 법률 검토를 대체하지 않습니다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        section: {
+          type: "string",
+          enum: ["structure", "writing", "geo", "adlaw", "presskit", "all"],
+          description: "조회할 가이드 섹션 (기본 all)",
+        },
+        draft: { type: "string", description: "검사할 보도자료 본문 (선택)" },
+        title: { type: "string", description: "검사할 보도자료 제목 (선택)" },
+        boilerplate: {
+          type: "string",
+          description:
+            "미디어킷의 회사 소개 원문 (선택). 주면 본문이 이 문단을 그대로 실었는지 대조합니다.",
+        },
+        factSheet: {
+          type: "array",
+          description:
+            "미디어킷 팩트시트 (선택). 주면 본문 수치가 이 집합의 부분집합인지 대조합니다.",
+          items: {
+            type: "object",
+            properties: {
+              label: { type: "string" },
+              value: { type: "string" },
+            },
+            required: ["label", "value"],
+            additionalProperties: false,
+          },
+        },
+      },
+      additionalProperties: false,
+    },
+  },
 ];
+
+/** MCP 인자에서 `{label, value}` 배열만 통과시킨다 — 모양이 다르면 통째로 버린다. */
+function parseFactSheet(value: unknown): Array<{ label: string; value: string }> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const rows = value.filter(
+    (r): r is { label: string; value: string } =>
+      typeof r === "object" &&
+      r !== null &&
+      typeof (r as { label?: unknown }).label === "string" &&
+      typeof (r as { value?: unknown }).value === "string",
+  );
+  return rows.length > 0 ? rows : undefined;
+}
 
 function textResult(text: string, isError = false): ToolCallResult {
   return {
@@ -228,6 +278,16 @@ async function callTool(
           text,
         });
         return textResult(JSON.stringify(result, null, 2));
+      }
+      case "crabpitch_press_guide": {
+        const guide = await ctx.runQuery(internal.mcpInternal.pressGuide, {
+          section: typeof args.section === "string" ? args.section : undefined,
+          draft: typeof args.draft === "string" ? args.draft : undefined,
+          title: typeof args.title === "string" ? args.title : undefined,
+          boilerplate: typeof args.boilerplate === "string" ? args.boilerplate : undefined,
+          factSheet: parseFactSheet(args.factSheet),
+        });
+        return textResult(JSON.stringify(guide, null, 2));
       }
       default:
         return textResult(`Unknown tool: ${name}`, true);

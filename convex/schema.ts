@@ -80,9 +80,98 @@ export default defineSchema({
     topReferenceUrl: v.optional(v.string()),
     mailingStatus: v.string(), // 항상 "candidate"
     source: v.optional(v.string()), // "opencrab" | "seed" | "manual"
+
+    /* ── 오픈크랩 기자단 팩 동기화 필드 (전부 optional — 기존 seed/manual 레코드 호환) ── */
+    /** 네이버 뉴스 언론사 OID — 매체 유형(outletCategory) 도출 키 */
+    naverOid: v.optional(v.string()),
+    /** 연락처 검증 상태(팩 원문): "verified" | "inferred" 등 */
+    contactVerification: v.optional(v.string()),
+    /** 연락처 근거 개수 — 신뢰도 가중(S4) 입력 */
+    contactEvidenceCount: v.optional(v.number()),
+    /** ⚠️ 감사 전용 — UI·MCP 응답에 절대 노출하지 않는다 */
+    contactSourceUrls: v.optional(v.array(v.string())),
+    /** beat 분포(합 1.0 근사) — 매칭·개인화 앵글 선택에 사용 */
+    beatDistribution: v.optional(
+      v.array(v.object({ beat: v.string(), weight: v.number() })),
+    ),
+    /** 팩의 beat 분류 신뢰도: "high" | "medium" | "low" */
+    classificationConfidence: v.optional(v.string()),
+    /** 근거 기사 최대 3건 — topReferenceTitle/Url은 첫 항목(하위 호환) */
+    referenceArticles: v.optional(
+      v.array(
+        v.object({
+          title: v.string(),
+          url: v.optional(v.string()),
+          topic: v.optional(v.string()),
+          publishedAtText: v.optional(v.string()),
+          publishedAt: v.optional(v.number()),
+        }),
+      ),
+    ),
+    /** referenceArticles의 publishedAt 최댓값 — 데이터 신선도 기준 */
+    latestArticleAt: v.optional(v.number()),
+    /** naverOid 정적 매핑 결과: "newswire" | "it" | "economy" | "general" */
+    outletCategory: v.optional(v.string()),
+
+    /* 동기화 메타 */
+    packPackageId: v.optional(v.string()),
+    packBatch: v.optional(v.string()),
+    /** 이 레코드를 팩에서 마지막으로 반입한 시각 */
+    packSyncedAt: v.optional(v.number()),
+    /** 팩 목록에서 마지막으로 확인된 시각 — stale(이직·퇴사 추정) 판정 기준 */
+    lastSeenInPackAt: v.optional(v.number()),
   })
     .index("by_email", ["email"])
     .index("by_beat", ["beatPrimary"]),
+
+  /** 오픈크랩 팩 레지스트리 — 목록 완주 결과(진실 원천). packRegistry 상수는 부트스트랩·폴백. */
+  opencrabPacks: defineTable({
+    packageId: v.string(),
+    /** "journalist-contacts" | "journalist-reference" | "pr-presskit" | "other" */
+    series: v.string(),
+    /** batch-001 … batch-026 (기자단 배치 팩만) */
+    batch: v.optional(v.string()),
+    name: v.optional(v.string()),
+    /** 팩이 선언한 레코드 수 — 결손(partial) 판정 기준 */
+    recordCount: v.optional(v.number()),
+    /** 팩 스냅샷 시각(원문 문자열) */
+    capturedAt: v.optional(v.string()),
+    /** content_bytes + record_count 기반 지문 — 변경 감지(version 필드는 1.0.0 고정이라 신뢰하지 않음) */
+    fingerprint: v.optional(v.string()),
+    /** 동기화 대상 여부 — 신규 시리즈는 기본 false(관리자 승인 후 전환) */
+    syncEnabled: v.boolean(),
+    firstSeenAt: v.number(),
+    lastSeenAt: v.number(),
+    lastSyncedAt: v.optional(v.number()),
+  }).index("by_packageId", ["packageId"]).index("by_series", ["series"]),
+
+  /** 플랫폼 운영 설정 — 관리자가 UI에서 바꾸는 소수의 전역 스위치. */
+  platformSettings: defineTable({
+    key: v.string(),
+    boolValue: v.optional(v.boolean()),
+    numberValue: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
+
+  /** 팩 동기화 실행 기록 — 팩 1개 단위 커밋(실패 격리)의 감사 로그. */
+  packSyncRuns: defineTable({
+    packageId: v.string(),
+    /** "ok" | "partial" | "failed" */
+    status: v.string(),
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+    /** 팩이 선언한 레코드 수 */
+    recordCount: v.optional(v.number()),
+    /** 실제 파싱 성공 건수 */
+    fetched: v.number(),
+    inserted: v.number(),
+    updated: v.number(),
+    /** ⚠️ 저장 전 이메일 마스킹 필수(F6) */
+    error: v.optional(v.string()),
+    trigger: v.string(), // "cron" | "manual"
+  })
+    .index("by_packageId", ["packageId"])
+    .index("by_startedAt", ["startedAt"]),
 
   // 보도자료
   pressReleases: defineTable({
@@ -98,6 +187,14 @@ export default defineSchema({
     links: v.optional(v.array(v.string())),
     status: v.union(v.literal("draft"), v.literal("ready")),
     agencyClientId: v.optional(v.id("agencyClients")),
+    /** 엠바고 해제 시각(ms) — 있으면 메일 최상단·자료 블록에 이중 표기 */
+    embargoAt: v.optional(v.number()),
+    /** GEO: 최상단 3줄 요약 */
+    keyTakeaways: v.optional(v.array(v.string())),
+    /** GEO: 하단 Q&A (문항 수 규정은 팩에 없다 — 개수를 강제하지 않는다) */
+    faq: v.optional(v.array(v.object({ q: v.string(), a: v.string() }))),
+    /** 부제 2개(각 40자 이내) */
+    subheads: v.optional(v.array(v.string())),
   }).index("by_user", ["userId"]).index("by_client", ["agencyClientId"]),
 
   // 배포 캠페인
@@ -128,6 +225,13 @@ export default defineSchema({
   emailDrafts: defineTable({
     campaignId: v.id("campaigns"),
     journalistId: v.id("journalists"),
+    /**
+     * 캠페인에서 비정규화한 소유자 — 쿨다운을 **사용자 단위**로 판정하기 위한 축.
+     * 사용자 축 없는 전역 by_journalist 인덱스는 만들지 않는다(교차 테넌트 스캔·
+     * "다른 누군가가 이 기자에게 최근 발송했다" 사이드채널을 구조적으로 차단).
+     * 기존 레코드는 undefined 허용 — 조회 측에서 캠페인 조인으로 폴백한다.
+     */
+    userId: v.optional(v.id("users")),
     subject: v.string(),
     body: v.string(),
     gmailDraftId: v.optional(v.string()),
@@ -139,9 +243,21 @@ export default defineSchema({
     ),
     sentAt: v.optional(v.number()),
     scheduledSendAt: v.optional(v.number()),
+    /** 메일 컴플라이언스 게이트 판정: "pass" | "warn" | "fail" */
+    complianceLevel: v.optional(v.string()),
+    /** 위반 요약(사용자 노출용 한글 문구) + 발송 제외 사유 */
+    complianceNotes: v.optional(v.array(v.string())),
+    /** 이 초안이 어떤 초안의 팔로업인지 — 재탕 검증·이력 추적용 */
+    followUpOf: v.optional(v.id("emailDrafts")),
+    /**
+     * 사용자가 이 초안을 실제로 열어 확인한 시각.
+     * 캠페인 전체 발송 전에 최소 1건은 이 기록이 있어야 한다(파일럿 게이트).
+     */
+    approvedAt: v.optional(v.number()),
   })
     .index("by_campaign", ["campaignId"])
     .index("by_campaign_journalist", ["campaignId", "journalistId"])
+    .index("by_user_journalist", ["userId", "journalistId"])
     .index("by_status_scheduled", ["status", "scheduledSendAt"]),
 
   // 기자 회신 + 7유형 분류 + 답장 초안
@@ -151,10 +267,25 @@ export default defineSchema({
     type: replyTypeValidator,
     rawBody: v.string(),
     draftResponse: v.string(),
+    /** 적용된 응대 템플릿 변형 id (기본 "default") */
+    templateVariant: v.optional(v.string()),
     handled: v.boolean(),
     interviewSlots: v.optional(v.array(v.string())), // 인터뷰 제안 3안
     interviewPickedSlot: v.optional(v.string()),
     interviewConfirmedAt: v.optional(v.number()),
+    /** question 하위 5분류: "numbers" | "competitor" | "intent" | "roadmap" | "negative" */
+    questionSubtype: v.optional(v.string()),
+    /** complaint·negative 등 담당자 직접 확인이 필요한 회신 */
+    needsEscalation: v.optional(v.boolean()),
+    /** 게재 통보에 대해 정정을 요청한 시각 */
+    correctionRequestedAt: v.optional(v.number()),
+    /** 정정 요청 내용(무엇이 어떻게 틀렸는지) */
+    correctionNote: v.optional(v.string()),
+    /**
+     * 보류 회신 뒤 재접근 가능 여부 — 사용자가 직접 판단해 기록한다.
+     * false면 이 사용자의 이후 매칭에서 해당 기자를 제외한다(수신거부와는 다른 축이다).
+     */
+    reapproachOk: v.optional(v.boolean()),
   }).index("by_campaign", ["campaignId"]),
 
   // 억제 리스트(수신거부 영구 제외)
@@ -178,6 +309,39 @@ export default defineSchema({
     quotes: v.array(v.string()),
     contact: v.optional(v.string()),
     completeness: v.number(), // 0~100
+    /** ① 한 문장 회사 정의 */
+    oneLiner: v.optional(v.string()),
+    /** ⑥ 비주얼 자산 — GEO 파일명·Alt·캡션 규칙을 따른다 */
+    visuals: v.optional(
+      v.array(
+        v.object({
+          label: v.string(),
+          url: v.optional(v.string()),
+          alt: v.optional(v.string()),
+          caption: v.optional(v.string()),
+        }),
+      ),
+    ),
+    /** ⑨ 자산 사용 규정 4항 */
+    assetPolicy: v.optional(
+      v.object({
+        usageScope: v.optional(v.string()),
+        modificationLimits: v.optional(v.string()),
+        credit: v.optional(v.string()),
+        trademarkContact: v.optional(v.string()),
+      }),
+    ),
+    /** ⑦ 최근 보도 */
+    coverage: v.optional(
+      v.array(
+        v.object({
+          outlet: v.string(),
+          title: v.string(),
+          url: v.optional(v.string()),
+          publishedAtText: v.optional(v.string()),
+        }),
+      ),
+    ),
   }).index("by_user", ["userId"]),
 
   // 사용량/요금 한도 (무료: 월 10통, 보도자료 3건 등)
@@ -240,6 +404,16 @@ export default defineSchema({
   })
     .index("by_agency", ["agencyId"])
     .index("by_hash", ["keyHash"]),
+
+  // 사용자 커스텀 메일 템플릿 — {{자리표시자}} 기반 제목/본문
+  userEmailTemplates: defineTable({
+    userId: v.id("users"),
+    name: v.string(),
+    subject: v.string(),
+    body: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
 
   // 사용자 본인 LLM API 키(BYOK) — GPT·Claude·Gemini를 웹앱에서 직접 실행
   // 원문 키는 서버 함수에서만 사용하고 클라이언트에는 마스킹만 반환한다.

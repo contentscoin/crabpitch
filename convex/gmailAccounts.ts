@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import { requireUser, getProfile, bumpSends } from "./model";
+import { requireUser, getProfile } from "./model";
 
 export const getConnection = query({
   args: {},
@@ -166,66 +166,6 @@ export const disconnect = mutation({
   },
 });
 
-/** 캠페인 초안에 Gmail draft id 기록 + sent 표시 (액션 전용). */
-export const markDraftsSentWithGmail = internalMutation({
-  args: {
-    campaignId: v.id("campaigns"),
-    updates: v.array(
-      v.object({
-        draftId: v.id("emailDrafts"),
-        gmailDraftId: v.optional(v.string()),
-      }),
-    ),
-    sendCount: v.number(),
-    userId: v.id("users"),
-  },
-  returns: v.number(),
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    for (const u of args.updates) {
-      await ctx.db.patch(u.draftId, {
-        status: "sent",
-        sentAt: now,
-        ...(u.gmailDraftId ? { gmailDraftId: u.gmailDraftId } : {}),
-      });
-    }
-    await bumpSends(ctx, args.userId, args.sendCount);
-    await ctx.db.patch(args.campaignId, { status: "sent" });
-    return args.sendCount;
-  },
-});
-
-export const listPendingDraftsInternal = internalQuery({
-  args: { campaignId: v.id("campaigns"), userId: v.id("users") },
-  returns: v.array(
-    v.object({
-      draftId: v.id("emailDrafts"),
-      subject: v.string(),
-      body: v.string(),
-      journalistName: v.string(),
-      journalistEmail: v.string(),
-    }),
-  ),
-  handler: async (ctx, { campaignId, userId }) => {
-    const campaign = await ctx.db.get(campaignId);
-    if (!campaign || campaign.userId !== userId) return [];
-    const drafts = await ctx.db
-      .query("emailDrafts")
-      .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
-      .collect();
-    const pending = drafts.filter((d) => d.status === "draft" || d.status === "queued");
-    const rows = [];
-    for (const d of pending) {
-      const j = await ctx.db.get(d.journalistId);
-      if (!j) continue;
-      rows.push({
-        draftId: d._id,
-        subject: d.subject,
-        body: d.body,
-        journalistName: j.name,
-        journalistEmail: j.email,
-      });
-    }
-    return rows;
-  },
-});
+/* 발송 확정·초안 선별은 `drafts.selectForGmailSend` / `drafts.confirmGmailSent`가 한다.
+ * 예전에는 이 파일에 따로 있었고, 그래서 Gmail 경로만 쿨다운·표현 규정·상한을 건너뛰었다.
+ * 게이트를 경로마다 두면 하나가 반드시 샌다 — 확정 로직은 drafts.ts 한 곳에만 둔다. */

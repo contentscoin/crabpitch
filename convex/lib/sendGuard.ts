@@ -31,3 +31,44 @@ export function partitionBySuppression<T extends { email: string }>(
   }
   return { sendable, blocked };
 }
+
+/* ── 7일 쿨다운 ─────────────────────────────────────────────── */
+
+/** 같은 기자에게 다시 보내기까지 비워야 하는 최소 간격. */
+export const COOLDOWN_DAYS = 7;
+export const COOLDOWN_MS = COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
+
+/**
+ * 캠페인과 무관하게, 같은 기자에게 최근 발송한 이력이 있으면 제외한다.
+ *
+ * ⚠️ 판정 스코프는 **사용자 단위**다. `lastSentAt`에는 반드시 *해당 사용자의* 캠페인에 속한
+ * 초안의 `sentAt`만 넣어야 한다(호출 측 책임 — `emailDrafts.by_user_journalist` 인덱스).
+ * 전역 판정은 교차 테넌트 간섭을 만들 뿐 아니라 "다른 누군가가 이 기자에게 최근 발송했다"는
+ * 사이드채널이 되므로 금지한다. suppression의 `by_user_email` 격리와 동형이다.
+ *
+ * @param now 판정 기준 시각
+ * @returns sendable = 발송 가능, blocked = 쿨다운으로 제외(초안은 삭제하지 않고 사유만 기록)
+ */
+export function partitionByCooldown<T extends { lastSentAt?: number }>(
+  drafts: T[],
+  now: number,
+  cooldownMs: number = COOLDOWN_MS,
+): { sendable: T[]; blocked: Array<T & { daysRemaining: number }> } {
+  const sendable: T[] = [];
+  const blocked: Array<T & { daysRemaining: number }> = [];
+  for (const d of drafts) {
+    const last = d.lastSentAt;
+    if (last === undefined || now - last >= cooldownMs) {
+      sendable.push(d);
+      continue;
+    }
+    const remainMs = cooldownMs - (now - last);
+    blocked.push({ ...d, daysRemaining: Math.max(1, Math.ceil(remainMs / (24 * 60 * 60 * 1000))) });
+  }
+  return { sendable, blocked };
+}
+
+/** 쿨다운 제외 사유 문구(승인 화면 표시용 — 기자 실명·이메일 미포함). */
+export function cooldownReason(daysRemaining: number): string {
+  return `최근 ${COOLDOWN_DAYS}일 이내 발송 이력 — ${daysRemaining}일 후 발송 가능`;
+}

@@ -6,6 +6,8 @@ import { resolveUserMcpKey } from "./lib/mcpAuth";
 import { scoreJournalist } from "./lib/scoring";
 import { journalistCode } from "./lib/mask";
 import { classifyReply } from "./lib/replyClassifier";
+import { guideSectionText, type GuideSection } from "./lib/pressGuide";
+import { lintPressRelease } from "./lib/pressLint";
 import { buildEmailDraft } from "./lib/emailTemplate";
 
 const MCP_OPT_OUT =
@@ -168,8 +170,63 @@ export const classify = internalQuery({
     type: v.string(),
     label: v.string(),
     priority: v.string(),
+    matched: v.optional(v.string()),
+    questionSubtype: v.optional(v.string()),
+    needsEscalation: v.optional(v.boolean()),
   }),
   handler: async (_ctx, { text }) => {
     return classifyReply(text);
+  },
+});
+
+/**
+ * 보도자료 작성 가이드 + 결정적 lint.
+ * PII와 무관하며(사용자 자신의 원고만 다룬다) 기존 유료 키 인증을 그대로 쓴다.
+ */
+export const pressGuide = internalQuery({
+  args: {
+    section: v.optional(v.string()),
+    draft: v.optional(v.string()),
+    title: v.optional(v.string()),
+    /** 미디어킷 회사 소개 — 넘기면 본문이 원본을 그대로 실었는지 대조한다 */
+    boilerplate: v.optional(v.string()),
+    /** 미디어킷 팩트시트 — 넘기면 본문 수치가 이 집합의 부분집합인지 대조한다 */
+    factSheet: v.optional(v.array(v.object({ label: v.string(), value: v.string() }))),
+  },
+  returns: v.object({
+    guide: v.string(),
+    lint: v.optional(
+      v.object({
+        status: v.string(),
+        summary: v.object({
+          critical: v.number(),
+          high: v.number(),
+          medium: v.number(),
+        }),
+        violations: v.array(
+          v.object({
+            level: v.string(),
+            severity: v.string(),
+            ruleId: v.string(),
+            label: v.string(),
+            span: v.string(),
+            suggestion: v.string(),
+          }),
+        ),
+      }),
+    ),
+    note: v.string(),
+  }),
+  handler: async (_ctx, { section, draft, title, boilerplate, factSheet }) => {
+    const requested = (section ?? "all") as GuideSection;
+    const valid: GuideSection[] = ["structure", "writing", "geo", "adlaw", "presskit", "all"];
+    const chosen = valid.includes(requested) ? requested : "all";
+    return {
+      guide: guideSectionText(chosen),
+      lint: draft
+        ? lintPressRelease(title ?? "", draft, { boilerplate, factSheet })
+        : undefined,
+      note: "표시·광고 계열 규범만 다룹니다. 언론중재법은 범위 밖이며 법률 검토를 대체하지 않습니다.",
+    };
   },
 });

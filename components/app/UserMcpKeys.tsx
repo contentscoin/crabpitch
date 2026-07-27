@@ -103,10 +103,13 @@ export function UserMcpKeysPanel() {
             <KeyRound className="h-4 w-4 text-brand" />
             <span className="text-sm font-semibold">연결 키 만들기</span>
             <Badge variant="brand">{access.plan}</Badge>
+            <Badge variant={access.activeKeyCount >= access.maxKeys ? "warning" : "outline"}>
+              {access.activeKeyCount}/{access.maxKeys}개 사용 중
+            </Badge>
           </div>
           <p className="text-sm text-foreground-muted">
             키를 만든 뒤 연결 주소를 복사해 Claude·ChatGPT·Gemini·Cursor에
-            붙여넣으면 됩니다.
+            붙여넣으면 됩니다. 1인당 최대 {access.maxKeys}개까지 만들 수 있습니다.
           </p>
           <div className="flex flex-wrap items-end gap-2">
             <div className="min-w-[12rem] flex-1 space-y-1">
@@ -118,10 +121,20 @@ export function UserMcpKeysPanel() {
                 placeholder="내 Claude"
               />
             </div>
-            <Button type="button" disabled={busy} onClick={onCreate}>
+            <Button
+              type="button"
+              disabled={busy || access.activeKeyCount >= access.maxKeys}
+              onClick={onCreate}
+            >
               {busy ? "만드는 중…" : "키 만들기"}
             </Button>
           </div>
+          {access.activeKeyCount >= access.maxKeys && (
+            <p className="text-xs text-muted">
+              상한에 도달했습니다. 아래 「내 연결」에서 안 쓰는 키를 끊으면 새로 만들 수
+              있습니다.
+            </p>
+          )}
           {error && <p className="text-sm text-danger">{error}</p>}
         </CardContent>
       </Card>

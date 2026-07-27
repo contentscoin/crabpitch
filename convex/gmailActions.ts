@@ -7,6 +7,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "./_generated/dataModel";
 import { buildRawEmail, GMAIL_PR_LABEL, GMAIL_SCOPES } from "./lib/gmailMime";
 import { personalizeForSend } from "./lib/emailTemplate";
+import { pilotGateMessage } from "./lib/pilotGate";
 import { requireGoogleOAuthClient } from "./lib/googleOAuthEnv";
 
 function requireGmailOAuthEnv() {
@@ -156,8 +157,32 @@ async function createGmailDraft(
 }
 
 /**
+ * 게이트에서 제외된 건을 사용자에게 알린다.
+ * 조용히 줄어든 건수만큼 사용자는 "왜 3건만 만들어졌지"를 되묻게 된다.
+ */
+function excludedSummary(counts: {
+  blockedSuppressed: number;
+  blockedCooldown: number;
+  blockedCompliance: number;
+  overCap: number;
+  overMonthly: number;
+}): string {
+  const parts: string[] = [];
+  if (counts.blockedSuppressed > 0) parts.push(`수신거부 ${counts.blockedSuppressed}건`);
+  if (counts.blockedCooldown > 0) parts.push(`7일 쿨다운 ${counts.blockedCooldown}건`);
+  if (counts.blockedCompliance > 0) parts.push(`표현 규정 ${counts.blockedCompliance}건`);
+  if (counts.overCap > 0) parts.push(`캠페인 상한 ${counts.overCap}건`);
+  if (counts.overMonthly > 0) parts.push(`월 한도 ${counts.overMonthly}건`);
+  if (parts.length === 0) return "";
+  return ` 제외: ${parts.join(" · ")}. 사유는 초안 목록에서 확인하세요.`;
+}
+
+/**
  * 승인 게이트 통과 후: Gmail `언론홍보` 라벨에 초안 생성 + sent 기록.
  * 실명·이메일은 이 시점에만 Gmail API로 전달한다.
+ *
+ * ⚠️ 이 경로도 다른 세 경로와 **같은 선별 게이트**를 통과한다. 외부 API 호출이 중간에
+ *    끼어 있어 한 트랜잭션에 담을 수 없으므로 선별 → 호출 → 확정 3단계로 나눈다.
  */
 export const pushCampaignToGmail = action({
   args: { campaignId: v.id("campaigns") },
@@ -178,17 +203,27 @@ export const pushCampaignToGmail = action({
       throw new Error("Gmail이 연결되지 않았습니다. 설정에서 Google 계정을 연결하세요.");
     }
 
-    const pending = await ctx.runQuery(internal.gmailAccounts.listPendingDraftsInternal, {
-      campaignId,
-      userId,
-    });
+    // ① 선별 — 다른 세 경로와 **같은 게이트**를 통과한다(파일럿·수신거부·쿨다운·
+    //    표현 규정·캠페인당 상한·월 한도). 제외분은 사유를 남긴 채 초안으로 남는다.
+    const { drafts: pending, counts, queuedTotal } = await ctx.runMutation(
+      internal.drafts.selectForGmailSend,
+      { campaignId, userId },
+    );
+
+    // 파일럿 보류는 "제외"가 아니라 사용자가 할 일이 있는 상태다 — 조용히 0건으로 끝내지 않는다.
+    if (counts.blockedPilot) throw new Error(pilotGateMessage(queuedTotal));
     if (pending.length === 0) {
-      return { sent: 0, mode: "gmail_drafts", message: "발송할 초안이 없습니다." };
+      return {
+        sent: 0,
+        mode: "gmail_drafts",
+        message: `초안을 만들 수 있는 건이 없습니다.${excludedSummary(counts)}`,
+      };
     }
 
     const accessToken = await refreshAccessToken(ctx, account, clientId, clientSecret);
     const labelId = await ensureLabelId(accessToken, GMAIL_PR_LABEL);
 
+    // ② 외부 호출 — 여기서 실패하면 초안은 그대로 남는다(확정 전이다).
     const updates: Array<{
       draftId: Id<"emailDrafts">;
       gmailDraftId?: string;
@@ -205,17 +240,17 @@ export const pushCampaignToGmail = action({
       updates.push({ draftId: d.draftId, gmailDraftId: gmailDraftId ?? undefined });
     }
 
-    const sent: number = await ctx.runMutation(internal.gmailAccounts.markDraftsSentWithGmail, {
+    // ③ 확정 — 실제로 만들어진 것만. 사용량도 이 건수만큼만 올라간다.
+    const sent: number = await ctx.runMutation(internal.drafts.confirmGmailSent, {
       campaignId,
-      updates,
-      sendCount: updates.length,
       userId,
+      updates,
     });
 
     return {
       sent,
       mode: "gmail_drafts",
-      message: `Gmail '${GMAIL_PR_LABEL}' 라벨에 초안 ${sent}건을 생성했습니다. Gmail에서 검토 후 발송하세요.`,
+      message: `Gmail '${GMAIL_PR_LABEL}' 라벨에 초안 ${sent}건을 생성했습니다. Gmail에서 검토 후 발송하세요.${excludedSummary(counts)}`,
     };
   },
 });
