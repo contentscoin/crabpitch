@@ -107,16 +107,35 @@ export interface FinalizeSendResult {
   overMonthly: number;
 }
 
+/** `selectSendableDrafts` 결과 — 아직 아무것도 확정하지 않은 상태다. */
+interface SelectionResult {
+  /** 게이트를 모두 통과한 초안 */
+  allowed: Array<Doc<"emailDrafts">>;
+  /** 제외 사유 집계. `sent`는 확정 전이라 항상 0이다 */
+  result: FinalizeSendResult;
+  /** 게이트에 들어온 초안 수(제외 전) — 사용자 안내 문구에 쓴다 */
+  queuedTotal: number;
+  /**
+   * 캠페인 상태를 이미 정리하고 끝낸 경우(보낼 게 없음·파일럿 보류).
+   * 호출자는 더 진행하지 말고 `result`를 그대로 돌려주면 된다.
+   */
+  halted: boolean;
+}
+
 /**
- * 발송 확정 — suppression 재대조 → 쿨다운 → 컴플라이언스 critical 차단 →
- * 캠페인당 상한 → 월 한도 순으로 거르고 통과분만 sent로 확정한다.
+ * 발송 가능 초안 **선별** — 파일럿 게이트 → suppression 재대조 → 쿨다운 →
+ * 컴플라이언스 critical 차단 → 캠페인당 상한 → 월 한도 순으로 거른다.
  * 제외된 초안은 **삭제하지 않고** 사유(`complianceNotes`)를 남긴 채 초안으로 유지한다.
+ *
+ * ⚠️ 여기서는 아무것도 sent로 바꾸지 않는다. 확정은 `confirmSent`가 한다.
+ *    Gmail 초안 생성 경로는 "선별 → 외부 API 호출 → 확정" 순서라야 하기 때문이다.
+ *    한 함수로 묶여 있던 탓에 Gmail 경로는 게이트 전체를 건너뛰고 있었다.
  */
-async function finalizeCampaignSend(
+async function selectSendableDrafts(
   ctx: MutationCtx,
   campaignId: Id<"campaigns">,
   userId: Id<"users">,
-): Promise<FinalizeSendResult> {
+): Promise<SelectionResult> {
   const result: FinalizeSendResult = {
     sent: 0,
     blockedSuppressed: 0,
@@ -139,7 +158,7 @@ async function finalizeCampaignSend(
       ...(anySent ? { status: "sent" as const } : {}),
       scheduledSendAt: undefined,
     });
-    return result;
+    return { allowed: [], result, halted: true, queuedTotal: 0 };
   }
 
   // ⓪ 파일럿 게이트 — 아무도 열어 보지 않은 캠페인은 통째로 보류한다.
@@ -147,7 +166,7 @@ async function finalizeCampaignSend(
   if (needsPilotApproval(queued)) {
     result.blockedPilot = true;
     await ctx.db.patch(campaignId, { status: "review", scheduledSendAt: undefined });
-    return result;
+    return { allowed: [], result, halted: true, queuedTotal: queued.length };
   }
 
   // ① 수신거부 재대조
@@ -216,26 +235,65 @@ async function finalizeCampaignSend(
     allowed = allowed.slice(0, monthlyRoom);
   }
 
-  for (const d of allowed) {
-    await ctx.db.patch(d._id, {
+  return { allowed, result, halted: false, queuedTotal: queued.length };
+}
+
+/**
+ * 발송 **확정** — 초안을 sent로 바꾸고 사용량을 올린다.
+ *
+ * ⚠️ 이 파일에서 초안을 sent로 바꾸는 곳은 여기 한 곳뿐이다(구조 가드가 고정한다).
+ *    이미 확정된 초안은 건너뛴다 — Gmail 경로는 외부 API 호출 뒤에 확정하므로
+ *    재시도로 같은 초안이 두 번 들어올 수 있고, 그때 사용량이 이중 계상되면 안 된다.
+ */
+async function confirmSent(
+  ctx: MutationCtx,
+  campaignId: Id<"campaigns">,
+  userId: Id<"users">,
+  drafts: Array<{ draftId: Id<"emailDrafts">; gmailDraftId?: string }>,
+): Promise<number> {
+  const now = Date.now();
+  let count = 0;
+  for (const { draftId, gmailDraftId } of drafts) {
+    const d = await ctx.db.get(draftId);
+    if (!d || d.campaignId !== campaignId) continue;
+    if (d.status === "sent" || d.status === "published") continue;
+    await ctx.db.patch(draftId, {
       status: "sent",
       sentAt: now,
       scheduledSendAt: undefined,
       // 쿨다운 판정 축을 채운다(레거시 초안 백필 겸용)
       userId,
+      ...(gmailDraftId ? { gmailDraftId } : {}),
     });
+    count += 1;
   }
-  if (allowed.length > 0) await bumpSends(ctx, userId, allowed.length);
-  result.sent = allowed.length;
+  if (count > 0) await bumpSends(ctx, userId, count);
 
   // 예약 시각은 결과와 무관하게 지운다 — 남겨 두면 크론 백업이 매분 같은 캠페인을
   // 다시 집어 무한 재시도한다.
   // 한 통도 못 나갔으면 "발송 완료"로 두지 않고 승인 단계로 되돌린다. 사용자가 사유를
   // 확인하고 초안을 고쳐 다시 보낼 수 있어야 한다.
   await ctx.db.patch(campaignId, {
-    status: allowed.length > 0 ? "sent" : "review",
+    status: count > 0 ? "sent" : "review",
     scheduledSendAt: undefined,
   });
+  return count;
+}
+
+/** 선별 + 확정을 한 트랜잭션에서 끝내는 경로(즉시·예약·크론 백업). */
+async function finalizeCampaignSend(
+  ctx: MutationCtx,
+  campaignId: Id<"campaigns">,
+  userId: Id<"users">,
+): Promise<FinalizeSendResult> {
+  const { allowed, result, halted } = await selectSendableDrafts(ctx, campaignId, userId);
+  if (halted) return result;
+  result.sent = await confirmSent(
+    ctx,
+    campaignId,
+    userId,
+    allowed.map((d) => ({ draftId: d._id })),
+  );
   return result;
 }
 
@@ -776,25 +834,89 @@ export const approveDraft = mutation({
   },
 });
 
+const blockedCountsValidator = v.object({
+  sent: v.number(),
+  blockedSuppressed: v.number(),
+  blockedCooldown: v.number(),
+  blockedCompliance: v.number(),
+  blockedPilot: v.boolean(),
+  overCap: v.number(),
+  overMonthly: v.number(),
+});
+
 /**
- * Gmail 초안 경로용 파일럿 게이트 조회.
+ * Gmail 초안 생성 경로 1단계 — **선별만** 한다.
  *
- * Gmail 연결 사용자에게는 `pushCampaignToGmail`이 **기본 경로**라, 여기를 비워 두면
- * 게이트가 사실상 없는 것과 같다. 판정 로직은 `lib/pilotGate` 단일 소스를 쓴다.
+ * Gmail 경로는 외부 API 호출이 중간에 끼어 있어 선별과 확정을 한 트랜잭션에 담을 수 없다.
+ * 그 사정 때문에 예전에는 게이트를 통째로 건너뛰고 수신거부 재대조만 하고 있었다.
+ * 이제 다른 세 경로와 **같은 선별 함수**를 통과한다.
+ *
+ * ⚠️ 기자 실명·이메일이 나가는 유일한 지점이다. 발송 시점 주입(`personalizeForSend`)에만
+ *    쓰이며, 통과한 초안분만 나간다.
  */
-export const pilotGateStatus = internalQuery({
+export const selectForGmailSend = internalMutation({
   args: { campaignId: v.id("campaigns"), userId: v.id("users") },
-  returns: v.object({ needsApproval: v.boolean(), total: v.number() }),
+  returns: v.object({
+    drafts: v.array(
+      v.object({
+        draftId: v.id("emailDrafts"),
+        subject: v.string(),
+        body: v.string(),
+        journalistName: v.string(),
+        journalistEmail: v.string(),
+      }),
+    ),
+    counts: blockedCountsValidator,
+    queuedTotal: v.number(),
+  }),
   handler: async (ctx, { campaignId, userId }) => {
     const campaign = await ctx.db.get(campaignId);
-    if (!campaign || campaign.userId !== userId) return { needsApproval: false, total: 0 };
-    const queued = (
-      await ctx.db
-        .query("emailDrafts")
-        .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
-        .collect()
-    ).filter((d) => d.status === "draft" || d.status === "queued");
-    return { needsApproval: needsPilotApproval(queued), total: queued.length };
+    if (!campaign || campaign.userId !== userId) {
+      throw new Error("캠페인을 찾을 수 없습니다.");
+    }
+    const { allowed, result, halted, queuedTotal } = await selectSendableDrafts(
+      ctx,
+      campaignId,
+      userId,
+    );
+    if (halted) return { drafts: [], counts: result, queuedTotal };
+
+    const rows = [];
+    for (const d of allowed) {
+      const j = await ctx.db.get(d.journalistId);
+      if (!j) continue;
+      rows.push({
+        draftId: d._id,
+        subject: d.subject,
+        body: d.body,
+        journalistName: j.name,
+        journalistEmail: j.email,
+      });
+    }
+    return { drafts: rows, counts: result, queuedTotal };
+  },
+});
+
+/**
+ * Gmail 초안 생성 경로 2단계 — 실제로 만들어진 것만 확정한다.
+ * 확정 로직은 다른 세 경로와 같은 `confirmSent`를 쓴다.
+ */
+export const confirmGmailSent = internalMutation({
+  args: {
+    campaignId: v.id("campaigns"),
+    userId: v.id("users"),
+    updates: v.array(
+      v.object({
+        draftId: v.id("emailDrafts"),
+        gmailDraftId: v.optional(v.string()),
+      }),
+    ),
+  },
+  returns: v.number(),
+  handler: async (ctx, { campaignId, userId, updates }) => {
+    const campaign = await ctx.db.get(campaignId);
+    if (!campaign || campaign.userId !== userId) return 0;
+    return confirmSent(ctx, campaignId, userId, updates);
   },
 });
 
