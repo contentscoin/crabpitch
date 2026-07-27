@@ -163,6 +163,30 @@ export const upsertPackMeta = internalMutation({
 });
 
 /** 동기화 대상 팩 목록(액션이 무엇을 가져올지 결정할 때 사용). */
+/**
+ * 프로젝트에서 빠진 팩의 자동 동기화를 끈다.
+ *
+ * 프로젝트는 큐레이션된 집합이라 거기서 제외했다는 건 "더 쓰지 않는다"는 뜻이다.
+ * 그런데 레지스트리 테이블은 upsert만 해서 한 번 등록된 팩이 영원히 남았고,
+ * 깨진 배치 팩 25개가 프로젝트에서 제거된 뒤에도 계속 동기화돼 실패 목록을 채웠다.
+ *
+ * 삭제하지 않고 syncEnabled만 내린다 — 이력과 마지막 오류를 남겨 둔다.
+ */
+export const disablePacksMissingFromProject = internalMutation({
+  args: { keepPackageIds: v.array(v.string()) },
+  returns: v.object({ disabled: v.number() }),
+  handler: async (ctx, { keepPackageIds }) => {
+    const keep = new Set(keepPackageIds);
+    let disabled = 0;
+    for (const p of await ctx.db.query("opencrabPacks").collect()) {
+      if (keep.has(p.packageId) || !p.syncEnabled) continue;
+      await ctx.db.patch(p._id, { syncEnabled: false });
+      disabled += 1;
+    }
+    return { disabled };
+  },
+});
+
 export const listSyncablePacks = internalQuery({
   args: {},
   returns: v.array(

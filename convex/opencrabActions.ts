@@ -188,6 +188,16 @@ async function refreshPackRegistry(
   }
   if (seen.size === 0) return;
 
+  // 프로젝트 조회가 성공했다면 그 목록이 권위 있는 집합이다 —
+  // 거기 없는 팩은 자동 동기화를 끈다. 조회가 실패했으면 건드리지 않는다
+  // (일시적 실패로 멀쩡한 팩을 무더기로 끄면 더 나쁘다).
+  const fromProject = [...seen.entries()].filter(([, m]) => m.fromProject).map(([id]) => id);
+  if (fromProject.length > 0) {
+    await ctx.runMutation(internal.opencrab.disablePacksMissingFromProject, {
+      keepPackageIds: fromProject,
+    });
+  }
+
   const packs = [...seen.entries()].map(([packageId, meta]) => {
     const label = meta.name ?? packageId;
     const series = classifyPackSeries(label);
