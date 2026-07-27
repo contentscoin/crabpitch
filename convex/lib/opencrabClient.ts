@@ -8,6 +8,29 @@
  * MCP 키(`ocm_`)이거나 URL에 `/api/mcp`가 있으면 MCP tools/call(opencrab_query) 사용.
  */
 
+/**
+ * 환경변수 값에 CLI 플래그가 섞여 들어갔는지 본다.
+ *
+ * `npx convex env set NAME VALUE --prod` 형태의 안내를 대시보드 입력창에 그대로
+ * 붙여넣으면 `--prod`가 **값의 일부**가 된다. 그러면 키 끝에 " --prod"가 붙은 채
+ * 호출돼 서버가 401을 주고, 화면에는 "Unauthorized"만 남아 원인이 보이지 않는다.
+ * 실제로 이 사고가 났고 팩 27개가 전부 그 이유로 실패했다.
+ *
+ * 공백이나 대시 플래그가 보이면 인증을 시도하지 않고 무엇이 잘못됐는지 바로 말한다.
+ */
+export function assertCleanCredential(name: string, value: string): void {
+  const flag = value.match(/\s--?[a-z][\w-]*/i);
+  if (flag) {
+    throw new Error(
+      `${name} 값에 CLI 플래그 "${flag[0].trim()}"가 섞여 있습니다. ` +
+        `대시보드에는 값만 넣으세요(예: --prod 제외).`,
+    );
+  }
+  if (/\s/.test(value)) {
+    throw new Error(`${name} 값에 공백이 있습니다. 붙여넣기를 확인하세요.`);
+  }
+}
+
 export function resolveOpenCrabTransport(
   baseUrl: string,
   apiKey: string,

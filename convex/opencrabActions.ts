@@ -17,6 +17,7 @@ import {
   fetchProjectPacks,
   openOpenCrabMcpSession,
   resolveOpenCrabTransport,
+  assertCleanCredential,
 } from "./lib/opencrabClient";
 import {
   classifySyncStatus,
@@ -219,6 +220,14 @@ async function runPackSync(
   };
   if (!baseUrl || !apiKey) {
     return { ...empty, message: "OPENCRAB_API_URL/KEY 미설정 — 팩 동기화를 건너뜁니다." };
+  }
+
+  // 값에 CLI 플래그가 섞이면 401만 보이고 원인이 안 보인다 — 호출 전에 끊는다.
+  try {
+    assertCleanCredential("OPENCRAB_API_URL", baseUrl);
+    assertCleanCredential("OPENCRAB_API_KEY", apiKey);
+  } catch (e) {
+    return { ...empty, mode: "error", message: e instanceof Error ? e.message : "환경변수 오류" };
   }
 
   const transport = resolveOpenCrabTransport(baseUrl, apiKey);
