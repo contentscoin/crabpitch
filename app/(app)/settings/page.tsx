@@ -159,6 +159,15 @@ function SettingsInner() {
                   )}
                 </li>
                 <li className="flex items-center justify-between gap-2">
+                  <span>SMTP 암호화 키</span>
+                  {integrations.smtpEncryptionKeySet ? (
+                    <Badge variant="success">설정됨</Badge>
+                  ) : (
+                    // 없으면 메일 계정 저장 자체가 실패한다 — 저장을 눌러 보기 전에 알려 준다.
+                    <Badge variant="warning">미설정 (SMTP 저장 불가)</Badge>
+                  )}
+                </li>
+                <li className="flex items-center justify-between gap-2">
                   <span>Anthropic</span>
                   {integrations.anthropicConfigured ? (
                     <Badge variant="success">설정됨</Badge>

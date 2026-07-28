@@ -226,6 +226,37 @@ export const getAccountInternal = internalQuery({
 });
 
 /**
+ * MCP 안내용 상태 — **비밀번호가 없는** 좁은 뷰.
+ *
+ * `getAccountInternal`은 봉인된 비밀번호를 들고 있어 안내 경로에 쓰면 안 된다.
+ * 필요한 것만 주는 조회를 따로 둔다.
+ */
+export const statusInternal = internalQuery({
+  args: { userId: v.id("users") },
+  returns: v.object({
+    connected: v.boolean(),
+    email: v.optional(v.string()),
+    providerLabel: v.optional(v.string()),
+    lastStatus: v.optional(v.union(v.literal("ok"), v.literal("error"))),
+    lastError: v.optional(v.string()),
+  }),
+  handler: async (ctx, { userId }) => {
+    const a = await ctx.db
+      .query("smtpAccounts")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .unique();
+    if (!a) return { connected: false };
+    return {
+      connected: true,
+      email: a.email,
+      providerLabel: smtpPresetById(a.provider).label,
+      lastStatus: a.lastStatus,
+      lastError: a.lastError,
+    };
+  },
+});
+
+/**
  * 연결 테스트·발송 결과 기록.
  *
  * 실패 원문이 아니라 **번역된 문구**를 받는다. `EAUTH`를 그대로 저장해 두면

@@ -16,6 +16,8 @@ export const getStatus = query({
     gmailOAuthSource: v.union(v.literal("gmail"), v.literal("auth"), v.literal("none")),
     anthropicConfigured: v.boolean(),
     siteUrlSet: v.boolean(),
+    /** SMTP 계정 저장에 필요한 봉인 키. 없으면 저장이 실패하므로 미리 보여 준다. */
+    smtpEncryptionKeySet: v.boolean(),
   }),
   handler: async (ctx) => {
     await requireUser(ctx);
@@ -43,6 +45,8 @@ export const getStatus = query({
       gmailOAuthSource,
       anthropicConfigured: Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
       siteUrlSet: Boolean(process.env.SITE_URL?.trim()),
+      // 값이 아니라 존재 여부만. 길이가 맞는지는 실제 저장 시점에 검증한다.
+      smtpEncryptionKeySet: Boolean(process.env.SMTP_ENCRYPTION_KEY?.trim()),
     };
   },
 });

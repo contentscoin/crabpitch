@@ -1,6 +1,6 @@
 # 크랩피치(CrabPitch) 패키지 — 사용 안내
 
-OpenCrab 한국 기자 온톨로지 + Gmail 기반 **보도자료 배포 SaaS** 기획과 실제 스킬 묶음,
+OpenCrab 한국 기자 온톨로지 기반 **보도자료 배포 SaaS** 기획과 실제 스킬 묶음,
 그리고 이를 구현한 **풀스택 웹 앱(Convex + Next.js + Vercel)** 입니다.
 타깃: 1인 창업가·소상공인 · 스킬: Claude/GPT/Gemini 범용.
 
@@ -17,17 +17,17 @@ pnpm dev           # http://localhost:3000  (로그인 후 대시보드 '데모 
 
 - 아키텍처·도메인 모델·통합 심(seam)·배포 절차: **`docs/ARCHITECTURE.md`**
 - 프로젝트 현황·성숙도·후속 백로그: **`docs/PROJECT_ANALYSIS.md`**
-- 자격증명 없이도 데모 시드로 전 기능 동작. OpenCrab/Anthropic/Gmail 실 배선 지점은 `.env.example` 참조.
-- **MCP**: `/ai`에서 `cp_mcp_…` 키 발급(Free 포함) → Claude/ChatGPT/Gemini/Cursor 플러그인 등록. **Free는 보도자료 작성 도구까지**, 기자 매칭·메일 템플릿·회신 분류는 Solo 이상(웹앱에서는 Free도 이용 가능). 가이드: **`docs/MCP-SETUP.md`**
+- 자격증명 없이도 데모 시드로 전 기능 동작. OpenCrab/Anthropic/메일 실 배선 지점은 `.env.example` 참조.
+- **MCP**: `/ai`에서 `cp_mcp_…` 키 발급(Free 포함) → Claude/ChatGPT/Gemini/Cursor 플러그인 등록. **Free는 보도자료 작성·메일 설정 안내까지**, 기자 매칭·메일 템플릿·회신 분류는 Solo 이상(웹앱에서는 Free도 이용 가능). 가이드: **`docs/MCP-SETUP.md`**
 
 ### 🔒 기자 개인정보 보호 (앱 기본값)
 기자 **실명·이메일·연락처는 화면에 절대 표시하지 않습니다**(익명 코드 `기자 #XXXX`로 대체).
-실제 이메일·실명은 **메일 발송 시점**에 Gmail 수신자·본문으로만 사용됩니다. 서버 쿼리도 클라이언트로
+실제 이메일·실명은 **메일 발송 시점**에 수신자·본문으로만 사용됩니다. 서버 쿼리도 클라이언트로
 PII를 내려보내지 않습니다.
 
 ## 📦 공개 스킬 팩 (`skills-public/`)
 Codex/Claude/Gemini에서 바로 쓰는 **공개 배포용** 스킬 묶음(보도문·미디어킷·기자배포·회신).
-Gmail **`언론홍보`** 라벨 워크플로우 + PII 보호가 내장돼 있으며, 기자 실데이터를 포함하지 않습니다.
+Gmail **`언론홍보`** 라벨 워크플로우(또는 SMTP 직접 발송) + PII 보호가 내장돼 있으며, 기자 실데이터를 포함하지 않습니다.
 게시 저장소: **[`contentscoin/crabpitch-skill`](https://github.com/contentscoin/crabpitch-skill)** (public) — 절차는 `skills-public/PUBLISH.md` 참조.
 동기화: `pnpm sync:skills-public`
 
@@ -97,7 +97,9 @@ OpenCrab 기자 데이터는 모두 `mailing_status: candidate` (발송 미승�
 - 매칭·리스트업은 자유롭게, **실제 발송은 사용자 명시 승인 후에만**
 - 모든 메일에 **수신거부 문구** 삽입, 회신 시 즉시 억제 리스트 등록
 - 동일 기자 7일 내 재발송 금지
-- 발송은 **사용자 본인 Gmail(BYO-Email)** 로
+- 발송은 **사용자 본인 메일 계정(BYO-Email)** 로 — Gmail 초안 생성 또는 SMTP 직접 발송.
+  전송 수단은 둘이지만 **게이트는 하나**입니다(파일럿 승인·수신거부 재대조·7일 쿨다운·
+  표현 규정·캠페인당 상한·월 한도). 설정 → `skills-public/docs/MAIL-SETUP.md`
 
 ## 개발 메모: `.skill` 빌드 (재생성)
 

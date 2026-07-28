@@ -30,6 +30,8 @@ function makeCtx(overrides: Record<string, QueryHandler> = {}) {
       return null;
     },
     "mcpInternal:touchKey": () => null,
+    // 메일 설정 안내는 비밀번호 없는 좁은 뷰만 읽는다.
+    "smtpAccounts:statusInternal": () => ({ connected: false }),
     "mcpInternal:matchJournalists": (args) => ({
       topicTags: ["핀테크"],
       matches: [],
@@ -104,7 +106,7 @@ describe("MCP HTTP 엔드포인트", () => {
     expect(body.result.capabilities.tools).toBeDefined();
   });
 
-  it("tools/list — 도구 5종을 노출한다", async () => {
+  it("tools/list — 도구 6종을 노출한다", async () => {
     const { ctx } = makeCtx();
     const res = await handleMcpRequest(
       ctx,
@@ -117,8 +119,20 @@ describe("MCP HTTP 엔드포인트", () => {
       "crabpitch_match_journalists",
       "crabpitch_email_template",
       "crabpitch_classify",
+      "crabpitch_mail_setup",
       "crabpitch_press_guide",
     ]);
+  });
+
+  it("어떤 도구도 비밀번호를 인자로 받지 않는다", async () => {
+    // MCP 인자는 대화 기록에 남는다 — 우리 DB보다 통제가 약한 곳이다.
+    const { ctx } = makeCtx();
+    const res = await handleMcpRequest(
+      ctx,
+      post(VALID_KEY, { jsonrpc: "2.0", id: 21, method: "tools/list" }),
+    );
+    const body = await res.json();
+    expect(JSON.stringify(body.result.tools)).not.toMatch(/"password"|"passwd"|"appPassword"/);
   });
 
   it("tools/call — crabpitch_status를 실행하고 키 사용시각을 갱신한다", async () => {
@@ -169,17 +183,42 @@ describe("MCP HTTP 엔드포인트", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     const names = (body.result.tools as Array<{ name: string }>).map((t) => t.name);
-    expect(names.sort()).toEqual(["crabpitch_press_guide", "crabpitch_status"]);
+    // 메일 설정은 무료에도 열어 둔다 — 무료 사용자도 웹앱에서 발송할 수 있고,
+    // 설정을 막으면 잠기는 건 발송이 아니라 온보딩이다.
+    expect(names.sort()).toEqual([
+      "crabpitch_mail_setup",
+      "crabpitch_press_guide",
+      "crabpitch_status",
+    ]);
   });
 
-  it("유료 키에는 도구 5종이 모두 보인다", async () => {
+  it("유료 키에는 도구 6종이 모두 보인다", async () => {
     const { ctx } = makeCtx();
     const res = await handleMcpRequest(
       ctx,
       post(VALID_KEY, { jsonrpc: "2.0", id: 7, method: "tools/list" }),
     );
     const body = await res.json();
-    expect((body.result.tools as unknown[]).length).toBe(5);
+    expect((body.result.tools as unknown[]).length).toBe(6);
+  });
+
+  it("무료 키도 crabpitch_mail_setup을 호출할 수 있다", async () => {
+    const { ctx } = makeCtx();
+    const res = await handleMcpRequest(
+      ctx,
+      post(FREE_KEY, {
+        jsonrpc: "2.0",
+        id: 22,
+        method: "tools/call",
+        params: { name: "crabpitch_mail_setup", arguments: { email: "hong@naver.com" } },
+      }),
+    );
+    const body = await res.json();
+    expect(body.result.isError).toBeFalsy();
+    const guide = JSON.parse(body.result.content[0].text);
+    expect(guide.provider.id).toBe("naver");
+    expect(guide.settingsUrl).toMatch(/\/settings$/);
+    expect(guide.cautions.join(" ")).toMatch(/붙여넣지 마세요/);
   });
 
   it("무료가 유료 도구를 직접 호출하면 막고 사유를 준다", async () => {

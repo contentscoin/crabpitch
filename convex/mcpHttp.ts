@@ -5,6 +5,7 @@ import type { DataModel, Id } from "./_generated/dataModel";
 import { jsonResponse } from "./lib/http";
 import { extractMcpBearer, tagsFromQuery } from "./lib/mcpHttpAuth";
 import { MCP_TOOL_SKILL, planAllowsSkill, upgradeRequiredMessage } from "./lib/plans";
+import { buildMailSetupGuide } from "./lib/smtpSetupGuide";
 
 type ActionCtx = GenericActionCtx<DataModel>;
 
@@ -36,6 +37,14 @@ const PROTOCOL_VERSION = "2024-11-05";
 const RECOMMENDED_MATCH_LIMIT = 20;
 /** 남용·응답 폭주 방지선. 권장치와 구분한다. */
 const MAX_MATCH_LIMIT = 100;
+
+/**
+ * 웹앱 주소 — 안내의 종착지는 언제나 사용자가 직접 입력하는 화면이다.
+ * 미설정이면 로컬 개발 주소를 쓴다(안내를 통째로 못 주는 것보다 낫다).
+ */
+function appBaseUrl(): string {
+  return (process.env.SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+}
 
 function sendingGuidance(topK: number): string {
   const base =
@@ -112,6 +121,22 @@ const TOOLS = [
       properties: {
         draft: { type: "string", description: "분류할 텍스트" },
         text: { type: "string", description: "분류할 텍스트 (draft와 동일)" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "crabpitch_mail_setup",
+    description:
+      "발송용 메일 계정(SMTP) 연결 상태를 확인하고, 사용자의 메일 제공자에 맞는 설정 절차를 안내합니다. 비밀번호는 받지 않습니다 — 입력은 사용자가 웹 설정 화면에서 직접 합니다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        email: {
+          type: "string",
+          description:
+            "발송에 쓸 이메일 주소 (선택). 주면 제공자별 절차까지 좁혀 안내합니다. 비밀번호는 절대 넣지 마세요.",
+        },
       },
       additionalProperties: false,
     },
@@ -304,6 +329,19 @@ async function callTool(
             2,
           ),
         );
+      }
+      case "crabpitch_mail_setup": {
+        // 인자로 받은 값 중 비밀번호처럼 보이는 것은 아예 없다 — 스키마에 자리가 없다.
+        const email = typeof args.email === "string" ? args.email : undefined;
+        const status = await ctx.runQuery(internal.smtpAccounts.statusInternal, {
+          userId,
+        });
+        const guide = buildMailSetupGuide({
+          email,
+          status,
+          settingsUrl: `${appBaseUrl()}/settings`,
+        });
+        return textResult(JSON.stringify(guide, null, 2));
       }
       case "crabpitch_email_template": {
         const angle = typeof args.angle === "string" ? args.angle : "";

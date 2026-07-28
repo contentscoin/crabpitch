@@ -56,6 +56,7 @@ import type * as lib_secretBox from "../lib/secretBox.js";
 import type * as lib_sendGuard from "../lib/sendGuard.js";
 import type * as lib_sendOutcome from "../lib/sendOutcome.js";
 import type * as lib_smtpProviders from "../lib/smtpProviders.js";
+import type * as lib_smtpSetupGuide from "../lib/smtpSetupGuide.js";
 import type * as lib_scoring from "../lib/scoring.js";
 import type * as mcpHttp from "../mcpHttp.js";
 import type * as mcpInternal from "../mcpInternal.js";
@@ -128,6 +129,7 @@ declare const fullApi: ApiFromModules<{
   "lib/sendGuard": typeof lib_sendGuard;
   "lib/sendOutcome": typeof lib_sendOutcome;
   "lib/smtpProviders": typeof lib_smtpProviders;
+  "lib/smtpSetupGuide": typeof lib_smtpSetupGuide;
   "lib/scoring": typeof lib_scoring;
   mcpHttp: typeof mcpHttp;
   mcpInternal: typeof mcpInternal;
