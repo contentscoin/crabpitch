@@ -845,16 +845,19 @@ const blockedCountsValidator = v.object({
 });
 
 /**
- * Gmail 초안 생성 경로 1단계 — **선별만** 한다.
+ * 외부 발송 경로 1단계 — **선별만** 한다. (Gmail 초안 생성 · SMTP 직접 발송 공용)
  *
- * Gmail 경로는 외부 API 호출이 중간에 끼어 있어 선별과 확정을 한 트랜잭션에 담을 수 없다.
- * 그 사정 때문에 예전에는 게이트를 통째로 건너뛰고 수신거부 재대조만 하고 있었다.
- * 이제 다른 세 경로와 **같은 선별 함수**를 통과한다.
+ * 이 경로들은 외부 호출이 중간에 끼어 있어 선별과 확정을 한 트랜잭션에 담을 수 없다.
+ * 그 사정 때문에 예전에는 Gmail 경로가 게이트를 통째로 건너뛰고 수신거부 재대조만 하고
+ * 있었다. 이제 다른 세 경로와 **같은 선별 함수**를 통과한다.
+ *
+ * ⚠️ 전송 수단이 늘어도 이 함수는 하나로 둔다. 수단마다 선별을 따로 두면 그중 하나가
+ *    반드시 샌다 — 이름에 특정 수단을 넣지 않는 이유다.
  *
  * ⚠️ 기자 실명·이메일이 나가는 유일한 지점이다. 발송 시점 주입(`personalizeForSend`)에만
  *    쓰이며, 통과한 초안분만 나간다.
  */
-export const selectForGmailSend = internalMutation({
+export const selectForExternalSend = internalMutation({
   args: { campaignId: v.id("campaigns"), userId: v.id("users") },
   returns: v.object({
     drafts: v.array(
@@ -898,10 +901,13 @@ export const selectForGmailSend = internalMutation({
 });
 
 /**
- * Gmail 초안 생성 경로 2단계 — 실제로 만들어진 것만 확정한다.
+ * 외부 발송 경로 2단계 — 실제로 나간 것만 확정한다.
  * 확정 로직은 다른 세 경로와 같은 `confirmSent`를 쓴다.
+ *
+ * `gmailDraftId`는 Gmail 경로에서만 채운다. SMTP는 대응하는 식별자가 없어 비운다 —
+ * 없는 값을 억지로 채우는 대신, 없다는 사실을 그대로 둔다.
  */
-export const confirmGmailSent = internalMutation({
+export const confirmExternalSent = internalMutation({
   args: {
     campaignId: v.id("campaigns"),
     userId: v.id("users"),

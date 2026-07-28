@@ -126,6 +126,44 @@ npx convex env set SITE_URL https://crabpitch.vercel.app --prod
 | `OPENCRAB_API_URL` / `OPENCRAB_API_KEY` | 기자 온톨로지 + **기자단 팩 동기화**. MCP는 `URL=https://opencrab.sh/api/mcp` + `KEY=ocm_…`. HTTP는 기존 POST+Bearer. 팩 동기화는 MCP 키에서만 동작 |
 | `ANTHROPIC_API_KEY` | (선택) 보도자료·메일 AI 개인화. 없으면 템플릿 유지 |
 | `GMAIL_OAUTH_CLIENT_ID` / `GMAIL_OAUTH_CLIENT_SECRET` | (선택) Gmail BYO. **없으면 `AUTH_GOOGLE_*` 폴백**. 콜백: `https://<deployment>.convex.site/gmail/callback` |
+| `SMTP_ENCRYPTION_KEY` | **SMTP 발송을 쓰려면 필수.** 사용자 메일 비밀번호 봉인용 마스터 키. base64 32바이트만 허용 — 만드는 방법은 아래 |
+
+#### `SMTP_ENCRYPTION_KEY` 만들기
+
+base64로 인코딩된 **32바이트**여야 합니다. 아래 중 편한 것으로 만들어 출력값을 그대로 넣습니다.
+
+```bash
+# macOS · Linux
+openssl rand -base64 32
+```
+
+```powershell
+# Windows PowerShell — openssl이 기본 설치돼 있지 않습니다
+$bytes = New-Object byte[] 32
+[System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+[Convert]::ToBase64String($bytes)
+```
+
+```js
+// 로컬 셸이 없을 때 — 브라우저 콘솔(F12). 값이 브라우저 밖으로 나가지 않습니다.
+btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
+```
+
+`Get-Random`처럼 암호학적으로 안전하지 않은 난수는 쓰지 마세요 — 마스터 키에는 부적합합니다.
+
+#### 넣을 때 주의
+
+- **미설정이면 SMTP 계정 저장이 실패합니다.** 평문으로 대체 저장하지 않습니다 — Gmail 앱
+  비밀번호는 IMAP까지 열려 있어 DB 유출만으로 사용자의 과거 메일이 통째로 읽히기 때문입니다.
+- **교체하면 저장된 비밀번호가 전부 복호화에 실패**하고 사용자가 재입력해야 합니다.
+  키 교체는 사용자에게 보이는 사고이므로 유출이 의심될 때만 합니다.
+- Vercel이 아니라 **Convex 환경변수**입니다. 복호화는 Convex 액션에서만 일어납니다.
+- CLI로 넣을 때는 **프로젝트 폴더 안에서** 실행하세요. 밖에서 돌리면 `No CONVEX_DEPLOYMENT`가
+  납니다(배포 대상은 프로젝트의 `.env.local`에서 읽습니다).
+- 대시보드(Settings → Environment Variables)로 넣어도 됩니다. 이때 **base64 값만** 붙여넣으세요
+  — `--prod` 같은 CLI 플래그가 값에 섞이면 안 됩니다. 실제로 `OPENCRAB_API_KEY`가 그렇게 돼서
+  인증이 27번 연속 실패한 적이 있습니다. 지금은 저장 시점에 "base64가 아닙니다"로 막히지만,
+  애초에 넣지 않는 편이 낫습니다.
 
 프로덕션 일괄 설정 스크립트: `scripts/set-prod-integrations.sh`  
 (`CONVEX_DEPLOY_KEY` + `OPENCRAB_API_KEY` export 후 실행)
@@ -179,5 +217,7 @@ Agency REST (Agency 플랜 + `/agency`에서 `cp_live_…` 키 발급):
 - [ ] `OPENCRAB_API_URL` / `OPENCRAB_API_KEY` (prod) — `scripts/set-prod-integrations.sh` 또는 PowerShell `$env:…`
 - [ ] Google OAuth에 `https://<prod>.convex.site/gmail/callback` 추가 (`AUTH_GOOGLE_*` 폴백 사용 시)
 - [ ] `curl https://<prod>.convex.site/health` → `opencrab`/`gmailOAuth`/`mcp` 확인
-- [ ] `/ai` MCP 키 발급 → Cursor `mcp.json` 연결 스모크 (Free는 도구 2종, Solo 이상은 5종 노출 확인)
+- [ ] `convex env set SMTP_ENCRYPTION_KEY "$(openssl rand -base64 32)" --prod` (SMTP 발송을 쓸 경우)
+- [ ] 설정 → 「발신 메일 (SMTP)」에서 계정 연결 + 「연결 테스트」 통과 확인
+- [ ] `/ai` MCP 키 발급 → Cursor `mcp.json` 연결 스모크 (Free는 도구 3종, Solo 이상은 6종 노출 확인)
 - [ ] 앱 설정 → 서버 연동 상태 · OpenCrab 동기화 테스트

@@ -22,6 +22,14 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SOURCE = readFileSync(join(HERE, "drafts.ts"), "utf-8");
 const GMAIL_SOURCE = readFileSync(join(HERE, "gmailActions.ts"), "utf-8");
 const GMAIL_ACCOUNTS_SOURCE = readFileSync(join(HERE, "gmailAccounts.ts"), "utf-8");
+const SMTP_SOURCE = readFileSync(join(HERE, "smtpActions.ts"), "utf-8");
+const SMTP_ACCOUNTS_SOURCE = readFileSync(join(HERE, "smtpAccounts.ts"), "utf-8");
+
+/** 외부 호출이 끼어 있어 선별 → 호출 → 확정으로 나뉘는 경로들. */
+const EXTERNAL_SEND_PATHS = [
+  { label: "Gmail 초안 생성", source: GMAIL_SOURCE },
+  { label: "SMTP 직접 발송", source: SMTP_SOURCE },
+] as const;
 
 /** `export const <name> = ...` 부터 다음 최상위 export 직전까지를 잘라낸다. */
 function exportBlock(name: string): string {
@@ -110,35 +118,87 @@ describe("발송 확정 경로", () => {
 });
 
 /**
- * Gmail 초안 생성 경로 가드.
+ * 외부 전송 수단 경로 가드 (Gmail 초안 생성 · SMTP 직접 발송).
  *
- * 이 경로는 연결 사용자에게 **기본 경로**다. 예전에는 수신거부 재대조만 하고 쿨다운·표현
+ * Gmail 경로는 연결 사용자에게 **기본 경로**다. 예전에는 수신거부 재대조만 하고 쿨다운·표현
  * 규정·상한·월 한도를 건너뛰었다 — 확정 로직을 이 경로가 따로 들고 있었기 때문이다.
- * 이제 선별은 `selectForGmailSend`, 확정은 `confirmGmailSent`로 drafts.ts를 통과한다.
+ * 이제 선별은 `selectForExternalSend`, 확정은 `confirmExternalSent`로 drafts.ts를 통과한다.
+ *
+ * SMTP는 그 뒤에 붙은 두 번째 전송 수단이다. **수단이 늘어난 것이지 규칙이 늘어난 게 아니다** —
+ * 같은 두 함수를 통과하는지 여기서 고정한다. 세 번째 수단이 생겨도 이 목록에 추가하면 된다.
  */
-describe("Gmail 초안 생성 경로", () => {
-  it("선별·확정 모두 drafts.ts를 통과한다", () => {
-    expect(GMAIL_SOURCE).toContain("internal.drafts.selectForGmailSend");
-    expect(GMAIL_SOURCE).toContain("internal.drafts.confirmGmailSent");
-  });
+describe("외부 전송 수단 경로", () => {
+  for (const { label, source } of EXTERNAL_SEND_PATHS) {
+    it(`${label}: 선별·확정 모두 drafts.ts를 통과한다`, () => {
+      expect(source).toContain("internal.drafts.selectForExternalSend");
+      expect(source).toContain("internal.drafts.confirmExternalSent");
+    });
 
-  it("액션 안에서 초안을 직접 확정하지 않는다", () => {
-    expect(GMAIL_SOURCE).not.toContain('status: "sent"');
-    expect(GMAIL_SOURCE).not.toContain("bumpSends(");
-  });
+    it(`${label}: 액션 안에서 초안을 직접 확정하지 않는다`, () => {
+      expect(source).not.toContain('status: "sent"');
+      expect(source).not.toContain("bumpSends(");
+    });
 
-  it("gmailAccounts에는 확정 로직이 남아 있지 않다", () => {
-    // 게이트를 우회하는 두 번째 확정 경로가 되살아나면 여기서 깨진다.
-    expect(GMAIL_ACCOUNTS_SOURCE).not.toContain('status: "sent"');
-    expect(GMAIL_ACCOUNTS_SOURCE).not.toContain("bumpSends(");
-  });
+    it(`${label}: 보류를 조용히 삼키지 않는다`, () => {
+      expect(source).toContain("counts.blockedPilot");
+      expect(source).toContain("pilotGateMessage(");
+    });
+
+    it(`${label}: 제외 사유를 사용자에게 알린다`, () => {
+      // 조용히 줄어든 건수만큼 사용자는 "왜 3건만 나갔지"를 되묻게 된다.
+      expect(source).toContain("excludedSummary(");
+    });
+  }
+
+  for (const [label, source] of [
+    ["gmailAccounts", GMAIL_ACCOUNTS_SOURCE],
+    ["smtpAccounts", SMTP_ACCOUNTS_SOURCE],
+  ] as const) {
+    it(`${label}에는 확정 로직이 남아 있지 않다`, () => {
+      // 게이트를 우회하는 두 번째 확정 경로가 되살아나면 여기서 깨진다.
+      expect(source).not.toContain('status: "sent"');
+      expect(source).not.toContain("bumpSends(");
+    });
+  }
 
   it("선별 mutation은 공통 선별 함수만 쓴다", () => {
-    expect(exportBlock("selectForGmailSend")).toContain("selectSendableDrafts(");
+    expect(exportBlock("selectForExternalSend")).toContain("selectSendableDrafts(");
   });
 
   it("확정 mutation은 공통 확정 함수만 쓴다", () => {
-    expect(exportBlock("confirmGmailSent")).toContain("confirmSent(");
+    expect(exportBlock("confirmExternalSent")).toContain("confirmSent(");
+  });
+
+  it("선별·확정 mutation은 전송 수단별로 늘어나지 않는다", () => {
+    // 수단마다 mutation을 하나씩 만들면 그중 하나가 반드시 게이트를 빠뜨린다.
+    expect(SOURCE.match(/export const selectFor\w+Send =/g) ?? []).toHaveLength(1);
+    expect(SOURCE.match(/export const confirm\w*Sent =/g) ?? []).toHaveLength(1);
+  });
+});
+
+/**
+ * SMTP 자격증명 가드.
+ *
+ * Gmail 앱 비밀번호는 IMAP까지 열려 있어 DB 유출만으로 과거 메일이 통째로 읽힌다.
+ * 평문으로 새는 경로가 생기면 여기서 깨진다.
+ */
+describe("SMTP 자격증명", () => {
+  it("비밀번호는 봉인해서 저장한다", () => {
+    expect(SMTP_ACCOUNTS_SOURCE).toContain("sealSecret(");
+    expect(SMTP_ACCOUNTS_SOURCE).toContain("passwordSealed");
+  });
+
+  it("저장 경로에서 복호화하지 않는다", () => {
+    // 원문이 필요한 곳은 실제로 SMTP에 접속하는 액션 하나뿐이다.
+    expect(SMTP_ACCOUNTS_SOURCE).not.toContain("openSecret(");
+  });
+
+  it("클라이언트로 나가는 쿼리에 비밀번호 필드가 없다", () => {
+    const start = SMTP_ACCOUNTS_SOURCE.indexOf("export const getConnection =");
+    expect(start).toBeGreaterThan(-1);
+    const block = SMTP_ACCOUNTS_SOURCE.slice(start, SMTP_ACCOUNTS_SOURCE.indexOf("\nexport const saveAccount"));
+    expect(block).not.toContain("passwordSealed");
+    expect(block).not.toContain("password");
   });
 });
 
@@ -161,8 +221,5 @@ describe("파일럿 게이트", () => {
     });
   }
 
-  it("Gmail 경로도 보류를 조용히 삼키지 않는다", () => {
-    expect(GMAIL_SOURCE).toContain("counts.blockedPilot");
-    expect(GMAIL_SOURCE).toContain("pilotGateMessage(");
-  });
+  // 외부 전송 경로(Gmail·SMTP)의 보류 처리는 위 "외부 전송 수단 경로"에서 함께 고정한다.
 });

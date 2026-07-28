@@ -369,6 +369,47 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_state", ["state"]),
 
+  /**
+   * 사용자 SMTP 발신 계정 — Gmail OAuth를 쓸 수 없는 사용자의 발송 경로.
+   *
+   * OAuth 앱 검수는 우리가 끝내야 하는 일이고 사용자 수에 상한이 걸린다. SMTP는
+   * 제공자를 가리지 않고 오늘 당장 붙는다. 두 경로 모두 **같은 발송 게이트**를 통과한다.
+   *
+   * ⚠️ `passwordSealed`는 반드시 `lib/secretBox`로 봉인된 값이다(평문 금지).
+   *    Gmail 앱 비밀번호는 IMAP까지 열려 있어 DB 유출만으로 과거 메일이 통째로 읽힌다.
+   *    클라이언트로 나가는 쿼리는 이 필드를 절대 포함하지 않는다.
+   */
+  smtpAccounts: defineTable({
+    userId: v.id("users"),
+    /** 발신 주소. 로그인 ID와 다를 수 있어 `username`을 따로 둔다. */
+    email: v.string(),
+    /** 수신자에게 보이는 이름. 비우면 이메일만 보인다. */
+    fromName: v.optional(v.string()),
+    // lib/smtpProviders 의 SmtpProviderId 와 같은 집합을 유지한다.
+    provider: v.union(
+      v.literal("gmail"),
+      v.literal("naver"),
+      v.literal("daum"),
+      v.literal("outlook"),
+      v.literal("custom"),
+    ),
+    host: v.string(),
+    port: v.number(),
+    /** true = 접속부터 TLS(465), false = STARTTLS 승격(587) */
+    secure: v.boolean(),
+    /** 로그인 ID가 발신 주소와 다른 경우에만 채운다. */
+    username: v.optional(v.string()),
+    /** `v1.{iv}.{ciphertext}` — 원문은 어떤 경로로도 저장하지 않는다. */
+    passwordSealed: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    /** 마지막 연결 테스트/발송 결과 — 설정 화면이 "연결됨"을 단정하지 않게 한다. */
+    lastStatus: v.optional(v.union(v.literal("ok"), v.literal("error"))),
+    lastError: v.optional(v.string()),
+    lastCheckedAt: v.optional(v.number()),
+    lastUsedAt: v.optional(v.number()),
+  }).index("by_user", ["userId"]),
+
   // Agency 멀티테넌트 — PR 대행사 워크스페이스
   agencies: defineTable({
     name: v.string(),

@@ -11,6 +11,7 @@
 |---|:--:|:--:|
 | `crabpitch_status` | ✅ | ✅ |
 | `crabpitch_press_guide` (보도자료 규범·규칙 검사) | ✅ | ✅ |
+| `crabpitch_mail_setup` (발신 메일 설정 안내) | ✅ | ✅ |
 | `crabpitch_match_journalists` (기자 매칭) | — | ✅ |
 | `crabpitch_email_template` (피치 메일 템플릿) | — | ✅ |
 | `crabpitch_classify` (회신 분류) | — | ✅ |
@@ -46,6 +47,17 @@
 - `crabpitch_email_template` — 피치 메일 템플릿
 - `crabpitch_classify` — 회신 분류
 - `crabpitch_press_guide` — 보도자료 규범 조회 + 초안 규칙 검사
+- `crabpitch_mail_setup` — 발신 메일(SMTP) 연결 상태 + 제공자별 설정 절차
+
+### `crabpitch_mail_setup`
+
+| 인자 | 설명 |
+|---|---|
+| `email` | (선택) 발송에 쓸 주소. 주면 Gmail·네이버·다음·아웃룩·회사 메일별 절차로 좁혀 준다 |
+
+**비밀번호를 받는 인자는 없습니다.** MCP 인자는 대화 기록에 남으므로 자격증명을 그쪽으로
+흘려보내지 않습니다. 도구는 절차와 설정 화면 주소만 돌려주고, 입력은 사용자가 웹에서 합니다.
+비밀번호를 대신 받아 주겠다고 제안하지 마세요.
 
 ### `crabpitch_press_guide`
 
@@ -59,7 +71,9 @@
 `boilerplate`·`factSheet`는 **주지 않으면 해당 검사가 아예 돌지 않는다.** 대조할 원본이
 없는데 "근거 없음"을 띄우면 전부 오탐이기 때문이다.
 
-발송은 스킬 지침대로 **사용자 Gmail(BYO)** + CrabPitch 웹앱에서만 합니다.
+발송은 스킬 지침대로 **사용자 본인 메일** + CrabPitch 웹앱에서만 합니다. 경로는 두 가지이고
+(Gmail 초안 생성 · SMTP 직접 발송) 둘 다 같은 승인·수신거부·쿨다운·표현 규정·한도 게이트를
+통과합니다.
 자세한 보안·플랜 정책은 앱 문서 `docs/MCP-SETUP.md`(crabpitch 저장소)를 보세요.
 
 ## OpenCrab MCP

@@ -166,6 +166,6 @@ export const disconnect = mutation({
   },
 });
 
-/* 발송 확정·초안 선별은 `drafts.selectForGmailSend` / `drafts.confirmGmailSent`가 한다.
+/* 발송 확정·초안 선별은 `drafts.selectForExternalSend` / `drafts.confirmExternalSent`가 한다.
  * 예전에는 이 파일에 따로 있었고, 그래서 Gmail 경로만 쿨다운·표현 규정·상한을 건너뛰었다.
  * 게이트를 경로마다 두면 하나가 반드시 샌다 — 확정 로직은 drafts.ts 한 곳에만 둔다. */

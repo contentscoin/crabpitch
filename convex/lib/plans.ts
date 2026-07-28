@@ -129,6 +129,8 @@ export const MCP_TOOL_SKILL: Record<string, SkillId> = {
   crabpitch_email_template: "journalist-outreach",
   crabpitch_classify: "reply-handler",
   // crabpitch_status는 게이트 대상이 아니다 — 무엇이 잠겼는지 알려 주는 도구다.
+  // crabpitch_mail_setup도 게이트하지 않는다 — 무료 사용자도 웹앱에서 발송할 수 있고,
+  // 그러려면 메일 계정을 연결해야 한다. 설정을 막으면 잠긴 건 발송이 아니라 온보딩이다.
 };
 
 /**

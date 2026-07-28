@@ -13,6 +13,7 @@ import { Input, Label, Textarea } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { PageHeader } from "@/components/app/bits";
 import { ByoAiConnectPanel } from "@/components/app/ByoAiConnect";
+import { SmtpConnectPanel } from "@/components/app/SmtpConnect";
 import { McpDashboardCard } from "@/components/app/McpGuide";
 import { PLANS } from "@/lib/brand";
 
@@ -155,6 +156,15 @@ function SettingsInner() {
                     </Badge>
                   ) : (
                     <Badge variant="danger">미설정</Badge>
+                  )}
+                </li>
+                <li className="flex items-center justify-between gap-2">
+                  <span>SMTP 암호화 키</span>
+                  {integrations.smtpEncryptionKeySet ? (
+                    <Badge variant="success">설정됨</Badge>
+                  ) : (
+                    // 없으면 메일 계정 저장 자체가 실패한다 — 저장을 눌러 보기 전에 알려 준다.
+                    <Badge variant="warning">미설정 (SMTP 저장 불가)</Badge>
                   )}
                 </li>
                 <li className="flex items-center justify-between gap-2">
@@ -343,6 +353,15 @@ function SettingsInner() {
             )}
           </CardContent>
         </Card>
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-lg font-bold">발신 메일 (SMTP)</h2>
+        <p className="mb-3 text-sm text-muted">
+          Gmail 연결이 어렵거나 회사 메일로 보내야 한다면 이쪽을 씁니다. 두 방식 모두 파일럿
+          승인·수신거부·쿨다운·표현 규정·발송 한도를 <b>똑같이</b> 통과합니다.
+        </p>
+        <SmtpConnectPanel />
       </section>
 
       <section>
