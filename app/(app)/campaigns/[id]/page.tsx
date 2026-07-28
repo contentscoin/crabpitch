@@ -104,14 +104,18 @@ export default function CampaignDetailPage() {
   /**
    * 발송 수단 결정.
    *
-   * 둘 다 연결돼 있으면 **되돌릴 수 있는 쪽**(Gmail 초안)이 기본이다. SMTP는 누르는
+   * 둘 다 쓸 수 있으면 **되돌릴 수 있는 쪽**(Gmail 초안)이 기본이다. SMTP는 누르는
    * 즉시 기자 메일함으로 나가므로, 그쪽을 쓰려면 사용자가 명시적으로 골라야 한다.
-   * 하나만 연결돼 있으면 고를 것이 없으므로 그것을 쓴다.
+   * 하나만 있으면 고를 것이 없으므로 그것을 쓴다.
+   *
+   * ⚠️ `connected`만 보면 안 된다. Gmail 연동은 Agency 전용이라, 다운그레이드한
+   *    사용자는 계정이 남아 있어도 쓸 수 없다(서버도 발송 시점에 다시 막는다).
    */
-  const bothConnected = gmail?.connected === true && smtp?.connected === true;
+  const gmailUsable = gmail?.connected === true && gmail.allowed;
+  const bothConnected = gmailUsable && smtp?.connected === true;
   const effectiveSendMode: "gmail" | "smtp" | null = bothConnected
     ? (sendMode ?? "gmail")
-    : gmail?.connected
+    : gmailUsable
       ? "gmail"
       : smtp?.connected
         ? "smtp"

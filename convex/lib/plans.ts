@@ -147,6 +147,38 @@ export function upgradeRequiredMessage(skill: SkillId): string {
   return `${label[skill]}은(는) MCP에서 유료 플랜 전용입니다. 무료 플랜은 MCP에서 보도자료 작성(crabpitch_press_guide)만 쓸 수 있습니다. 이 기능은 CrabPitch 웹앱에서는 무료로도 이용할 수 있고, Solo 이상으로 업그레이드하면 MCP에서도 열립니다.`;
 }
 
+/**
+ * Gmail 연동(BYO-Email)은 **Agency 전용**이다.
+ *
+ * 발송 자체가 유료 기능이라는 뜻이 아니다 — 다른 플랜은 SMTP로 **똑같이** 보낸다.
+ * 게이트(파일럿 승인·수신거부·쿨다운·표현 규정·상한·월 한도)도 두 경로가 공유한다.
+ * 잠기는 것은 전송 수단 하나이지 발송 기능이 아니다.
+ *
+ * Gmail 경로만 따로 떼는 이유는 비용 구조가 다르기 때문이다. Gmail API는 제한 스코프라
+ * 우리가 Google 검수를 받고 유지해야 하고, 미검수 상태에서는 연결 사용자 수에 상한이
+ * 걸린다. 검수 대상 사용자를 좁히지 않으면 상한을 무엇에 쓸지 우리가 못 고른다.
+ * SMTP는 그런 제약이 없어 모든 플랜에 열어 둔다.
+ */
+export const GMAIL_OAUTH_PLAN: Plan = "agency";
+
+/**
+ * ⚠️ 연결 시점만 보지 말고 **쓰는 시점마다** 다시 물어야 한다.
+ *    Agency에서 내려온 사용자의 계정 문서는 그대로 남아 있어서, 연결 시점 검사만으로는
+ *    다운그레이드 후에도 계속 발송된다.
+ */
+export function planAllowsGmailOAuth(plan: Plan | string | undefined): boolean {
+  return normalizePlan(plan) === GMAIL_OAUTH_PLAN;
+}
+
+/** 막을 때는 대안을 함께 준다 — 발송이 막힌 게 아니라 수단 하나가 잠긴 것이다. */
+export function gmailOAuthUpgradeMessage(): string {
+  return (
+    `Gmail 연동(BYO-Email)은 ${PLAN_LIMITS[GMAIL_OAUTH_PLAN].label} 플랜 전용입니다. ` +
+    "다른 플랜에서는 설정 → 발신 메일(SMTP)로 Gmail·네이버·다음·회사 메일 어디서든 발송할 수 있고, " +
+    "승인·수신거부·쿨다운·표현 규정·발송 한도는 두 경로가 똑같이 적용됩니다."
+  );
+}
+
 export function planAllowsMcp(plan: Plan | string | undefined): boolean {
   if (!plan || !(plan in PLAN_LIMITS)) return false;
   return PLAN_LIMITS[plan as Plan].mcp;

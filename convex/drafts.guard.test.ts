@@ -177,6 +177,39 @@ describe("외부 전송 수단 경로", () => {
 });
 
 /**
+ * Gmail 연동 플랜 가드.
+ *
+ * Gmail 연동은 Agency 전용이다. **연결 시점만 막으면 샌다** — Agency에서 내려온 사용자의
+ * 계정 문서는 그대로 남아 있어서 발송이 계속된다. 그래서 진입점 셋(연결 URL 발급 · OAuth
+ * 콜백 · 발송)이 모두 같은 확인을 통과하는지 소스 수준에서 고정한다.
+ */
+describe("Gmail 연동 플랜 가드", () => {
+  const GMAIL_HTTP_SOURCE = readFileSync(join(HERE, "gmailHttp.ts"), "utf-8");
+
+  for (const [label, source] of [
+    ["연결 URL 발급·발송(gmailActions)", GMAIL_SOURCE],
+    ["OAuth 콜백(gmailHttp)", GMAIL_HTTP_SOURCE],
+  ] as const) {
+    it(`${label}는 플랜을 확인한다`, () => {
+      expect(source).toContain("internal.gmailAccounts.checkOAuthAccess");
+    });
+  }
+
+  it("발송 경로도 확인한다 — 연결 시점 한 번으로 끝내지 않는다", () => {
+    // 진입점이 둘(getConnectUrl·pushCampaignToGmail)이므로 호출도 둘이어야 한다.
+    expect(GMAIL_SOURCE.match(/checkOAuthAccess/g) ?? []).toHaveLength(2);
+  });
+
+  it("판정 임계값을 복제하지 않는다", () => {
+    // 플랜 이름을 경로마다 다시 적으면 하나가 반드시 어긋난다.
+    for (const source of [GMAIL_SOURCE, GMAIL_HTTP_SOURCE, GMAIL_ACCOUNTS_SOURCE]) {
+      expect(source).not.toMatch(/===\s*"agency"/);
+    }
+    expect(GMAIL_ACCOUNTS_SOURCE).toContain("planAllowsGmailOAuth(");
+  });
+});
+
+/**
  * SMTP 자격증명 가드.
  *
  * Gmail 앱 비밀번호는 IMAP까지 열려 있어 DB 유출만으로 과거 메일이 통째로 읽힌다.

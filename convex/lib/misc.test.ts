@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { PLAN_LIMITS } from "./plans";
+import {
+  GMAIL_OAUTH_PLAN,
+  PLAN_LIMITS,
+  gmailOAuthUpgradeMessage,
+  planAllowsGmailOAuth,
+} from "./plans";
 import { journalistCode, maskEmailStrong } from "./mask";
 import {
   extractJournalistsFromResponse,
@@ -11,6 +16,30 @@ describe("plans", () => {
   it("Free 한도를 정의한다", () => {
     expect(PLAN_LIMITS.free.sends).toBe(10);
     expect(PLAN_LIMITS.free.pressReleases).toBe(3);
+  });
+});
+
+describe("Gmail 연동 플랜", () => {
+  it("Agency만 허용한다", () => {
+    expect(GMAIL_OAUTH_PLAN).toBe("agency");
+    expect(planAllowsGmailOAuth("agency")).toBe(true);
+    for (const p of ["free", "solo", "growth"]) {
+      expect(planAllowsGmailOAuth(p)).toBe(false);
+    }
+  });
+
+  it("모르는 값·미설정은 거부한다 — 권한은 실패 시 좁은 쪽으로 간다", () => {
+    for (const p of [undefined, "", "enterprise", "AGENCY"]) {
+      expect(planAllowsGmailOAuth(p)).toBe(false);
+    }
+  });
+
+  it("막을 때 대안(SMTP)을 함께 알린다", () => {
+    // 잠긴 건 전송 수단 하나이지 발송 기능이 아니다. 그 사실을 말하지 않으면
+    // 사용자는 발송 자체가 유료로 바뀐 줄 안다.
+    const msg = gmailOAuthUpgradeMessage();
+    expect(msg).toContain("Agency");
+    expect(msg).toMatch(/SMTP/);
   });
 });
 
