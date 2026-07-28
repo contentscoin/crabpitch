@@ -273,8 +273,26 @@ async function runPackSync(
 
   // ② 동기화 대상 결정
   let targets: Array<{ packageId: string; batch?: string }> = [];
+  let skippedDisabled = 0;
   if (packageIds?.length) {
-    targets = packageIds.map((packageId) => ({ packageId }));
+    // 명시 지정도 syncEnabled를 통과해야 한다.
+    //
+    // 이 경로가 게이트를 건너뛰고 있어서, 프로젝트에서 빼고 자동 동기화를 끈 팩이
+    // 재시도 버튼 한 번에 되살아났다(화면의 재시도 목록은 이전 조회 기준이라
+    // 방금 꺼진 팩을 아직 들고 있다). 발송 게이트를 4경로로 단일화했던 것과 같은
+    // 문제다 — 우회로가 하나 있으면 그리로 샌다.
+    const enabled: Array<{ packageId: string; batch?: string }> = await ctx.runQuery(
+      internal.opencrab.listSyncablePacks,
+      {},
+    );
+    const enabledById = new Map(enabled.map((e) => [e.packageId, e]));
+    targets = packageIds
+      .filter((id) => {
+        if (enabledById.has(id)) return true;
+        skippedDisabled += 1;
+        return false;
+      })
+      .map((id) => enabledById.get(id) ?? { packageId: id });
   } else {
     const enabled: Array<{ packageId: string; batch?: string }> = await ctx.runQuery(
       internal.opencrab.listSyncablePacks,
@@ -370,6 +388,9 @@ async function runPackSync(
   if (summary.authError) {
     summary.mode = "error";
     summary.message += ` — 인증 거부로 중단했습니다: ${summary.authError}. OPENCRAB_API_KEY를 확인하세요(Convex 환경변수).`;
+  }
+  if (skippedDisabled > 0) {
+    summary.message += ` · 자동 동기화 꺼진 팩 ${skippedDisabled}개 건너뜀`;
   }
   if (discoveryNote) summary.message += ` · ${discoveryNote}`;
   return summary;
