@@ -339,7 +339,8 @@ async function runPackSync(
         updated = res.updated;
       }
 
-      const status = classifySyncStatus(journalists.length, parsed.recordCount, parsed.complete);
+      const fetched = parsed.reporters.length;
+      const status = classifySyncStatus(fetched, parsed.recordCount, parsed.complete);
       const gapNote = parsed.gaps.length
         ? `청크 결손 ${parsed.gaps.length}구간(${parsed.gaps.map((g) => `${g.from}-${g.to}`).join(", ")})`
         : undefined;
@@ -349,7 +350,7 @@ async function runPackSync(
         status,
         startedAt,
         recordCount: parsed.recordCount,
-        fetched: journalists.length,
+        fetched,
         inserted,
         updated,
         error: parsed.parseError ?? gapNote,

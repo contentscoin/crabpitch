@@ -129,6 +129,14 @@ describe("packSync 청크 재조립", () => {
       "failed",
     );
   });
+
+  it("오프셋 없는 단일 청크는 결손으로 보지 않는다", () => {
+    const payload = { evidence: [{ text }] };
+    const doc = reassembleDocument(extractChunks(payload));
+    expect(doc.complete).toBe(true);
+    expect(doc.gaps).toEqual([]);
+    expect(doc.text).toBe(text);
+  });
 });
 
 describe("packSync 문서 파싱", () => {
@@ -382,6 +390,54 @@ describe("parseReporterJsonLines — v2 시리즈(JSONL)", () => {
   it("JSONL이 전혀 없으면 빈 배열", () => {
     expect(parseReporterJsonLines("# 제목만 있는 문서\n본문")).toEqual([]);
   });
+
+  it("record_type journalist_contact JSONL은 레코드 단위 문서로 보고 unordered여도 완전 처리한다", () => {
+    const rows = [
+      {
+        record_type: "journalist_contact",
+        reporter_name: "가나다",
+        outlet_name: "테스트일보",
+        email: "reporter1@example.com",
+        beat_primary: "경제/금융",
+      },
+      {
+        record_type: "journalist_contact",
+        reporter_name: "라마바",
+        outlet_name: "테스트경제",
+        email: "reporter2@example.com",
+        beat_primary: "정치/정책",
+      },
+    ];
+    const parsed = parsePackPayload({
+      evidence: rows.map((row) => ({ text: JSON.stringify(row) })),
+    });
+
+    expect(parsed.complete).toBe(true);
+    expect(parsed.reporters).toHaveLength(2);
+    expect(classifySyncStatus(parsed.reporters.length, parsed.recordCount, parsed.complete)).toBe(
+      "ok",
+    );
+  });
+
+  it("record_type journalist_contact 단일 JSON 문서도 기자 레코드로 읽는다", () => {
+    const parsed = parsePackPayload({
+      evidence: [
+        {
+          text: JSON.stringify({
+            record_type: "journalist_contact",
+            reporter_name: "가나다",
+            outlet_name: "테스트일보",
+            email: "reporter1@example.com",
+            beat_primary: "경제/금융",
+          }),
+        },
+      ],
+    });
+
+    expect(parsed.complete).toBe(true);
+    expect(parsed.recordCount).toBe(1);
+    expect(parsed.reporters).toHaveLength(1);
+  });
 });
 
 describe("normalizePackReporters — v2 필드 별칭", () => {
@@ -419,5 +475,39 @@ describe("normalizePackReporters — v2 필드 별칭", () => {
       },
     ]);
     expect(j.topReferenceTitle).toBe("정의선 회장 직접 찾은 아프리카");
+  });
+
+  it("sync-safe-v1의 중첩 top_reference와 새 점수 별칭을 읽는다", () => {
+    const [j] = normalizePackReporters([
+      {
+        record_type: "journalist_contact",
+        reporter_name: "이한나",
+        outlet_name: "SBS Biz",
+        email: "lhn@example.com",
+        beat_primary: "경제/금융",
+        beat_distribution_top: "경제/금융:7|정치/정책:2",
+        email_public_evidence_count: 7,
+        reference_article_count: "7",
+        top_reference: {
+          title: "샘플 경제 기사",
+          url: "https://n.news.naver.com/mnews/article/374/0000523964",
+          topic: "경제/금융",
+        },
+        mailing_status: "candidate",
+      },
+    ]);
+
+    expect(j.topReferenceTitle).toBe("샘플 경제 기사");
+    expect(j.topReferenceUrl).toBe("https://n.news.naver.com/mnews/article/374/0000523964");
+    expect(j.referenceArticleCount).toBe(7);
+    expect(j.contactEvidenceCount).toBe(7);
+    expect(j.beatDistribution).toEqual([
+      { beat: "경제/금융", weight: 7 },
+      { beat: "정치/정책", weight: 2 },
+    ]);
+    expect(j.referenceArticles?.[0]).toMatchObject({
+      title: "샘플 경제 기사",
+      topic: "경제/금융",
+    });
   });
 });
