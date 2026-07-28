@@ -49,12 +49,15 @@ export interface OpenCrabJournalistInput {
   topReferenceTitle?: string;
   top_reference_url?: string;
   topReferenceUrl?: string;
+  top_reference?: unknown;
   mailing_status?: string;
   mailingStatus?: string;
   // 기자단 배치 팩 고유 필드
   naver_oid?: string | number;
   contact_verification?: string;
   contact_evidence_count?: number;
+  email_public_evidence_count?: number;
+  emailPublicEvidenceCount?: number;
   contact_source_urls?: string[] | string;
   /** v2 시리즈 단수형 */
   contact_source_url?: string;
@@ -62,6 +65,8 @@ export interface OpenCrabJournalistInput {
   reference_title?: string;
   reference_url?: string;
   beat_distribution?: unknown;
+  beat_distribution_top?: unknown;
+  beatDistributionTop?: unknown;
   classification_confidence?: string;
   reference_articles?: unknown;
 }
@@ -95,8 +100,14 @@ function asString(v: unknown): string | undefined {
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
 
-function asNumber(v: unknown): number | undefined {
-  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+function asNumberLike(v: unknown): number | undefined {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v.trim())) return Number(v.trim());
+  return undefined;
+}
+
+function asRecord(v: unknown): Record<string, unknown> | undefined {
+  return !!v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
 }
 
 /** 다중 구분자 split — 정본은 packSync.splitList(콤마·가운뎃점·파이프·슬래시). */
@@ -172,6 +183,7 @@ export function normalizeJournalistRecord(
   raw: OpenCrabJournalistInput | Record<string, unknown>,
 ): NormalizedJournalist | null {
   const r = raw as OpenCrabJournalistInput;
+  const topReference = asRecord(r.top_reference);
   const name = asString(r.reporter_name) ?? asString(r.name);
   const outlet = asString(r.outlet_name) ?? asString(r.outlet);
   const email = asString(r.email)?.toLowerCase();
@@ -182,13 +194,17 @@ export function normalizeJournalistRecord(
   const topReferenceTitle =
     asString(r.top_reference_title) ??
     asString(r.topReferenceTitle) ??
+    asString(topReference?.title) ??
+    asString(topReference?.headline) ??
     asString(r.reference_title);
   const topReferenceUrl =
     asString(r.top_reference_url) ??
     asString(r.topReferenceUrl) ??
+    asString(topReference?.url) ??
+    asString(topReference?.link) ??
     asString(r.reference_url);
   const referenceArticles = normalizeReferenceArticles(
-    r.reference_articles,
+    r.reference_articles ?? (topReference ? [topReference] : undefined),
     topReferenceTitle,
     topReferenceUrl,
   );
@@ -206,7 +222,13 @@ export function normalizeJournalistRecord(
   // v2는 단수 contact_source_url로 싣는다.
   const contactSourceUrls =
     splitPipe(r.contact_source_urls) ?? splitPipe(r.contact_source_url);
-  const beatDistribution = parseBeatDistribution(r.beat_distribution);
+  const beatDistribution = parseBeatDistribution(
+    r.beat_distribution ?? r.beat_distribution_top ?? r.beatDistributionTop,
+  );
+  const contactEvidenceCount =
+    asNumberLike(r.contact_evidence_count) ??
+    asNumberLike(r.email_public_evidence_count) ??
+    asNumberLike(r.emailPublicEvidenceCount);
 
   return {
     name,
@@ -218,8 +240,8 @@ export function normalizeJournalistRecord(
       asString(r.contact_confidence) ?? asString(r.contactConfidence),
     ),
     referenceArticleCount:
-      asNumber(r.reference_article_count) ??
-      asNumber(r.referenceArticleCount) ??
+      asNumberLike(r.reference_article_count) ??
+      asNumberLike(r.referenceArticleCount) ??
       referenceArticles?.length ??
       0,
     topReferenceTitle: topReferenceTitle ?? referenceArticles?.[0]?.title,
@@ -230,9 +252,7 @@ export function normalizeJournalistRecord(
     ...(asString(r.contact_verification)
       ? { contactVerification: asString(r.contact_verification)! }
       : {}),
-    ...(asNumber(r.contact_evidence_count) !== undefined
-      ? { contactEvidenceCount: asNumber(r.contact_evidence_count)! }
-      : {}),
+    ...(contactEvidenceCount !== undefined ? { contactEvidenceCount } : {}),
     ...(contactSourceUrls.length ? { contactSourceUrls } : {}),
     ...(beatDistribution ? { beatDistribution } : {}),
     ...(asString(r.classification_confidence)

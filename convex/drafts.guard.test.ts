@@ -97,7 +97,7 @@ describe("발송 확정 경로", () => {
 
   it("초안을 sent로 바꾸고 사용량을 올리는 곳은 confirmSent 하나뿐이다", () => {
     // 이 파일 전체에서 확정 코드가 두 번 이상 나오면 경로 하나가 게이트를 우회한 것이다.
-    expect(SOURCE.match(/status: "sent",\n\s+sentAt:/g) ?? []).toHaveLength(1);
+    expect(SOURCE.match(/status: "sent",\r?\n\s+sentAt:/g) ?? []).toHaveLength(1);
     expect(SOURCE.match(/await bumpSends\(/g) ?? []).toHaveLength(1);
     expect(fnBlock("confirmSent")).toContain("await bumpSends(");
   });

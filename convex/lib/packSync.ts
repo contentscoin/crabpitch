@@ -50,6 +50,14 @@ function asStr(v: unknown): string | undefined {
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
 
+function isJournalistContactRecord(v: unknown): v is Record<string, unknown> {
+  return isRecord(v) && asStr(v.reporter_name) !== undefined;
+}
+
+function isRecordUnitJournalistContact(v: unknown): boolean {
+  return isJournalistContactRecord(v) && asStr(v.record_type) === "journalist_contact";
+}
+
 /** 응답의 evidence[] 에서 청크를 뽑는다(문자열 위치 메타 포함). */
 export function extractChunks(payload: unknown): PackChunk[] {
   if (!isRecord(payload)) return [];
@@ -112,10 +120,10 @@ export function reassembleDocument(chunks: PackChunk[]): ReassembledDocument {
   if (chunks.length === 0) return { text: "", complete: false, gaps: [], chars: 0 };
 
   // 오프셋 없는 팩은 위치를 모르니 결손 구간도 계산할 수 없다.
-  // complete=false로 두어 "완전하다"고 잘못 주장하지 않는다.
+  // 다만 청크가 1개뿐이면 빠질 수 있는 중간 조각이 없으므로 결손이 성립하지 않는다.
   if (chunks.every((c) => c.unordered)) {
     const { text, chars } = concatUnordered(chunks);
-    return { text, complete: false, gaps: [], chars };
+    return { text, complete: chunks.length === 1, gaps: [], chars };
   }
 
   const sorted = [...chunks].sort((a, b) => a.charStart - b.charStart);
@@ -186,7 +194,7 @@ export function parseReporterJsonLines(text: string): Array<Record<string, unkno
     } catch {
       continue; // 청크 경계에서 잘린 줄
     }
-    if (isRecord(obj) && typeof obj.reporter_name === "string" && obj.reporter_name.trim()) {
+    if (isJournalistContactRecord(obj)) {
       out.push(obj);
     }
   }
@@ -220,9 +228,13 @@ export function parsePackPayload(payload: unknown): PackFetchResult {
     // 기자만 잃고 나머지는 살아남는다. 배치 팩은 한 청크만 빠져도 전량을 잃는다.
     const lineReporters = parseReporterJsonLines(doc.text);
     if (lineReporters.length > 0) {
+      const recordUnitComplete =
+        chunks.length > 0 &&
+        lineReporters.length === chunks.length &&
+        lineReporters.every(isRecordUnitJournalistContact);
       return {
         reporters: lineReporters,
-        complete: doc.complete,
+        complete: doc.complete || recordUnitComplete,
         gaps: doc.gaps,
         fingerprint: packFingerprint(undefined, doc.chars, lineReporters.length),
       };
@@ -237,6 +249,16 @@ export function parsePackPayload(payload: unknown): PackFetchResult {
 
   if (!isRecord(parsed)) {
     return { reporters: [], complete: false, ...base, parseError: "문서 최상위가 객체가 아닙니다." };
+  }
+
+  if (isRecordUnitJournalistContact(parsed)) {
+    return {
+      reporters: [parsed],
+      recordCount: 1,
+      complete: doc.complete,
+      gaps: doc.gaps,
+      fingerprint: packFingerprint(1, doc.chars, 1),
+    };
   }
 
   const recordCount = asNum(parsed.record_count);
