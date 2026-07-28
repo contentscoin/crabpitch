@@ -9,6 +9,8 @@ import { buildRawEmail, GMAIL_PR_LABEL, GMAIL_SCOPES } from "./lib/gmailMime";
 import { personalizeForSend } from "./lib/emailTemplate";
 import { pilotGateMessage } from "./lib/pilotGate";
 import { requireGoogleOAuthClient } from "./lib/googleOAuthEnv";
+// 제외 사유 문구는 SMTP 경로와 공유한다 — 게이트가 같은데 설명이 다르면 안 된다.
+import { excludedSummary } from "./lib/sendOutcome";
 
 function requireGmailOAuthEnv() {
   return requireGoogleOAuthClient();
@@ -157,27 +159,6 @@ async function createGmailDraft(
 }
 
 /**
- * 게이트에서 제외된 건을 사용자에게 알린다.
- * 조용히 줄어든 건수만큼 사용자는 "왜 3건만 만들어졌지"를 되묻게 된다.
- */
-function excludedSummary(counts: {
-  blockedSuppressed: number;
-  blockedCooldown: number;
-  blockedCompliance: number;
-  overCap: number;
-  overMonthly: number;
-}): string {
-  const parts: string[] = [];
-  if (counts.blockedSuppressed > 0) parts.push(`수신거부 ${counts.blockedSuppressed}건`);
-  if (counts.blockedCooldown > 0) parts.push(`7일 쿨다운 ${counts.blockedCooldown}건`);
-  if (counts.blockedCompliance > 0) parts.push(`표현 규정 ${counts.blockedCompliance}건`);
-  if (counts.overCap > 0) parts.push(`캠페인 상한 ${counts.overCap}건`);
-  if (counts.overMonthly > 0) parts.push(`월 한도 ${counts.overMonthly}건`);
-  if (parts.length === 0) return "";
-  return ` 제외: ${parts.join(" · ")}. 사유는 초안 목록에서 확인하세요.`;
-}
-
-/**
  * 승인 게이트 통과 후: Gmail `언론홍보` 라벨에 초안 생성 + sent 기록.
  * 실명·이메일은 이 시점에만 Gmail API로 전달한다.
  *
@@ -206,7 +187,7 @@ export const pushCampaignToGmail = action({
     // ① 선별 — 다른 세 경로와 **같은 게이트**를 통과한다(파일럿·수신거부·쿨다운·
     //    표현 규정·캠페인당 상한·월 한도). 제외분은 사유를 남긴 채 초안으로 남는다.
     const { drafts: pending, counts, queuedTotal } = await ctx.runMutation(
-      internal.drafts.selectForGmailSend,
+      internal.drafts.selectForExternalSend,
       { campaignId, userId },
     );
 
@@ -241,7 +222,7 @@ export const pushCampaignToGmail = action({
     }
 
     // ③ 확정 — 실제로 만들어진 것만. 사용량도 이 건수만큼만 올라간다.
-    const sent: number = await ctx.runMutation(internal.drafts.confirmGmailSent, {
+    const sent: number = await ctx.runMutation(internal.drafts.confirmExternalSent, {
       campaignId,
       userId,
       updates,

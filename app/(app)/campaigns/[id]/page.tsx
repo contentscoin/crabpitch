@@ -48,6 +48,7 @@ export default function CampaignDetailPage() {
   const replies = useQuery(api.replies.listByCampaign, { campaignId: id });
   const usage = useQuery(api.usage.getMyUsage);
   const gmail = useQuery(api.gmailAccounts.getConnection);
+  const smtp = useQuery(api.smtpAccounts.getConnection);
   const aiStatus = useQuery(api.aiKeys.status);
   const customTemplates = useQuery(api.emailTemplates.list);
   const similarity = useQuery(api.drafts.campaignSimilarity, { campaignId: id });
@@ -62,6 +63,7 @@ export default function CampaignDetailPage() {
   const sendCampaign = useMutation(api.drafts.sendCampaign);
   const scheduleCampaign = useMutation(api.drafts.scheduleCampaign);
   const pushGmail = useAction(api.gmailActions.pushCampaignToGmail);
+  const sendSmtp = useAction(api.smtpActions.sendCampaign);
 
   const [busy, setBusy] = useState<string | null>(null);
   const [optOutConfirmed, setOptOutConfirmed] = useState(false);
@@ -70,6 +72,11 @@ export default function CampaignDetailPage() {
   const [draftNote, setDraftNote] = useState<string | null>(null);
   const [sendNote, setSendNote] = useState<string | null>(null);
   const [scheduleLocal, setScheduleLocal] = useState("");
+  /**
+   * 발송 수단. 사용자가 고르지 않았으면 null이고, 그때는 아래 `effectiveSendMode`가
+   * **더 안전한 쪽**(되돌릴 수 있는 Gmail 초안)을 먼저 고른다.
+   */
+  const [sendMode, setSendMode] = useState<"gmail" | "smtp" | null>(null);
   /** 프리셋 id 또는 "custom:<docId>" */
   const [templateChoice, setTemplateChoice] = useState("standard");
 
@@ -93,6 +100,22 @@ export default function CampaignDetailPage() {
   // 파일럿 게이트 — 판정은 서버와 같은 함수를 쓴다(임계값을 화면에 복제하지 않는다).
   const pendingDrafts = drafts?.filter((d) => d.status === "draft" || d.status === "queued") ?? [];
   const pilotBlocked = needsPilotApproval(pendingDrafts);
+
+  /**
+   * 발송 수단 결정.
+   *
+   * 둘 다 연결돼 있으면 **되돌릴 수 있는 쪽**(Gmail 초안)이 기본이다. SMTP는 누르는
+   * 즉시 기자 메일함으로 나가므로, 그쪽을 쓰려면 사용자가 명시적으로 골라야 한다.
+   * 하나만 연결돼 있으면 고를 것이 없으므로 그것을 쓴다.
+   */
+  const bothConnected = gmail?.connected === true && smtp?.connected === true;
+  const effectiveSendMode: "gmail" | "smtp" | null = bothConnected
+    ? (sendMode ?? "gmail")
+    : gmail?.connected
+      ? "gmail"
+      : smtp?.connected
+        ? "smtp"
+        : null;
 
   function templateArgs(): {
     preset?: EmailTemplatePresetId;
@@ -436,6 +459,31 @@ export default function CampaignDetailPage() {
               </div>
             </div>
 
+            {bothConnected && !scheduleLocal && (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-semibold text-foreground">발송 방법</span>
+                {(
+                  [
+                    ["gmail", "Gmail 초안 (검토 후 발송)"],
+                    ["smtp", `${smtp!.email} 로 즉시 발송`],
+                  ] as const
+                ).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setSendMode(mode)}
+                    className={
+                      effectiveSendMode === mode
+                        ? "rounded-full border border-brand bg-brand-soft px-3 py-1 font-semibold text-brand"
+                        : "rounded-full border border-border px-3 py-1 text-muted"
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 onClick={() =>
@@ -452,7 +500,15 @@ export default function CampaignDetailPage() {
                       );
                       return;
                     }
-                    if (gmail?.connected) {
+                    if (effectiveSendMode === "smtp") {
+                      // 되돌릴 수 없는 발송이다 — 누른 뒤 물어볼 수 없으므로 지금 확인한다.
+                      const ok = window.confirm(
+                        `${smtp!.email} 에서 기자에게 메일이 즉시 나갑니다. 되돌릴 수 없습니다. 발송할까요?`,
+                      );
+                      if (!ok) return;
+                      const result = await sendSmtp({ campaignId: id });
+                      if (result.message) setSendNote(result.message);
+                    } else if (effectiveSendMode === "gmail") {
                       const result = await pushGmail({ campaignId: id });
                       if (result.message) setSendNote(result.message);
                     } else {
@@ -470,17 +526,21 @@ export default function CampaignDetailPage() {
                   : pilotBlocked
                     ? "초안 확인 필요"
                     : scheduleLocal
-                    ? "예약 발송 (승인)"
-                    : gmail?.connected
-                      ? "Gmail 초안 생성 (승인)"
-                      : "발송 기록 (승인)"}
+                      ? "예약 발송 (승인)"
+                      : effectiveSendMode === "smtp"
+                        ? "메일 발송 (승인)"
+                        : effectiveSendMode === "gmail"
+                          ? "Gmail 초안 생성 (승인)"
+                          : "발송 기록 (승인)"}
               </Button>
               <span className="text-xs text-muted">
                 {scheduleLocal
                   ? "* 예약 시각에 발송 기록으로 확정됩니다(매분 크론·스케줄러)."
-                  : gmail?.connected
-                    ? `* 연결된 Gmail(${gmail.email})의 ‘언론홍보’ 라벨에 초안을 만듭니다. 실발송은 Gmail에서 확인 후.`
-                    : "* Gmail 미연결 시 ‘발송됨’으로만 기록합니다. 설정에서 BYO Gmail을 연결하면 초안이 생성됩니다."}
+                  : effectiveSendMode === "smtp"
+                    ? `* ${smtp!.email} 에서 기자에게 메일이 즉시 나갑니다. 되돌릴 수 없습니다.`
+                    : effectiveSendMode === "gmail"
+                      ? `* 연결된 Gmail(${gmail!.email})의 ‘언론홍보’ 라벨에 초안을 만듭니다. 실발송은 Gmail에서 확인 후.`
+                      : "* 발신 메일 미연결 시 ‘발송됨’으로만 기록합니다. 설정에서 Gmail 또는 SMTP를 연결하면 실제로 나갑니다."}
               </span>
             </div>
             {sendNote && <p className="text-xs text-muted">{sendNote}</p>}
