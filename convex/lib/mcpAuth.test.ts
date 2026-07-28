@@ -55,11 +55,33 @@ describe("MCP 스킬 권한", () => {
     expect(planAllowsSkill("enterprise", "journalist-outreach")).toBe(false);
   });
 
-  it("무료가 쓸 수 있는 MCP 도구는 press_guide뿐이다", () => {
+  it("무료에 열리는 도구는 보도자료 작성 계열뿐이다", () => {
+    // 자기 원고를 쓰고 자기 캠페인 현황을 보는 것까지 — 기자 데이터도 발송 인프라도
+    // 건드리지 않는 범위다. 이 목록이 늘어나면 왜 늘었는지 여기서 드러나야 한다.
     const free = Object.entries(MCP_TOOL_SKILL)
       .filter(([, skill]) => planAllowsSkill("free", skill))
-      .map(([tool]) => tool);
-    expect(free).toEqual(["crabpitch_press_guide"]);
+      .map(([tool]) => tool)
+      .sort();
+    expect(free).toEqual([
+      "crabpitch_campaign_create",
+      "crabpitch_campaign_list",
+      "crabpitch_campaign_status",
+      "crabpitch_press_guide",
+    ]);
+  });
+
+  it("매칭·초안·승인·발송은 무료에 열리지 않는다", () => {
+    // 이 넷은 기자 데이터와 발송 인프라를 모두 쓴다 — MCP는 자동화 창구이므로
+    // 무료로 열어 두면 남용 비용이 곧바로 커진다.
+    for (const tool of [
+      "crabpitch_campaign_match",
+      "crabpitch_drafts_generate",
+      "crabpitch_drafts_approve",
+      "crabpitch_campaign_send",
+    ]) {
+      expect(planAllowsSkill("free", MCP_TOOL_SKILL[tool])).toBe(false);
+      expect(planAllowsSkill("solo", MCP_TOOL_SKILL[tool])).toBe(true);
+    }
   });
 
   it("게이트 대상 도구는 전부 담당 스킬이 등록돼 있다", () => {

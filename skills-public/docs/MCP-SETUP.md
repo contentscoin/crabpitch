@@ -15,6 +15,10 @@
 | `crabpitch_match_journalists` (기자 매칭) | — | ✅ |
 | `crabpitch_email_template` (피치 메일 템플릿) | — | ✅ |
 | `crabpitch_classify` (회신 분류) | — | ✅ |
+| `crabpitch_campaign_list` · `_create` · `_status` (캠페인 관리) | ✅ | ✅ |
+| `crabpitch_campaign_match` · `_drafts_generate` · `_drafts_approve` (매칭·초안·승인) | — | ✅ |
+| `crabpitch_campaign_send` (**실제 발송**) | — | ✅ |
+| `crabpitch_journalist_note` · `crabpitch_replies` (기자 메모·회신) | — | ✅ |
 
 무료 플랜에서는 잠긴 도구가 **목록에 아예 보이지 않습니다.** 직접 호출해도 막히고,
 어떤 도구가 잠겼는지는 `crabpitch_status`의 `lockedSkills`로 확인할 수 있습니다.
@@ -71,9 +75,26 @@
 `boilerplate`·`factSheet`는 **주지 않으면 해당 검사가 아예 돌지 않는다.** 대조할 원본이
 없는데 "근거 없음"을 띄우면 전부 오탐이기 때문이다.
 
-발송은 스킬 지침대로 **사용자 본인 메일** + CrabPitch 웹앱에서만 합니다. 경로는 두 가지이고
-(Gmail 초안 생성 · SMTP 직접 발송) 둘 다 같은 승인·수신거부·쿨다운·표현 규정·한도 게이트를
-통과합니다.
+## 발송까지 채팅에서 — 다만 확인은 사용자가
+
+```
+crabpitch_campaign_create → _match → _drafts_generate
+  → _campaign_status (초안을 사용자에게 보여 준다)
+  → _drafts_approve (사용자가 확인한 draftId만)
+  → _campaign_send (confirm=true)
+```
+
+**`crabpitch_campaign_send`는 `confirm` 없이는 보내지 않는다.** 대상 수와 제외 사유만
+돌려준다. 발송은 되돌릴 수 없다 — 사용자에게 누구에게 몇 통이 나가는지 보여 주고
+동의를 받은 뒤에만 `confirm=true`로 다시 부른다. **에이전트가 임의로 넣지 마라.**
+
+`crabpitch_drafts_approve`에 일괄 승인은 없다. `draftId`를 하나씩 받는다 — 승인은
+사용자가 내용을 확인했다는 표시다.
+
+발송은 사용자 본인 메일에서 나가고(SMTP 전 플랜 · Gmail 연동 Agency), 승인·수신거부·
+쿨다운·표현 규정·한도 게이트는 웹앱과 **똑같은 코드**를 지나간다.
+
+기자 실명·이메일은 어떤 응답에도 들어가지 않는다 — 초안 목록도 익명 코드로만 나간다.
 자세한 보안·플랜 정책은 앱 문서 `docs/MCP-SETUP.md`(crabpitch 저장소)를 보세요.
 
 ## OpenCrab MCP

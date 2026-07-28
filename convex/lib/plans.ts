@@ -128,6 +128,22 @@ export const MCP_TOOL_SKILL: Record<string, SkillId> = {
   crabpitch_match_journalists: "journalist-outreach",
   crabpitch_email_template: "journalist-outreach",
   crabpitch_classify: "reply-handler",
+
+  /* 캠페인 파이프라인 — 기존 정책을 그대로 따른다.
+   *
+   * 보도자료를 쓰고 자기 캠페인 현황을 보는 것까지는 무료다(기자 데이터도, 발송
+   * 인프라도 건드리지 않는다). 매칭·초안·승인·발송은 그 둘을 모두 쓰므로 유료다.
+   * ⚠️ 웹앱은 무료도 전부 쓸 수 있다 — 좁은 건 자동화 창구뿐이다. */
+  crabpitch_campaign_create: "press-release-writer",
+  crabpitch_campaign_list: "press-release-writer",
+  crabpitch_campaign_status: "press-release-writer",
+  crabpitch_campaign_match: "journalist-outreach",
+  crabpitch_drafts_generate: "journalist-outreach",
+  crabpitch_drafts_approve: "journalist-outreach",
+  crabpitch_campaign_send: "journalist-outreach",
+  crabpitch_journalist_note: "journalist-outreach",
+  crabpitch_replies: "reply-handler",
+
   // crabpitch_status는 게이트 대상이 아니다 — 무엇이 잠겼는지 알려 주는 도구다.
   // crabpitch_mail_setup도 게이트하지 않는다 — 무료 사용자도 웹앱에서 발송할 수 있고,
   // 그러려면 메일 계정을 연결해야 한다. 설정을 막으면 잠긴 건 발송이 아니라 온보딩이다.

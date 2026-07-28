@@ -2,7 +2,8 @@
 
 import { v } from "convex/values";
 import nodemailer from "nodemailer";
-import { action } from "./_generated/server";
+import { action, internalAction } from "./_generated/server";
+import type { ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "./_generated/dataModel";
@@ -23,6 +24,13 @@ import { excludedSummary, fromHeader } from "./lib/sendOutcome";
  * ⚠️ Gmail과 결정적으로 다른 점: **되돌릴 수 없다.** Gmail 경로는 초안까지만 만들고
  *    사용자가 Gmail에서 최종 발송하지만, 여기서는 즉시 상대 메일함으로 나간다.
  */
+
+type SmtpSendResult = {
+  sent: number;
+  failed: number;
+  mode: "smtp";
+  message?: string;
+};
 
 type SmtpAccount = {
   _id: Id<"smtpAccounts">;
@@ -123,15 +131,11 @@ export const testConnection = action({
  * 선별 → 발송 → 확정 3단계. 외부 호출이 중간에 있어 한 트랜잭션에 담을 수 없다.
  * 실패한 건은 **확정하지 않는다** — 초안으로 남아 사용자가 다시 보낼 수 있다.
  */
-export const sendCampaign = action({
-  args: { campaignId: v.id("campaigns") },
-  handler: async (
-    ctx,
-    { campaignId },
-  ): Promise<{ sent: number; failed: number; mode: "smtp"; message?: string }> => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("로그인이 필요합니다.");
-
+async function sendCampaignForUser(
+  ctx: ActionCtx,
+  userId: Id<"users">,
+  campaignId: Id<"campaigns">,
+): Promise<SmtpSendResult> {
     const account = await ctx.runQuery(internal.smtpAccounts.getAccountInternal, { userId });
     if (!account) {
       throw new Error("메일 계정이 설정되지 않았습니다. 설정에서 발신 메일을 먼저 연결하세요.");
@@ -213,5 +217,25 @@ export const sendCampaign = action({
       mode: "smtp",
       message: `${account.email} 에서 ${sent}건을 발송했습니다.${failNote}${fatalNote}${excludedSummary(counts)}`,
     };
+}
+
+export const sendCampaign = action({
+  args: { campaignId: v.id("campaigns") },
+  handler: async (ctx, { campaignId }): Promise<SmtpSendResult> => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("로그인이 필요합니다.");
+    return sendCampaignForUser(ctx, userId, campaignId);
   },
+});
+
+/**
+ * MCP 발송 — **웹앱과 같은 함수**를 부른다.
+ *
+ * ⚠️ MCP용 발송 경로를 따로 만들면 게이트가 하나 더 생긴다. 여기서는 사용자 확인만
+ *    한 겹 더 얹고(도구 쪽 `confirm` 인자), 실제 발송은 위와 동일한 경로로 간다.
+ */
+export const sendCampaignInternal = internalAction({
+  args: { userId: v.id("users"), campaignId: v.id("campaigns") },
+  handler: async (ctx, { userId, campaignId }): Promise<SmtpSendResult> =>
+    sendCampaignForUser(ctx, userId, campaignId),
 });

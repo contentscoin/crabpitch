@@ -1,5 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { requireUser, getProfile, bumpPressReleases } from "./model";
 import { PLAN_LIMITS, currentMonth, type Plan } from "./lib/plans";
 import { canAccessClientScoped, getMembership } from "./lib/agencyAuth";
@@ -56,6 +58,67 @@ const geoArgs = {
   subheads: v.optional(v.array(v.string())),
 } as const;
 
+export interface PressReleaseInput {
+  title: string;
+  headlines: string[];
+  body: string;
+  topicTags: string[];
+  who?: string;
+  newsValue?: string;
+  numbers?: string;
+  quote?: string;
+  links?: string[];
+  keyTakeaways?: string[];
+  faq?: Array<{ q: string; a: string }>;
+  subheads?: string[];
+}
+
+/**
+ * 보도자료 저장 — **웹앱과 MCP가 공유하는 단일 구현.**
+ *
+ * `userId`를 인자로 받는 이유는 MCP에 로그인 세션이 없기 때문이다(키로 사용자를 찾는다).
+ * 경로마다 구현을 따로 두면 월 한도 같은 규칙이 한쪽에서만 걸린다.
+ */
+export async function createPressReleaseForUser(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  args: PressReleaseInput,
+): Promise<Id<"pressReleases">> {
+  // 무료 티어 보도자료 월 한도 체크
+  const profile = await getProfile(ctx, userId);
+  const plan: Plan = (profile?.plan as Plan) ?? "free";
+  const month = currentMonth();
+  const usage = await ctx.db
+    .query("usage")
+    .withIndex("by_user_month", (q) => q.eq("userId", userId).eq("month", month))
+    .unique();
+  if ((usage?.pressReleasesUsed ?? 0) >= PLAN_LIMITS[plan].pressReleases) {
+    throw new Error(
+      `이번 달 보도자료 작성 한도(${PLAN_LIMITS[plan].pressReleases}건)를 초과했습니다. 플랜을 업그레이드하세요.`,
+    );
+  }
+
+  const id = await ctx.db.insert("pressReleases", {
+    userId,
+    title: args.title,
+    headlines: args.headlines,
+    body: args.body,
+    topicTags: args.topicTags,
+    who: args.who,
+    newsValue: args.newsValue,
+    numbers: args.numbers,
+    quote: args.quote,
+    links: args.links,
+    keyTakeaways: args.keyTakeaways,
+    faq: args.faq,
+    subheads: args.subheads,
+    status: "ready",
+    agencyClientId: profile?.activeClientId,
+  });
+  await bumpPressReleases(ctx, userId, 1);
+  return id;
+}
+
 export const create = mutation({
   args: {
     title: v.string(),
@@ -71,40 +134,7 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
-
-    // 무료 티어 보도자료 월 한도 체크
-    const profile = await getProfile(ctx, userId);
-    const plan: Plan = (profile?.plan as Plan) ?? "free";
-    const month = currentMonth();
-    const usage = await ctx.db
-      .query("usage")
-      .withIndex("by_user_month", (q) => q.eq("userId", userId).eq("month", month))
-      .unique();
-    if ((usage?.pressReleasesUsed ?? 0) >= PLAN_LIMITS[plan].pressReleases) {
-      throw new Error(
-        `이번 달 보도자료 작성 한도(${PLAN_LIMITS[plan].pressReleases}건)를 초과했습니다. 플랜을 업그레이드하세요.`,
-      );
-    }
-
-    const id = await ctx.db.insert("pressReleases", {
-      userId,
-      title: args.title,
-      headlines: args.headlines,
-      body: args.body,
-      topicTags: args.topicTags,
-      who: args.who,
-      newsValue: args.newsValue,
-      numbers: args.numbers,
-      quote: args.quote,
-      links: args.links,
-      keyTakeaways: args.keyTakeaways,
-      faq: args.faq,
-      subheads: args.subheads,
-      status: "ready",
-      agencyClientId: profile?.activeClientId,
-    });
-    await bumpPressReleases(ctx, userId, 1);
-    return id;
+    return createPressReleaseForUser(ctx, userId, args);
   },
 });
 

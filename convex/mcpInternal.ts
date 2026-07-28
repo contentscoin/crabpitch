@@ -15,7 +15,12 @@ import { journalistCode } from "./lib/mask";
 import { classifyReply } from "./lib/replyClassifier";
 import { guideSectionText, type GuideSection } from "./lib/pressGuide";
 import { lintPressRelease } from "./lib/pressLint";
-import { buildEmailDraft } from "./lib/emailTemplate";
+import { buildEmailDraft, isEmailTemplatePresetId } from "./lib/emailTemplate";
+import { needsPilotApproval } from "./lib/pilotGate";
+import { createPressReleaseForUser } from "./pressReleases";
+import { createCampaignForUser } from "./campaigns";
+import { matchForCampaignForUser } from "./journalists";
+import { generateDraftsForUser } from "./drafts";
 
 const MCP_OPT_OUT =
   "본 메일 수신을 원치 않으시면 회신으로 '수신거부'라 남겨주세요. 즉시 명단에서 제외하겠습니다.";
@@ -235,5 +240,230 @@ export const pressGuide = internalQuery({
         : undefined,
       note: "표시·광고 계열 규범만 다룹니다. 언론중재법은 범위 밖이며 법률 검토를 대체하지 않습니다.",
     };
+  },
+});
+
+/* ── 캠페인 파이프라인 (MCP) ──────────────────────────────────────────────
+ * 아래 함수들은 **웹앱과 같은 구현**을 부른다(`*ForUser` 헬퍼). MCP용 사본을 따로
+ * 두면 월 한도·억제 리스트·재접근 거부 같은 규칙이 한쪽에서만 걸린다.
+ *
+ * ⚠️ 여기 어디에도 **발송 확정은 없다.** 발송은 `smtpActions`/`gmailActions`가
+ *    `drafts.selectForExternalSend` → `confirmExternalSent` 게이트를 통과해서 한다.
+ */
+
+/** 캠페인 목록 — 기자 실명·이메일은 포함하지 않는다(카운트만). */
+export const campaignList = internalQuery({
+  args: { userId: v.id("users"), limit: v.optional(v.number()) },
+  handler: async (ctx, { userId, limit }) => {
+    const campaigns = await ctx.db
+      .query("campaigns")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .order("desc")
+      .take(Math.min(50, Math.max(1, limit ?? 20)));
+    return Promise.all(
+      campaigns.map(async (c) => {
+        const drafts = await ctx.db
+          .query("emailDrafts")
+          .withIndex("by_campaign", (q) => q.eq("campaignId", c._id))
+          .collect();
+        const matches = await ctx.db
+          .query("matches")
+          .withIndex("by_campaign", (q) => q.eq("campaignId", c._id))
+          .collect();
+        return {
+          campaignId: c._id,
+          name: c.name,
+          status: c.status,
+          matched: matches.length,
+          included: matches.filter((m) => m.included).length,
+          drafts: drafts.filter((d) => d.status === "draft" || d.status === "queued").length,
+          sent: drafts.filter((d) => d.status === "sent" || d.status === "published").length,
+          scheduledSendAt: c.scheduledSendAt,
+        };
+      }),
+    );
+  },
+});
+
+/**
+ * 캠페인 상세 — 발송 전에 무엇이 걸려 있는지 보여 준다.
+ *
+ * 기자는 **익명 코드**로만 나간다. 발송 대상을 세는 데 실명이 필요하지 않다.
+ */
+export const campaignDetail = internalQuery({
+  args: { userId: v.id("users"), campaignId: v.id("campaigns") },
+  handler: async (ctx, { userId, campaignId }) => {
+    const campaign = await ctx.db.get(campaignId);
+    if (!campaign || campaign.userId !== userId) {
+      throw new Error("캠페인을 찾을 수 없습니다.");
+    }
+    const pr = await ctx.db.get(campaign.pressReleaseId);
+    const drafts = await ctx.db
+      .query("emailDrafts")
+      .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
+      .collect();
+    const pending = drafts.filter((d) => d.status === "draft" || d.status === "queued");
+    return {
+      campaignId,
+      name: campaign.name,
+      status: campaign.status,
+      pressRelease: pr ? { title: pr.title, topicTags: pr.topicTags } : null,
+      pendingDrafts: pending.length,
+      sentDrafts: drafts.length - pending.length,
+      // 파일럿 게이트는 발송 시점에도 다시 걸린다. 여기서는 "지금 걸릴 것인가"만 알려 준다.
+      pilotApprovalNeeded: needsPilotApproval(pending),
+      complianceBlocked: pending.filter(
+        (d) => d.complianceLevel === "fail" || d.complianceLevel === "blocked",
+      ).length,
+      complianceWarned: pending.filter((d) => d.complianceLevel === "warn").length,
+      drafts: pending.map((d) => ({
+        draftId: d._id,
+        journalist: journalistCode(String(d.journalistId)),
+        subject: d.subject,
+        approved: d.approvedAt !== undefined,
+        compliance: d.complianceLevel ?? "pass",
+      })),
+    };
+  },
+});
+
+/** 보도자료 저장 + 캠페인 생성을 한 번에 — MCP에서 두 번 왕복할 이유가 없다. */
+export const createCampaign = internalMutation({
+  args: {
+    userId: v.id("users"),
+    title: v.string(),
+    body: v.string(),
+    headlines: v.optional(v.array(v.string())),
+    topicTags: v.optional(v.array(v.string())),
+    who: v.optional(v.string()),
+    newsValue: v.optional(v.string()),
+    numbers: v.optional(v.string()),
+    quote: v.optional(v.string()),
+    links: v.optional(v.array(v.string())),
+    name: v.optional(v.string()),
+  },
+  handler: async (ctx, { userId, name, ...pr }) => {
+    const pressReleaseId = await createPressReleaseForUser(ctx, userId, {
+      ...pr,
+      headlines: pr.headlines?.length ? pr.headlines : [pr.title],
+      topicTags: pr.topicTags ?? [],
+    });
+    const campaignId = await createCampaignForUser(ctx, userId, { pressReleaseId, name });
+    return { campaignId, pressReleaseId };
+  },
+});
+
+export const matchCampaign = internalMutation({
+  args: {
+    userId: v.id("users"),
+    campaignId: v.id("campaigns"),
+    topK: v.optional(v.number()),
+  },
+  handler: async (ctx, { userId, campaignId, topK }) => {
+    const matched = await matchForCampaignForUser(ctx, userId, { campaignId, topK });
+    return { matched };
+  },
+});
+
+export const generateDrafts = internalMutation({
+  args: {
+    userId: v.id("users"),
+    campaignId: v.id("campaigns"),
+    preset: v.optional(v.string()),
+  },
+  handler: async (ctx, { userId, campaignId, preset }) => {
+    // 모르는 프리셋 이름은 조용히 무시하고 기본값을 쓴다 — 에이전트가 지어낸 값 때문에
+    // 파이프라인 전체가 멈추는 편이 더 나쁘다.
+    const presetId =
+      preset && isEmailTemplatePresetId(preset) ? preset : undefined;
+    const created = await generateDraftsForUser(ctx, userId, {
+      campaignId,
+      preset: presetId,
+    });
+    return { created, preset: presetId ?? "standard" };
+  },
+});
+
+/**
+ * 초안 승인 — 파일럿 게이트를 넘기려면 사용자가 실제로 읽었어야 한다.
+ *
+ * ⚠️ MCP에서 "전부 승인"을 허용하지 않는다. 초안을 한 건도 안 읽고 승인하는 것이
+ *    파일럿 게이트가 막으려던 바로 그 상황이다. draftId를 하나씩 받는다.
+ */
+export const approveDrafts = internalMutation({
+  args: { userId: v.id("users"), draftIds: v.array(v.id("emailDrafts")) },
+  handler: async (ctx, { userId, draftIds }) => {
+    let approved = 0;
+    for (const id of draftIds) {
+      const d = await ctx.db.get(id);
+      if (!d || d.userId !== userId) continue;
+      if (d.status !== "draft" && d.status !== "queued") continue;
+      // 웹앱의 `drafts.approveDraft`와 같은 필드를 쓴다 — 승인 표시가 경로마다
+      // 다르면 파일럿 게이트가 한쪽 승인만 인정하게 된다.
+      await ctx.db.patch(id, { approvedAt: Date.now() });
+      approved += 1;
+    }
+    return { approved };
+  },
+});
+
+/**
+ * 기자 메모 — 회신·게재 이력을 사람이 적어 두는 자리.
+ * 조회는 익명 코드로 하고, 쓰기는 매칭에 잡힌 기자에 한한다.
+ */
+export const journalistNote = internalMutation({
+  args: {
+    userId: v.id("users"),
+    campaignId: v.id("campaigns"),
+    draftId: v.id("emailDrafts"),
+    note: v.string(),
+  },
+  handler: async (ctx, { userId, campaignId, draftId, note }) => {
+    const campaign = await ctx.db.get(campaignId);
+    if (!campaign || campaign.userId !== userId) throw new Error("캠페인을 찾을 수 없습니다.");
+    const draft = await ctx.db.get(draftId);
+    if (!draft || draft.campaignId !== campaignId) throw new Error("초안을 찾을 수 없습니다.");
+    const journalist = await ctx.db.get(draft.journalistId);
+    if (!journalist) throw new Error("기자를 찾을 수 없습니다.");
+    const stamped = `[${new Date().toISOString().slice(0, 10)}] ${note.trim()}`;
+    await ctx.db.patch(journalist._id, {
+      notes: journalist.notes ? `${journalist.notes}\n${stamped}` : stamped,
+    });
+    return { journalist: journalistCode(String(journalist._id)), note: stamped };
+  },
+});
+
+/** 회신 목록 — 분류 결과와 함께. 기자는 익명 코드로만 나간다. */
+export const replyList = internalQuery({
+  args: { userId: v.id("users"), campaignId: v.optional(v.id("campaigns")) },
+  handler: async (ctx, { userId, campaignId }) => {
+    const campaigns = campaignId
+      ? [await ctx.db.get(campaignId)]
+      : await ctx.db
+          .query("campaigns")
+          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .order("desc")
+          .take(20);
+    const out = [];
+    for (const c of campaigns) {
+      if (!c || c.userId !== userId) continue;
+      const replies = await ctx.db
+        .query("replies")
+        .withIndex("by_campaign", (q) => q.eq("campaignId", c._id))
+        .collect();
+      for (const r of replies) {
+        out.push({
+          campaignId: c._id,
+          campaignName: c.name,
+          journalist: journalistCode(String(r.journalistId)),
+          type: r.type,
+          handled: r.handled,
+          needsEscalation: r.needsEscalation === true,
+          receivedAt: r._creationTime,
+          reapproachOk: r.reapproachOk,
+        });
+      }
+    }
+    return out;
   },
 });

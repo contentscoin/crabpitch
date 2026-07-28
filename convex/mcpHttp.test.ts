@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getFunctionName } from "convex/server";
 import { handleMcpRequest } from "./mcpHttp";
+import { MCP_TOOL_SKILL } from "./lib/plans";
 
 /**
  * MCP HTTP 엔드포인트 계약 테스트.
@@ -106,7 +107,7 @@ describe("MCP HTTP 엔드포인트", () => {
     expect(body.result.capabilities.tools).toBeDefined();
   });
 
-  it("tools/list — 도구 6종을 노출한다", async () => {
+  it("tools/list — 파이프라인 전체를 노출한다", async () => {
     const { ctx } = makeCtx();
     const res = await handleMcpRequest(
       ctx,
@@ -120,8 +121,33 @@ describe("MCP HTTP 엔드포인트", () => {
       "crabpitch_email_template",
       "crabpitch_classify",
       "crabpitch_mail_setup",
+      "crabpitch_campaign_list",
+      "crabpitch_campaign_create",
+      "crabpitch_campaign_match",
+      "crabpitch_drafts_generate",
+      "crabpitch_campaign_status",
+      "crabpitch_drafts_approve",
+      "crabpitch_campaign_send",
+      "crabpitch_journalist_note",
+      "crabpitch_replies",
       "crabpitch_press_guide",
     ]);
+  });
+
+  it("모든 도구가 플랜 표에 등록돼 있다", async () => {
+    // 등록을 빠뜨린 도구는 게이트 없이 열린다 — 무료에게도 그대로 보인다.
+    const { ctx } = makeCtx();
+    const res = await handleMcpRequest(
+      ctx,
+      post(VALID_KEY, { jsonrpc: "2.0", id: 23, method: "tools/list" }),
+    );
+    const body = await res.json();
+    const names = (body.result.tools as Array<{ name: string }>).map((t) => t.name);
+    const ungated = ["crabpitch_status", "crabpitch_mail_setup"];
+    for (const n of names) {
+      if (ungated.includes(n)) continue;
+      expect(MCP_TOOL_SKILL[n], `${n}이(가) 플랜 표에 없습니다`).toBeDefined();
+    }
   });
 
   it("어떤 도구도 비밀번호를 인자로 받지 않는다", async () => {
@@ -186,20 +212,125 @@ describe("MCP HTTP 엔드포인트", () => {
     // 메일 설정은 무료에도 열어 둔다 — 무료 사용자도 웹앱에서 발송할 수 있고,
     // 설정을 막으면 잠기는 건 발송이 아니라 온보딩이다.
     expect(names.sort()).toEqual([
+      "crabpitch_campaign_create",
+      "crabpitch_campaign_list",
+      "crabpitch_campaign_status",
       "crabpitch_mail_setup",
       "crabpitch_press_guide",
       "crabpitch_status",
     ]);
   });
 
-  it("유료 키에는 도구 6종이 모두 보인다", async () => {
+  it("무료는 매칭·발송 계열을 볼 수 없다", async () => {
+    const { ctx } = makeCtx();
+    const res = await handleMcpRequest(
+      ctx,
+      post(FREE_KEY, { jsonrpc: "2.0", id: 24, method: "tools/list" }),
+    );
+    const body = await res.json();
+    const names = (body.result.tools as Array<{ name: string }>).map((t) => t.name);
+    for (const locked of [
+      "crabpitch_campaign_match",
+      "crabpitch_drafts_generate",
+      "crabpitch_drafts_approve",
+      "crabpitch_campaign_send",
+      "crabpitch_replies",
+    ]) {
+      expect(names).not.toContain(locked);
+    }
+  });
+
+  it("유료 키에는 도구가 모두 보인다", async () => {
     const { ctx } = makeCtx();
     const res = await handleMcpRequest(
       ctx,
       post(VALID_KEY, { jsonrpc: "2.0", id: 7, method: "tools/list" }),
     );
     const body = await res.json();
-    expect((body.result.tools as unknown[]).length).toBe(6);
+    expect((body.result.tools as unknown[]).length).toBe(15);
+  });
+
+  it("confirm 없이 crabpitch_campaign_send를 부르면 보내지 않는다", async () => {
+    // 발송은 되돌릴 수 없고, 에이전트가 대화 흐름상 "다음 단계"로 판단해 눌러 버리기
+    // 쉬운 자리다. 확인 인자가 없으면 현황만 돌려주고 발송 액션을 부르지 않아야 한다.
+    const { ctx, calls } = makeCtx({
+      "mcpInternal:campaignDetail": () => ({ pendingDrafts: 3, name: "테스트" }),
+    });
+    const res = await handleMcpRequest(
+      ctx,
+      post(VALID_KEY, {
+        jsonrpc: "2.0",
+        id: 25,
+        method: "tools/call",
+        params: { name: "crabpitch_campaign_send", arguments: { campaignId: "c1" } },
+      }),
+    );
+    const body = await res.json();
+    const out = JSON.parse(body.result.content[0].text);
+    expect(out.sent).toBe(0);
+    expect(out.confirmationRequired).toMatch(/동의/);
+    expect(calls).not.toContain("smtpActions:sendCampaignInternal");
+  });
+
+  it("confirm=true면 웹앱과 같은 발송 경로를 부른다", async () => {
+    // MCP 전용 발송 경로를 만들면 게이트가 하나 더 생긴다. 같은 액션이어야 한다.
+    const { ctx, calls } = makeCtx({
+      "smtpActions:sendCampaignInternal": () => ({ sent: 3, failed: 0, mode: "smtp" }),
+    });
+    const res = await handleMcpRequest(
+      ctx,
+      post(VALID_KEY, {
+        jsonrpc: "2.0",
+        id: 26,
+        method: "tools/call",
+        params: {
+          name: "crabpitch_campaign_send",
+          arguments: { campaignId: "c1", confirm: true },
+        },
+      }),
+    );
+    const body = await res.json();
+    expect(JSON.parse(body.result.content[0].text).sent).toBe(3);
+    expect(calls).toContain("smtpActions:sendCampaignInternal");
+  });
+
+  it("confirm이 문자열 \"true\"여도 발송하지 않는다", async () => {
+    // 느슨한 비교를 쓰면 에이전트가 넘긴 문자열이 동의로 통과한다.
+    const { ctx, calls } = makeCtx({
+      "mcpInternal:campaignDetail": () => ({ pendingDrafts: 1 }),
+    });
+    await handleMcpRequest(
+      ctx,
+      post(VALID_KEY, {
+        jsonrpc: "2.0",
+        id: 27,
+        method: "tools/call",
+        params: {
+          name: "crabpitch_campaign_send",
+          arguments: { campaignId: "c1", confirm: "true" },
+        },
+      }),
+    );
+    expect(calls).not.toContain("smtpActions:sendCampaignInternal");
+  });
+
+  it("무료는 crabpitch_campaign_send를 직접 불러도 막힌다", async () => {
+    const { ctx, calls } = makeCtx();
+    const res = await handleMcpRequest(
+      ctx,
+      post(FREE_KEY, {
+        jsonrpc: "2.0",
+        id: 28,
+        method: "tools/call",
+        params: {
+          name: "crabpitch_campaign_send",
+          arguments: { campaignId: "c1", confirm: true },
+        },
+      }),
+    );
+    const body = await res.json();
+    expect(body.result.isError).toBe(true);
+    expect(calls).not.toContain("smtpActions:sendCampaignInternal");
   });
 
   it("무료 키도 crabpitch_mail_setup을 호출할 수 있다", async () => {

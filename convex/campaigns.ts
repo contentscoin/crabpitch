@@ -1,5 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { getProfile, requireUser } from "./model";
 import { canAccessClientScoped, getMembership } from "./lib/agencyAuth";
 import { campaignStatusValidator } from "./schema";
@@ -77,25 +79,34 @@ export const get = query({
   },
 });
 
+/**
+ * 캠페인 생성 — **웹앱과 MCP가 공유하는 단일 구현.**
+ * `userId`를 인자로 받는다: MCP에는 로그인 세션이 없고 키로 사용자를 찾는다.
+ */
+export async function createCampaignForUser(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  { pressReleaseId, name }: { pressReleaseId: Id<"pressReleases">; name?: string },
+): Promise<Id<"campaigns">> {
+  const pr = await ctx.db.get(pressReleaseId);
+  if (!pr || !(await canAccessClientScoped(ctx, userId, pr.userId, pr.agencyClientId))) {
+    throw new Error("보도자료를 찾을 수 없습니다.");
+  }
+  const profile = await getProfile(ctx, userId);
+  return ctx.db.insert("campaigns", {
+    userId: pr.userId,
+    pressReleaseId,
+    name: name ?? pr.title,
+    status: "draft",
+    agencyClientId: profile?.activeClientId ?? pr.agencyClientId,
+  });
+}
+
 export const create = mutation({
   args: { pressReleaseId: v.id("pressReleases"), name: v.optional(v.string()) },
-  handler: async (ctx, { pressReleaseId, name }) => {
+  handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
-    const pr = await ctx.db.get(pressReleaseId);
-    if (
-      !pr ||
-      !(await canAccessClientScoped(ctx, userId, pr.userId, pr.agencyClientId))
-    ) {
-      throw new Error("보도자료를 찾을 수 없습니다.");
-    }
-    const profile = await getProfile(ctx, userId);
-    return ctx.db.insert("campaigns", {
-      userId: pr.userId,
-      pressReleaseId,
-      name: name ?? pr.title,
-      status: "draft",
-      agencyClientId: profile?.activeClientId ?? pr.agencyClientId,
-    });
+    return createCampaignForUser(ctx, userId, args);
   },
 });
 
