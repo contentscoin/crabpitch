@@ -10,6 +10,10 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Input, Label } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { useConfirm } from "@/components/ui/Dialog";
+import { useToast } from "@/components/ui/Toast";
+import { toUserMessage } from "@/lib/errorMessage";
 
 async function copyText(text: string) {
   await navigator.clipboard.writeText(text);
@@ -21,9 +25,12 @@ export function UserMcpKeysPanel() {
   const create = useMutation(api.userMcpKeys.create);
   const revoke = useMutation(api.userMcpKeys.revoke);
 
+  const confirm = useConfirm();
+  const toast = useToast();
+
   const [name, setName] = useState("내 Claude");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<string | null>(null);
   const [created, setCreated] = useState<{
     apiKey: string;
     mcpUrl: string;
@@ -39,7 +46,6 @@ export function UserMcpKeysPanel() {
 
   async function onCreate() {
     setBusy(true);
-    setError(null);
     try {
       const result = await create({ name: name.trim() || "기본" });
       setCreated({
@@ -49,26 +55,35 @@ export function UserMcpKeysPanel() {
       });
       setShowAdvanced(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      toast.error(toUserMessage(e));
     } finally {
       setBusy(false);
     }
   }
 
   async function onRevoke(keyId: Id<"userMcpKeys">) {
-    if (
-      !window.confirm(
-        "이 연결을 끊을까요? 등록해 둔 AI에서는 더 이상 동작하지 않습니다.",
-      )
-    ) {
-      return;
+    const ok = await confirm({
+      title: "이 연결을 끊을까요?",
+      description: "등록해 둔 AI에서는 더 이상 동작하지 않습니다. 되돌릴 수 없습니다.",
+      confirmLabel: "연결 끊기",
+      variant: "danger",
+    });
+    if (!ok) return;
+    setRevoking(keyId);
+    try {
+      await revoke({ keyId });
+      if (created) setCreated(null);
+      toast.success("연결을 끊었습니다.");
+    } catch (e) {
+      // 기존에는 await만 하고 오류를 삼켰다 — 실패해도 목록이 그대로여서 사용자는 이유를 몰랐다.
+      toast.error(toUserMessage(e));
+    } finally {
+      setRevoking(null);
     }
-    await revoke({ keyId });
-    if (created) setCreated(null);
   }
 
   if (access === undefined || keys === undefined) {
-    return <div className="h-40 animate-pulse rounded-lg bg-surface" />;
+    return <Skeleton className="h-40" />;
   }
 
   if (!access.allowed) {
@@ -121,7 +136,9 @@ export function UserMcpKeysPanel() {
             </div>
             <Button
               type="button"
-              disabled={busy || access.activeKeyCount >= access.maxKeys}
+              icon={KeyRound}
+              loading={busy}
+              disabled={access.activeKeyCount >= access.maxKeys}
               onClick={onCreate}
             >
               {busy ? "만드는 중…" : "키 만들기"}
@@ -133,7 +150,6 @@ export function UserMcpKeysPanel() {
               있습니다.
             </p>
           )}
-          {error && <p className="text-sm text-danger">{error}</p>}
         </CardContent>
       </Card>
 
@@ -256,10 +272,11 @@ export function UserMcpKeysPanel() {
                     type="button"
                     size="sm"
                     variant="danger"
+                    icon={Trash2}
+                    loading={revoking === k._id}
                     onClick={() => onRevoke(k._id)}
                   >
-                    <Trash2 className="h-4 w-4" />
-                    연결 끊기
+                    {revoking === k._id ? "끊는 중…" : "연결 끊기"}
                   </Button>
                 </li>
               ))}

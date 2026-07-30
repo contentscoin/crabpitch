@@ -32,6 +32,7 @@ import {
 } from "@/convex/lib/mediaKitCompleteness";
 // 자산 규칙·규정 4항 문구는 팩(pressGuide)이 정본 — 화면에서 다시 쓰지 않는다.
 import { ASSET_POLICY_ITEMS, GEO_ASSET_RULES } from "@/convex/lib/pressGuide";
+import { Skeleton } from "@/components/ui/Skeleton";
 
 const DEFAULT_KIT_NAME = "새 미디어킷";
 /** 미확정 표기 정본 — AI가 남기면 지우지 말고 사용자가 확인해야 한다. */
@@ -62,7 +63,7 @@ export default function MediaKitPage() {
       <ByoAiConnectPanel skill="media-kit-builder" compact />
 
       {kits === undefined ? (
-        <div className="h-40 animate-pulse rounded-lg border border-border bg-card" />
+        <Skeleton className="h-40" />
       ) : kits.length === 0 ? (
         <EmptyState
           icon={FileText}
@@ -391,7 +392,7 @@ function MediaKitEditor({ id }: { id: Id<"mediaKits"> }) {
     [form],
   );
 
-  if (kit === undefined) return <div className="h-96 animate-pulse rounded-lg border border-border bg-card" />;
+  if (kit === undefined) return <Skeleton className="h-96" />;
   if (kit === null) return <p className="text-muted">미디어킷을 찾을 수 없습니다.</p>;
 
   /** 접어 둔 3개 섹션의 배점 합 — 숫자를 화면에 직접 쓰지 않고 채점표에서 받아 온다. */

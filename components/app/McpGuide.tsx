@@ -8,6 +8,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { Skeleton } from "@/components/ui/Skeleton";
 import {
   MCP_PLATFORMS,
   MCP_PRIVACY_RULES,
@@ -164,7 +165,7 @@ export function McpDashboardCard() {
   const keys = useQuery(api.userMcpKeys.list);
 
   if (access === undefined) {
-    return <div className="h-28 animate-pulse rounded-lg bg-surface" />;
+    return <Skeleton className="h-28" />;
   }
 
   const activeCount = keys?.filter((k) => !k.revoked).length ?? 0;

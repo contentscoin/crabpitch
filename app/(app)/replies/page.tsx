@@ -7,6 +7,7 @@ import { Inbox, Check, CalendarClock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { PageHeader, EmptyState, ReplyTypeBadge, REPLY_TYPES } from "@/components/app/bits";
+import { Skeleton } from "@/components/ui/Skeleton";
 
 export default function RepliesPage() {
   const inbox = useQuery(api.replies.inbox);
@@ -22,7 +23,7 @@ export default function RepliesPage() {
       />
 
       {inbox === undefined ? (
-        <div className="h-40 animate-pulse rounded-lg border border-border bg-card" />
+        <Skeleton className="h-40" />
       ) : inbox.length === 0 ? (
         <EmptyState
           icon={Inbox}

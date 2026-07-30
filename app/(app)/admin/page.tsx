@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/Badge";
 import { PageHeader, StatCard } from "@/components/app/bits";
 import { PLANS } from "@/lib/brand";
 import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/Skeleton";
 
 type PlanId = "free" | "solo" | "growth" | "agency";
 
@@ -260,7 +261,7 @@ export default function AdminPage() {
   }
 
   if (access === undefined) {
-    return <div className="h-64 animate-pulse rounded-lg bg-surface" />;
+    return <Skeleton className="h-64" />;
   }
 
   if (!access.allowed) {
@@ -533,7 +534,7 @@ export default function AdminPage() {
         <Card>
           <CardContent className="space-y-3 pt-5">
             {packSync === undefined ? (
-              <div className="h-32 animate-pulse rounded-md bg-surface" />
+              <Skeleton className="h-32" />
             ) : packs.length === 0 ? (
               <p className="text-sm text-muted">
                 등록된 팩이 없습니다. 「전체 동기화」로 팩 목록을 먼저 가져오세요.
@@ -756,7 +757,7 @@ export default function AdminPage() {
           <CardContent className="space-y-2 pt-5">
             <div className="text-sm font-bold">최근 실행 기록</div>
             {packSync === undefined ? (
-              <div className="h-24 animate-pulse rounded-md bg-surface" />
+              <Skeleton className="h-24" />
             ) : packSync.recentRuns.length === 0 ? (
               <p className="text-sm text-muted">실행 기록이 없습니다.</p>
             ) : (
@@ -800,7 +801,7 @@ export default function AdminPage() {
         <Card>
           <CardContent className="space-y-3 pt-5">
             {users === undefined ? (
-              <div className="h-32 animate-pulse rounded-md bg-surface" />
+              <Skeleton className="h-32" />
             ) : users.length === 0 ? (
               <p className="text-sm text-muted">사용자가 없습니다.</p>
             ) : (
@@ -898,7 +899,7 @@ export default function AdminPage() {
         <Card>
           <CardContent className="space-y-3 pt-5">
             {mcpKeys === undefined ? (
-              <div className="h-24 animate-pulse rounded-md bg-surface" />
+              <Skeleton className="h-24" />
             ) : mcpKeys.length === 0 ? (
               <p className="text-sm text-muted">발급된 MCP 키가 없습니다.</p>
             ) : (
@@ -982,7 +983,7 @@ export default function AdminPage() {
         </div>
 
         {journalists === undefined ? (
-          <div className="h-40 animate-pulse rounded-lg bg-surface" />
+          <Skeleton className="h-40" />
         ) : journalists.total === 0 ? (
           <Card>
             <CardContent className="space-y-2 pt-5 text-sm">

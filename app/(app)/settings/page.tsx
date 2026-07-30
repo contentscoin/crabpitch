@@ -9,8 +9,19 @@ import { Mail, Trash2, Check, Plug, RefreshCw, Bot } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
-import { Input, Label, Textarea } from "@/components/ui/Input";
+import { Input, Textarea } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
+import { FormField } from "@/components/ui/FormField";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { useToast } from "@/components/ui/Toast";
+import { toUserMessage } from "@/lib/errorMessage";
+import {
+  BOILERPLATE_MAX,
+  BOILERPLATE_MIN,
+  hasProfileFormErrors,
+  validateProfileForm,
+  type ProfileFormErrors,
+} from "@/lib/profileForm";
 import { PageHeader } from "@/components/app/bits";
 import { ByoAiConnectPanel } from "@/components/app/ByoAiConnect";
 import { SmtpConnectPanel } from "@/components/app/SmtpConnect";
@@ -19,13 +30,14 @@ import { PLANS } from "@/lib/brand";
 
 export default function SettingsPage() {
   return (
-    <Suspense fallback={<div className="h-64 animate-pulse rounded-lg bg-surface" />}>
+    <Suspense fallback={<Skeleton className="h-64" />}>
       <SettingsInner />
     </Suspense>
   );
 }
 
 function SettingsInner() {
+  const toast = useToast();
   const searchParams = useSearchParams();
   const data = useQuery(api.profiles.getMyProfile);
   const usage = useQuery(api.usage.getMyUsage);
@@ -44,11 +56,21 @@ function SettingsInner() {
     contactEmail: "",
     boilerplate: "",
   });
-  const [saved, setSaved] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [errors, setErrors] = useState<ProfileFormErrors>({});
   const [gmailBusy, setGmailBusy] = useState(false);
-  const [gmailMsg, setGmailMsg] = useState<string | null>(null);
   const [ocBusy, setOcBusy] = useState(false);
-  const [ocMsg, setOcMsg] = useState<string | null>(null);
+
+  /** 입력하는 동안 해당 필드 오류만 지운다 — 다른 필드 오류는 남겨 둔다. */
+  function setField(key: keyof typeof form, value: string) {
+    setForm((f) => ({ ...f, [key]: value }));
+    setErrors((e) => {
+      if (!e[key]) return e;
+      const next = { ...e };
+      delete next[key];
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (data?.profile) {
@@ -61,45 +83,57 @@ function SettingsInner() {
     }
   }, [data?.profile?._id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // OAuth 콜백 결과는 성공·실패가 확실히 갈린다 — 색으로 구분해야 한다.
   useEffect(() => {
     const status = searchParams.get("gmail");
-    if (status === "connected") setGmailMsg("Gmail 연결이 완료되었습니다.");
+    if (status === "connected") toast.success("Gmail 연결이 완료되었습니다.");
     if (status === "error") {
       const reason = searchParams.get("reason") ?? "unknown";
-      setGmailMsg(`Gmail 연결 실패: ${reason}`);
+      toast.error(`Gmail 연결 실패: ${reason}`);
     }
-  }, [searchParams]);
+    // toast는 안정적인 참조라 의존성에 넣어도 재실행되지 않는다.
+  }, [searchParams, toast]);
 
   const currentPlan = usage?.plan ?? "free";
 
   async function saveProfile() {
-    await update(form);
-    setSaved(true);
+    const found = validateProfileForm(form);
+    setErrors(found);
+    if (hasProfileFormErrors(found)) return;
+
+    setSavingProfile(true);
+    try {
+      await update(form);
+      toast.success("저장했습니다.");
+    } catch (e) {
+      // 기존에는 try/catch가 없어 실패해도 "✓ 저장됨"이 떴다(미처리 rejection).
+      toast.error(toUserMessage(e));
+    } finally {
+      setSavingProfile(false);
+    }
   }
 
   async function connectGmail() {
     setGmailBusy(true);
-    setGmailMsg(null);
     try {
       const { url } = await getGmailUrl({});
       window.location.href = url;
     } catch (e) {
-      setGmailMsg(e instanceof Error ? e.message : "Gmail 연결을 시작할 수 없습니다.");
+      toast.error(toUserMessage(e));
       setGmailBusy(false);
     }
   }
 
   async function testOpenCrab() {
     setOcBusy(true);
-    setOcMsg(null);
     try {
       const r = await syncOpenCrab({ topicTags: ["IT·스타트업"], topK: 10 });
-      setOcMsg(
+      toast.success(
         r.message ??
           `${r.mode}: synced=${r.synced} inserted=${r.inserted} updated=${r.updated}`,
       );
     } catch (e) {
-      setOcMsg(e instanceof Error ? e.message : "OpenCrab 동기화 실패");
+      toast.error(toUserMessage(e));
     } finally {
       setOcBusy(false);
     }
@@ -133,7 +167,7 @@ function SettingsInner() {
         <Card>
           <CardContent className="space-y-3 pt-6">
             {integrations === undefined ? (
-              <div className="h-20 animate-pulse rounded-md bg-surface" />
+              <Skeleton className="h-20" />
             ) : (
               <ul className="space-y-2 text-sm">
                 <li className="flex items-center justify-between gap-2">
@@ -190,11 +224,10 @@ function SettingsInner() {
               </ul>
             )}
             <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-              <Button size="sm" variant="subtle" disabled={ocBusy} onClick={testOpenCrab}>
-                <RefreshCw className={`h-4 w-4 ${ocBusy ? "animate-spin" : ""}`} />
+              <Button size="sm" variant="subtle" icon={RefreshCw} loading={ocBusy} onClick={testOpenCrab}>
                 OpenCrab 동기화 테스트
               </Button>
-              {ocMsg && <p className="text-xs text-foreground-muted">{ocMsg}</p>}
+
             </div>
             <p className="text-xs text-muted">
               Convex 환경변수만 표시합니다. 키 값은 노출되지 않습니다. Google 콘솔에{" "}
@@ -210,56 +243,65 @@ function SettingsInner() {
         <Card>
           <CardContent className="space-y-4 pt-6">
             <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="cn">회사/브랜드명</Label>
+              <FormField label="회사/브랜드명" required error={errors.companyName}>
+                {(id, describedBy) => (
+                  <Input
+                    id={id}
+                    aria-invalid={!!errors.companyName || undefined}
+                    aria-describedby={describedBy}
+                    value={form.companyName}
+                    onChange={(e) => setField("companyName", e.target.value)}
+                  />
+                )}
+              </FormField>
+              <FormField label="보내는 사람" description="기자에게 표시되는 이름입니다.">
+                {(id, describedBy) => (
+                  <Input
+                    id={id}
+                    aria-describedby={describedBy}
+                    value={form.senderName}
+                    onChange={(e) => setField("senderName", e.target.value)}
+                  />
+                )}
+              </FormField>
+            </div>
+            <FormField
+              label="회신용 이메일"
+              required
+              error={errors.contactEmail}
+              description="기자 답장을 받을 주소입니다."
+            >
+              {(id, describedBy) => (
                 <Input
-                  id="cn"
-                  value={form.companyName}
-                  onChange={(e) => {
-                    setForm({ ...form, companyName: e.target.value });
-                    setSaved(false);
-                  }}
+                  id={id}
+                  type="email"
+                  aria-invalid={!!errors.contactEmail || undefined}
+                  aria-describedby={describedBy}
+                  value={form.contactEmail}
+                  onChange={(e) => setField("contactEmail", e.target.value)}
                 />
-              </div>
-              <div>
-                <Label htmlFor="sn">보내는 사람</Label>
-                <Input
-                  id="sn"
-                  value={form.senderName}
-                  onChange={(e) => {
-                    setForm({ ...form, senderName: e.target.value });
-                    setSaved(false);
-                  }}
+              )}
+            </FormField>
+            <FormField
+              label="보일러플레이트 (보도자료 하단 공식 소개)"
+              error={errors.boilerplate}
+              description={`선택 항목입니다. 적으려면 ${BOILERPLATE_MIN}자 이상 ${BOILERPLATE_MAX}자 이내로 적어 주세요.`}
+            >
+              {(id, describedBy) => (
+                <Textarea
+                  id={id}
+                  rows={2}
+                  aria-invalid={!!errors.boilerplate || undefined}
+                  aria-describedby={describedBy}
+                  value={form.boilerplate}
+                  onChange={(e) => setField("boilerplate", e.target.value)}
                 />
-              </div>
-            </div>
-            <div>
-              <Label htmlFor="ce">회신용 이메일</Label>
-              <Input
-                id="ce"
-                type="email"
-                value={form.contactEmail}
-                onChange={(e) => {
-                  setForm({ ...form, contactEmail: e.target.value });
-                  setSaved(false);
-                }}
-              />
-            </div>
-            <div>
-              <Label htmlFor="bp">보일러플레이트 (보도자료 하단 공식 소개)</Label>
-              <Textarea
-                id="bp"
-                rows={2}
-                value={form.boilerplate}
-                onChange={(e) => {
-                  setForm({ ...form, boilerplate: e.target.value });
-                  setSaved(false);
-                }}
-              />
-            </div>
+              )}
+            </FormField>
             <div className="flex items-center gap-3">
-              <Button onClick={saveProfile}>저장</Button>
-              {saved && <span className="text-sm text-success">✓ 저장됨</span>}
+              <Button icon={Check} loading={savingProfile} onClick={saveProfile}>
+                {savingProfile ? "저장 중…" : "저장"}
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -327,27 +369,29 @@ function SettingsInner() {
                   발송·초안은 사용자 본인 Gmail로 나가며, 모든 배포·회신은 Gmail{" "}
                   <b>&lsquo;언론홍보&rsquo;</b> 라벨 안에서 관리됩니다.
                 </div>
-                {gmailMsg && <p className="mt-1 text-xs text-foreground-muted">{gmailMsg}</p>}
               </div>
             </div>
             {gmail?.connected ? (
               <Button
                 variant="subtle"
-                disabled={gmailBusy}
+                loading={gmailBusy}
                 onClick={async () => {
                   setGmailBusy(true);
                   try {
                     await disconnectGmail({});
-                    setGmailMsg("Gmail 연결을 해제했습니다.");
+                    toast.success("Gmail 연결을 해제했습니다.");
+                  } catch (e) {
+                    // 기존에는 try/finally만 있어 실패가 조용히 사라졌다.
+                    toast.error(toUserMessage(e));
                   } finally {
                     setGmailBusy(false);
                   }
                 }}
               >
-                연결 해제
+                {gmailBusy ? "해제 중…" : "연결 해제"}
               </Button>
             ) : (
-              <Button variant="brand" disabled={gmailBusy} onClick={connectGmail}>
+              <Button variant="brand" icon={Mail} loading={gmailBusy} onClick={connectGmail}>
                 {gmailBusy ? "이동 중…" : "Gmail 연결"}
               </Button>
             )}
@@ -369,7 +413,7 @@ function SettingsInner() {
         <Card>
           <CardContent className="pt-6">
             {suppression === undefined ? (
-              <div className="h-16 animate-pulse rounded-md bg-surface" />
+              <Skeleton className="h-16" />
             ) : suppression.length === 0 ? (
               <p className="flex items-center gap-2 text-sm text-muted">
                 <Check className="h-4 w-4 text-success" /> 억제된 기자가 없습니다. 수신거부 회신 시

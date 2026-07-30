@@ -3,11 +3,12 @@
 import { useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { Check, KeyRound, Loader2, Plug2, Trash2, Zap } from "lucide-react";
+import { Check, KeyRound, Plug2, Trash2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Input, Label } from "@/components/ui/Input";
+import { Skeleton } from "@/components/ui/Skeleton";
 
 type LlmProvider = "anthropic" | "openai" | "gemini";
 
@@ -31,7 +32,7 @@ export function AiProviderKeysPanel() {
   const [notes, setNotes] = useState<Record<string, { ok: boolean; text: string }>>({});
 
   if (status === undefined) {
-    return <div className="h-48 animate-pulse rounded-lg bg-surface" />;
+    return <Skeleton className="h-48" />;
   }
 
   function note(provider: LlmProvider, ok: boolean, text: string) {
@@ -184,15 +185,12 @@ export function AiProviderKeysPanel() {
                       <Button
                         type="button"
                         size="sm"
-                        disabled={busy === `save:${p.provider}` || !keyInput.trim()}
+                        icon={Check}
+                        loading={busy === `save:${p.provider}`}
+                        disabled={!keyInput.trim()}
                         onClick={() => onSave(p.provider)}
                       >
-                        {busy === `save:${p.provider}` ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Check className="h-4 w-4" />
-                        )}
-                        저장
+                        {busy === `save:${p.provider}` ? "저장 중…" : "저장"}
                       </Button>
                       <Button
                         type="button"
@@ -213,6 +211,7 @@ export function AiProviderKeysPanel() {
                     <Button
                       type="button"
                       size="sm"
+                      icon={KeyRound}
                       variant={p.hasUserKey ? "subtle" : "brand"}
                       onClick={() => {
                         setEditing(p.provider);
@@ -220,7 +219,6 @@ export function AiProviderKeysPanel() {
                         setModelInput(p.model ?? "");
                       }}
                     >
-                      <KeyRound className="h-4 w-4" />
                       {p.hasUserKey ? "키 바꾸기" : "키 등록"}
                     </Button>
                     {p.hasUserKey && (
@@ -228,15 +226,11 @@ export function AiProviderKeysPanel() {
                         type="button"
                         size="sm"
                         variant="subtle"
-                        disabled={busy === `test:${p.provider}`}
+                        icon={Plug2}
+                        loading={busy === `test:${p.provider}`}
                         onClick={() => onTest(p.provider)}
                       >
-                        {busy === `test:${p.provider}` ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Plug2 className="h-4 w-4" />
-                        )}
-                        연결 테스트
+                        {busy === `test:${p.provider}` ? "확인 중…" : "연결 테스트"}
                       </Button>
                     )}
                     {p.hasUserKey && !isPreferred && (
@@ -255,10 +249,11 @@ export function AiProviderKeysPanel() {
                         type="button"
                         size="sm"
                         variant="ghost"
-                        disabled={busy === `remove:${p.provider}`}
+                        icon={Trash2}
+                        loading={busy === `remove:${p.provider}`}
                         onClick={() => onRemove(p.provider)}
                       >
-                        <Trash2 className="h-4 w-4" /> 삭제
+                        {busy === `remove:${p.provider}` ? "삭제 중…" : "삭제"}
                       </Button>
                     )}
                   </div>

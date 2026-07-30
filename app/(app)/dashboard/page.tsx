@@ -18,6 +18,9 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { PageHeader, StatCard, EmptyState, CampaignStatusBadge, REPLY_TYPES } from "@/components/app/bits";
 import { McpDashboardCard } from "@/components/app/McpGuide";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { useToast } from "@/components/ui/Toast";
+import { toUserMessage } from "@/lib/errorMessage";
 
 export default function DashboardPage() {
   const usage = useQuery(api.usage.getMyUsage);
@@ -25,6 +28,7 @@ export default function DashboardPage() {
   const campaigns = useQuery(api.campaigns.list);
   const profile = useQuery(api.profiles.getMyProfile);
   const seedDemo = useMutation(api.seed.seedDemoForMe);
+  const toast = useToast();
   const [seeding, setSeeding] = useState(false);
 
   const companyName = profile?.profile?.companyName ?? profile?.user?.name ?? "";
@@ -33,6 +37,10 @@ export default function DashboardPage() {
     setSeeding(true);
     try {
       await seedDemo({});
+      toast.success("데모 캠페인과 매칭을 만들었습니다.");
+    } catch (e) {
+      // 기존에는 try/finally만 있어 실패해도 아무 표시가 없었다 — 버튼만 원래대로 돌아갔다.
+      toast.error(toUserMessage(e));
     } finally {
       setSeeding(false);
     }
@@ -155,7 +163,7 @@ export default function DashboardPage() {
         </div>
 
         {campaigns === undefined ? (
-          <div className="h-40 animate-pulse rounded-lg border border-border bg-card" />
+          <Skeleton className="h-40" />
         ) : campaigns.length === 0 ? (
           <EmptyState
             icon={Sparkles}
@@ -163,8 +171,8 @@ export default function DashboardPage() {
             description="데모 데이터로 매칭·초안 흐름을 바로 체험하거나, 새 보도자료로 시작하세요."
             action={
               <div className="flex flex-wrap justify-center gap-2">
-                <Button onClick={runSeed} disabled={seeding} variant="brand">
-                  <Sparkles className="h-4 w-4" /> {seeding ? "생성 중…" : "데모 데이터 생성"}
+                <Button onClick={runSeed} icon={Sparkles} loading={seeding} variant="brand">
+                  {seeding ? "생성 중…" : "데모 데이터 생성"}
                 </Button>
                 <Link href="/campaigns/new">
                   <Button variant="subtle">새 보도자료 작성</Button>

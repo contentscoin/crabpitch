@@ -39,9 +39,12 @@ import {
   type JournalistContext,
 } from "@/convex/lib/emailTemplate";
 import { checkEmailCompliance, EMAIL_BODY_CHAR_MAX } from "@/convex/lib/emailCompliance";
+import { useConfirm } from "@/components/ui/Dialog";
+import { toUserMessage } from "@/lib/errorMessage";
 import { needsPilotApproval } from "@/convex/lib/pilotGate";
 import { REPLY_TEMPLATE_VARIANTS } from "@/convex/lib/replyClassifier";
 import type { ReplyType } from "@/convex/lib/replyClassifier";
+import { Skeleton } from "@/components/ui/Skeleton";
 
 export default function CampaignDetailPage() {
   const params = useParams<{ id: string }>();
@@ -74,6 +77,7 @@ export default function CampaignDetailPage() {
   const pushGmail = useAction(api.gmailActions.pushCampaignToGmail);
   const sendSmtp = useAction(api.smtpActions.sendCampaign);
 
+  const confirm = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
   const [optOutConfirmed, setOptOutConfirmed] = useState(false);
   /**
@@ -203,7 +207,7 @@ export default function CampaignDetailPage() {
   }
 
   if (data === undefined) {
-    return <div className="h-64 animate-pulse rounded-lg border border-border bg-card" />;
+    return <Skeleton className="h-64" />;
   }
   if (data === null || !data.campaign) {
     return <p className="text-foreground-muted">캠페인을 찾을 수 없습니다.</p>;
@@ -432,9 +436,11 @@ export default function CampaignDetailPage() {
                 }
               })
             }
-            disabled={busy === "gen" || includedCount === 0}
+            icon={PenLine}
+            loading={busy === "gen"}
+            disabled={includedCount === 0}
           >
-            <PenLine className="h-4 w-4" /> {busy === "gen" ? "생성 중…" : "개인화 메일 초안 생성"}
+            {busy === "gen" ? "생성 중…" : "개인화 메일 초안 생성"}
             {includedCount > 0 && <span className="opacity-80">({includedCount}명)</span>}
           </Button>
           {drafts && drafts.length > 0 && !aiLoading && aiConnected && (
@@ -446,9 +452,10 @@ export default function CampaignDetailPage() {
                   if (enhanced.message) setDraftNote(enhanced.message);
                 })
               }
-              disabled={busy === "ai"}
+              icon={Wand2}
+              loading={busy === "ai"}
             >
-              <Wand2 className="h-4 w-4" /> {busy === "ai" ? "AI 다듬는 중…" : "내 AI로 다듬기"}
+              {busy === "ai" ? "AI 다듬는 중…" : "내 AI로 다듬기"}
             </Button>
           )}
           {drafts && drafts.length > 0 && !aiLoading && !aiConnected && (
@@ -608,9 +615,12 @@ export default function CampaignDetailPage() {
                       if (scheduledSendMode === "smtp") {
                         // 예약된 실발송도 되돌릴 수 없다 — 즉시 발송과 같은 확인을 받는다.
                         // 오히려 사용자가 자리에 없을 때 나가므로 더 분명히 알려야 한다.
-                        const ok = window.confirm(
-                          `${new Date(at).toLocaleString("ko-KR")}에 ${smtp!.email} 에서 기자에게 메일이 실제로 나갑니다. 되돌릴 수 없습니다. 예약할까요?`,
-                        );
+                        const ok = await confirm({
+                          title: "예약 발송을 확정할까요?",
+                          description: `${new Date(at).toLocaleString("ko-KR")}에 ${smtp!.email} 에서 기자에게 메일이 실제로 나갑니다. 되돌릴 수 없습니다.`,
+                          confirmLabel: "예약",
+                          variant: "danger",
+                        });
                         if (!ok) return;
                       }
                       const result = await scheduleCampaign({
@@ -625,9 +635,12 @@ export default function CampaignDetailPage() {
                     }
                     if (effectiveSendMode === "smtp") {
                       // 되돌릴 수 없는 발송이다 — 누른 뒤 물어볼 수 없으므로 지금 확인한다.
-                      const ok = window.confirm(
-                        `${smtp!.email} 에서 기자에게 메일이 즉시 나갑니다. 되돌릴 수 없습니다. 발송할까요?`,
-                      );
+                      const ok = await confirm({
+                        title: "지금 발송할까요?",
+                        description: `${smtp!.email} 에서 기자에게 메일이 즉시 나갑니다. 되돌릴 수 없습니다.`,
+                        confirmLabel: "발송",
+                        variant: "danger",
+                      });
                       if (!ok) return;
                       const result = await sendSmtp({ campaignId: id });
                       if (result.message) setSendNote(result.message);
@@ -640,9 +653,10 @@ export default function CampaignDetailPage() {
                     }
                   })
                 }
+                icon={Send}
+                loading={busy === "send"}
                 disabled={
                   !optOutConfirmed ||
-                  busy === "send" ||
                   !drafts ||
                   drafts.length === 0 ||
                   pilotBlocked ||
@@ -650,7 +664,6 @@ export default function CampaignDetailPage() {
                   recordOnlyBlocked
                 }
               >
-                <Send className="h-4 w-4" />{" "}
                 {busy === "send"
                   ? "처리 중…"
                   : pilotBlocked
@@ -691,7 +704,7 @@ export default function CampaignDetailPage() {
                   type="button"
                   size="sm"
                   variant="subtle"
-                  disabled={busy === "cancel"}
+                  loading={busy === "cancel"}
                   onClick={() =>
                     wrap("cancel", async () => {
                       const result = await cancelSchedule({ campaignId: id });
@@ -937,6 +950,7 @@ function TemplatePicker({
   /** 미리보기용 컨텍스트. 보도자료가 없으면 null(미리보기 숨김). */
   preview: TemplatePreviewContext | null;
 }) {
+  const confirm = useConfirm();
   const saveTemplate = useMutation(api.emailTemplates.save);
   const removeTemplate = useMutation(api.emailTemplates.remove);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -1045,13 +1059,19 @@ function TemplatePicker({
   }
 
   async function onRemove(tplId: string) {
-    if (!window.confirm("이 템플릿을 삭제할까요?")) return;
+    const ok = await confirm({
+      title: "이 템플릿을 삭제할까요?",
+      description: "되돌릴 수 없습니다. 이 템플릿으로 만든 기존 초안은 그대로 남습니다.",
+      confirmLabel: "삭제",
+      variant: "danger",
+    });
+    if (!ok) return;
     setNote(null);
     try {
       await removeTemplate({ id: tplId as Id<"userEmailTemplates"> });
       if (value === `custom:${tplId}`) onChange("standard");
     } catch (e) {
-      setNote(e instanceof Error ? e.message : "삭제에 실패했습니다.");
+      setNote(toUserMessage(e));
     }
   }
 

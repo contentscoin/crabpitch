@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Input, Label } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
+import { FormField } from "@/components/ui/FormField";
+import { EMAIL_PATTERN } from "@/lib/profileForm";
+import { toUserMessage } from "@/lib/errorMessage";
 import { detectSmtpProvider } from "@/convex/lib/smtpProviders";
 
 /**
@@ -34,6 +37,14 @@ export function SmtpConnectPanel() {
   const [username, setUsername] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  /**
+   * 이메일 형식 오류.
+   *
+   * 서버는 `normalizeEmail`이 mutation throw로 거부하는데, 그 시점에는 이미 비밀번호까지
+   * 입력한 뒤다. 제출 전에 같은 정규식(`EMAIL_PATTERN`)으로 미리 잡는다.
+   * 이 패널의 `msg`는 **연결 테스트 결과**를 담는 자리이므로 형식 오류를 섞지 않는다.
+   */
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   const connected = conn?.connected === true;
 
@@ -53,6 +64,11 @@ export function SmtpConnectPanel() {
   const needsManualHost = preset.id === "custom" && email.includes("@");
 
   async function onSave() {
+    // 서버 `normalizeEmail`이 던지기 전에 잡는다 — 그 시점엔 비밀번호까지 입력한 뒤다.
+    if (!EMAIL_PATTERN.test(email.trim())) {
+      setEmailError("올바른 이메일 주소가 아닙니다.");
+      return;
+    }
     setBusy(true);
     setMsg(null);
     try {
@@ -76,7 +92,7 @@ export function SmtpConnectPanel() {
       const result = await test({});
       setMsg({ ok: result.ok, text: result.message });
     } catch (e) {
-      setMsg({ ok: false, text: e instanceof Error ? e.message : "저장하지 못했습니다." });
+      setMsg({ ok: false, text: toUserMessage(e) });
     } finally {
       setBusy(false);
     }
@@ -133,17 +149,23 @@ export function SmtpConnectPanel() {
         )}
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <Label htmlFor="smtp-email">발신 이메일</Label>
-            <Input
-              id="smtp-email"
-              type="email"
-              autoComplete="username"
-              placeholder="hong@company.co.kr"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
+          <FormField label="발신 이메일" required error={emailError}>
+            {(id, describedBy) => (
+              <Input
+                id={id}
+                type="email"
+                autoComplete="username"
+                placeholder="hong@company.co.kr"
+                aria-invalid={!!emailError || undefined}
+                aria-describedby={describedBy}
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setEmailError(null);
+                }}
+              />
+            )}
+          </FormField>
           <div>
             <Label htmlFor="smtp-password">
               비밀번호{connected ? " (변경할 때만 입력)" : ""}
@@ -239,7 +261,7 @@ export function SmtpConnectPanel() {
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="brand" disabled={busy || !email.trim()} onClick={onSave}>
+          <Button variant="brand" icon={Server} loading={busy} disabled={!email.trim()} onClick={onSave}>
             {busy ? "확인 중…" : connected ? "저장하고 다시 확인" : "저장하고 연결 확인"}
           </Button>
           {connected && (
