@@ -70,6 +70,7 @@ export default function CampaignDetailPage() {
   const enhanceDrafts = useAction(api.aiActions.enhanceCampaignDrafts);
   const sendCampaign = useMutation(api.drafts.sendCampaign);
   const scheduleCampaign = useMutation(api.drafts.scheduleCampaign);
+  const cancelSchedule = useMutation(api.drafts.cancelSchedule);
   const pushGmail = useAction(api.gmailActions.pushCampaignToGmail);
   const sendSmtp = useAction(api.smtpActions.sendCampaign);
 
@@ -141,6 +142,19 @@ export default function CampaignDetailPage() {
   const senderConnected = effectiveSendMode !== null;
   /** 실제 발송이 일어나지 않는 경로 — 명시적 동의 없이는 실행을 막는다. */
   const recordOnlyBlocked = !senderLoading && !senderConnected && !recordOnlyConfirmed;
+
+  /**
+   * 예약 실행 시점에 쓸 수단.
+   *
+   * 즉시 발송과 **같은 수단**이어야 한다. 예약이 수단을 무시하고 기록만 남기던 것이
+   * 이 화면의 가장 큰 함정이었다(SMTP를 연결해 둬도 예약하면 메일이 안 나갔다).
+   */
+  const scheduledSendMode: "smtp" | "gmail_drafts" | "record_only" =
+    effectiveSendMode === "smtp"
+      ? "smtp"
+      : effectiveSendMode === "gmail"
+        ? "gmail_drafts"
+        : "record_only";
 
   /**
    * 템플릿 미리보기 컨텍스트.
@@ -550,9 +564,16 @@ export default function CampaignDetailPage() {
               </div>
             </div>
 
-            {bothConnected && !scheduleLocal && (
+            {/*
+              예약 시각을 입력해도 숨기지 않는다. 예약이 수단을 무시하던 동안에는 무해했지만,
+              이제 예약이 이 선택을 그대로 쓴다 — 숨기면 두 수단을 모두 연결한 사용자가
+              예약 실발송에 도달할 방법이 없다.
+            */}
+            {bothConnected && (
               <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="font-semibold text-foreground">발송 방법</span>
+                <span className="font-semibold text-foreground">
+                  {scheduleLocal ? "예약 시각에 실행할 방법" : "발송 방법"}
+                </span>
                 {(
                   [
                     ["gmail", "Gmail 초안 (검토 후 발송)"],
@@ -582,12 +603,23 @@ export default function CampaignDetailPage() {
                     if (scheduleLocal) {
                       const at = new Date(scheduleLocal).getTime();
                       if (Number.isNaN(at)) throw new Error("예약 시각이 올바르지 않습니다.");
+                      // 예약 시점에 수단을 **확정해서** 넘긴다. 실행 시점에는 사용자가
+                      // 없으므로 그때 추론하면 동의하지 않은 수단으로 나갈 수 있다.
+                      if (scheduledSendMode === "smtp") {
+                        // 예약된 실발송도 되돌릴 수 없다 — 즉시 발송과 같은 확인을 받는다.
+                        // 오히려 사용자가 자리에 없을 때 나가므로 더 분명히 알려야 한다.
+                        const ok = window.confirm(
+                          `${new Date(at).toLocaleString("ko-KR")}에 ${smtp!.email} 에서 기자에게 메일이 실제로 나갑니다. 되돌릴 수 없습니다. 예약할까요?`,
+                        );
+                        if (!ok) return;
+                      }
                       const result = await scheduleCampaign({
                         campaignId: id,
                         scheduledSendAt: at,
+                        sendMode: scheduledSendMode,
                       });
                       setSendNote(
-                        `${result.count}통 예약됨 · ${new Date(result.scheduledSendAt).toLocaleString("ko-KR")}`,
+                        `${result.count}통 예약됨 · ${new Date(result.scheduledSendAt).toLocaleString("ko-KR")} · ${SEND_MODE_LABELS[result.sendMode]}`,
                       );
                       return;
                     }
@@ -639,7 +671,9 @@ export default function CampaignDetailPage() {
                   : !senderConnected
                     ? "* 메일은 나가지 않습니다. 위에서 발신 수단을 연결하세요."
                     : scheduleLocal
-                      ? "* 예약 시각에 발송 기록으로 확정됩니다(매분 크론·스케줄러)."
+                      ? scheduledSendMode === "smtp"
+                        ? `* 예약 시각에 ${smtp!.email} 에서 기자에게 메일이 실제로 나갑니다. 되돌릴 수 없습니다.`
+                        : `* 예약 시각에 Gmail(${gmail!.email})의 ‘언론홍보’ 라벨에 초안을 만듭니다. 실발송은 Gmail에서 확인 후.`
                       : effectiveSendMode === "smtp"
                         ? `* ${smtp!.email} 에서 기자에게 메일이 즉시 나갑니다. 되돌릴 수 없습니다.`
                         : `* 연결된 Gmail(${gmail!.email})의 ‘언론홍보’ 라벨에 초안을 만듭니다. 실발송은 Gmail에서 확인 후.`}
@@ -647,9 +681,42 @@ export default function CampaignDetailPage() {
             </div>
             {sendNote && <p className="text-xs text-muted">{sendNote}</p>}
             {campaign.scheduledSendAt && campaign.status === "sending" && (
-              <p className="text-sm font-semibold text-brand">
-                예약됨 · {new Date(campaign.scheduledSendAt).toLocaleString("ko-KR")}
-              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <p className="text-sm font-semibold text-brand">
+                  예약됨 · {new Date(campaign.scheduledSendAt).toLocaleString("ko-KR")}
+                  {campaign.sendMode ? ` · ${SEND_MODE_LABELS[campaign.sendMode]}` : ""}
+                </p>
+                {/* 실발송 예약을 되돌릴 수단이 없으면 사용자는 시각이 지나기를 기다릴 수밖에 없다. */}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="subtle"
+                  disabled={busy === "cancel"}
+                  onClick={() =>
+                    wrap("cancel", async () => {
+                      const result = await cancelSchedule({ campaignId: id });
+                      setSendNote(`예약을 취소했습니다 (${result.cancelled}건이 초안으로 돌아갔습니다).`);
+                    })
+                  }
+                >
+                  {busy === "cancel" ? "취소 중…" : "예약 취소"}
+                </Button>
+              </div>
+            )}
+            {/*
+              예약 실행은 사용자가 화면에 없을 때 일어난다 — 실패를 여기서 보여 주지 않으면
+              캠페인이 '예약됨'에 멈춘 이유를 아무도 알 수 없다.
+            */}
+            {campaign.lastSendError && (
+              <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2.5 text-sm">
+                <p className="font-semibold text-danger">예약 발송이 실패했습니다.</p>
+                <p className="mt-1 text-foreground-muted">{campaign.lastSendError}</p>
+                <p className="mt-1 text-xs text-muted">
+                  {campaign.status === "sending" && campaign.scheduledSendAt
+                    ? "예약이 아직 살아 있어 자동으로 다시 시도됩니다. 먼저 원인을 고치거나 예약을 취소하세요."
+                    : "예약은 해제됐습니다. 초안은 그대로 남아 있으니 원인을 고친 뒤 다시 예약하거나 즉시 발송하세요."}
+                </p>
+              </div>
             )}
             {sentCount > 0 && (
               <p className="text-sm font-semibold text-success">✓ {sentCount}통 발송 기록 완료 — 3·7일 뒤 게재 확인을 권장합니다.</p>
@@ -842,6 +909,13 @@ const CUSTOM_BODY_SCAFFOLD = `{{후킹}}
 
 {{발신자}} 드림
 {{연락처}}`;
+
+/** 예약 결과 안내 — 무엇이 일어날지 사용자가 알아야 한다. */
+const SEND_MODE_LABELS: Record<"smtp" | "gmail_drafts" | "record_only", string> = {
+  smtp: "기자에게 실제 발송",
+  gmail_drafts: "Gmail 초안 생성",
+  record_only: "발송 없이 기록만",
+};
 
 interface TemplatePreviewContext {
   email: EmailContext;

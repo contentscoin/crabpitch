@@ -272,16 +272,20 @@ export function isEmailTemplatePresetId(v: string): v is EmailTemplatePresetId {
 }
 
 /**
- * 초안이 **어떤 골격으로 만들어졌는지** — 프리셋 4종 + 커스텀 템플릿.
+ * 초안이 **어떤 골격으로 만들어졌는지** — 프리셋 4종 + 커스텀 템플릿 + 팔로업.
  *
  * 초안 레코드에 이 값을 남겨야 AI 개인화 단계가 골격 의도를 보존할 수 있다.
- * 값이 없으면 AI는 모든 초안을 같은 규칙(600~800자 7블록)으로 다듬어서
- * '초간결'을 고른 사용자의 4~5줄 메일을 800자로 부풀린다.
+ * 값이 없으면 AI는 모든 초안을 표준 7블록 규칙으로 다듬어서 '초간결'을 고른
+ * 사용자의 4~5줄 메일을 부풀린다.
+ *
+ * `followup`은 프리셋을 상속하지 않는다 — 팔로업 본문은 `buildFollowUpDraft`가 만드는
+ * **별도 골격**(인사 → 지난 건 언급 → 새 소식 → 자료 → 요청 → 수신거부)이다.
+ * 원본의 프리셋을 물려주면 AI가 없는 구조(예: 데이터 불릿)를 보존하라는 지시를 받는다.
  */
-export type EmailTemplateKind = EmailTemplatePresetId | "custom";
+export type EmailTemplateKind = EmailTemplatePresetId | "custom" | "followup";
 
 export function isEmailTemplateKind(v: string): v is EmailTemplateKind {
-  return v === "custom" || isEmailTemplatePresetId(v);
+  return v === "custom" || v === "followup" || isEmailTemplatePresetId(v);
 }
 
 /**

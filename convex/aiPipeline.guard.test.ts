@@ -63,8 +63,9 @@ describe("골격(templateKind)이 생성 → 저장 → AI까지 이어진다", 
     // 원본 본문을 넘기지 않으면 분량 지시가 입력 길이와 무관해진다.
     expect(block).toMatch(/emailEnhanceSystemPrompt\(kind, d\.body\)/);
     expect(block).toMatch(/parseEnhanceEmailResult\([^)]*kind\)/);
-    // 레거시 초안(골격 기록 없음)은 표준으로 폴백해야 한다.
-    expect(block).toMatch(/templateKind \?\? "standard"/);
+    // 레거시 초안(골격 기록 없음)은 폴백해야 한다. 팔로업은 followUpOf로 유추할 수 있어
+    // 표준 7블록 규칙(원래 보도자료 내용을 다시 채우는)을 피한다.
+    expect(block).toMatch(/templateKind \?\? \(d\.followUpOf \? "followup" : "standard"\)/);
   });
 
   it("다듬기 결과가 원본과 같으면 성공으로 집계하지 않는다", () => {
@@ -111,6 +112,45 @@ describe("메일이 나가지 않는 경로는 서버가 막는다", () => {
     const block = exportBlock(DRAFTS, "sendCampaign");
     expect(block).toContain("recordOnly");
     expect(block).toMatch(/recordOnly !== true/);
+  });
+});
+
+describe("예약 실행 실패는 무한 재시도로 번지지 않는다", () => {
+  it("재시도 가능한 실패에서는 클레임을 풀지 않는다 — 분당 재시도 방지(자연 백오프)", () => {
+    const block = exportBlock(DRAFTS, "recordScheduledSendFailure");
+    expect(block).toContain("MAX_SEND_ATTEMPTS");
+    // 예약이 살아 있는 일반 실패 경로(마지막 patch)는 클레임을 그대로 둬야 한다.
+    // 풀면 다음 분에 곧바로 재시도해 실패가 분당 반복된다.
+    const lastPatch = block.slice(block.lastIndexOf("const attempts"));
+    expect(lastPatch).toContain("sendAttempts: attempts");
+    expect(lastPatch.slice(lastPatch.lastIndexOf("lastSendError: reason"))).not.toContain(
+      "dispatchedAt",
+    );
+  });
+
+  it("이미 발송된 캠페인의 상태를 되돌리지 않는다", () => {
+    // 확정 이후 단계(사용 기록 갱신 등)에서 예외가 나면 나간 메일의 게이트가 다시 열린다.
+    const block = exportBlock(DRAFTS, "recordScheduledSendFailure");
+    expect(block).toMatch(/status === "sent" \|\| campaign\.status === "done"/);
+  });
+
+  it("상한에 닿으면 예약을 해제하고 사용자에게 넘긴다", () => {
+    const block = exportBlock(DRAFTS, "recordScheduledSendFailure");
+    // 매 재시도가 실제 메일 서버 접속이다 — 고쳐지지 않는 원인이면 계정이 잠길 수 있다.
+    expect(block).toMatch(/status: "review"/);
+    expect(block).toMatch(/scheduledSendAt: undefined/);
+  });
+
+  it("재예약은 이전 시도 횟수를 초기화한다", () => {
+    // 남겨 두면 사용자가 원인을 고쳐도 첫 시도에서 상한에 걸린다.
+    expect(exportBlock(DRAFTS, "scheduleCampaign")).toMatch(/sendAttempts: undefined/);
+  });
+});
+
+describe("팔로업 초안도 자기 골격으로 개인화된다", () => {
+  it("팔로업 초안에 followup 골격을 기록한다", () => {
+    // 없으면 AI가 팔로업을 표준 7블록으로 취급해 원래 보도자료 내용을 다시 채워 넣는다.
+    expect(exportBlock(DRAFTS, "createFollowUp")).toMatch(/templateKind: "followup"/);
   });
 });
 

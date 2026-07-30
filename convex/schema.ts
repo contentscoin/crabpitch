@@ -41,6 +41,20 @@ export const campaignStatusValidator = v.union(
   v.literal("done"),
 );
 
+/**
+ * 발송 수단 — 예약 실행 시점에 "무엇을 할지"를 결정한다.
+ *
+ * `record_only`는 메일을 한 통도 보내지 않고 초안만 sent로 기록한다. 크랩피치 밖에서
+ * 직접 보낸 사용자를 위한 경로이며, 명시적으로 선택해야만 쓸 수 있다.
+ * `gmail_drafts`는 발송이 아니라 Gmail 초안 생성이다(사용자가 Gmail에서 최종 발송).
+ * 기자 메일함으로 실제 메일이 나가는 것은 `smtp`뿐이다.
+ */
+export const sendModeValidator = v.union(
+  v.literal("smtp"),
+  v.literal("gmail_drafts"),
+  v.literal("record_only"),
+);
+
 export default defineSchema({
   ...authTables,
 
@@ -214,6 +228,42 @@ export default defineSchema({
     status: campaignStatusValidator,
     scheduledSendAt: v.optional(v.number()), // 예약 발송 시각(ms)
     agencyClientId: v.optional(v.id("agencyClients")),
+    /**
+     * 예약 시각에 **무엇을 할지**.
+     *
+     * 이 필드가 없던 동안 예약 발송은 발신 수단과 무관하게 초안 상태만 sent로 바꿨다
+     * (실행 함수가 internalMutation이라 외부 I/O가 구조적으로 불가능했다). SMTP를
+     * 연결해 두고 예약해도 기자에게 메일이 한 통도 나가지 않았다.
+     * 예약 시점에 수단을 확정해 저장하고, 실행 시점에는 그 수단의 액션을 디스패치한다.
+     *
+     * 레거시 예약(undefined)은 "record_only"로 취급한다 — 이미 그 동작을 전제로
+     * 예약된 건을 실행 시점에 실발송으로 바꾸면 사용자가 동의하지 않은 발송이 된다.
+     */
+    sendMode: v.optional(sendModeValidator),
+    /**
+     * 예약 실행 디스패치 클레임 시각.
+     *
+     * 실발송은 액션이라 확정까지 시간이 걸린다. 그 사이 캠페인은 여전히
+     * `status:"sending"` + 과거 `scheduledSendAt`이므로 매분 크론이 **같은 캠페인을
+     * 다시 디스패치해 중복 발송**한다. 디스패치 직전에 이 값을 찍어 창을 닫는다.
+     * 오래된 클레임(액션이 죽은 경우)은 `DISPATCH_STALE_MS` 뒤 재시도를 허용한다.
+     */
+    dispatchedAt: v.optional(v.number()),
+    /**
+     * 예약 실행 실패 사유.
+     *
+     * 예약 실행 시점에는 사용자가 화면에 없다 — 액션이 throw하면 아무도 모른다.
+     * 실패를 여기 남겨 캠페인 화면에서 보이게 한다.
+     */
+    lastSendError: v.optional(v.string()),
+    /**
+     * 예약 실행 실패 횟수.
+     *
+     * 실패할 때마다 크론이 재시도하는데, 원인이 고쳐지지 않으면(예: 메일 비밀번호 변경)
+     * **영구히 재시도**한다. 매 시도가 실제 SMTP 접속이므로 계정이 잠길 수도 있다.
+     * 상한에 닿으면 예약을 해제하고 사용자가 개입하게 한다.
+     */
+    sendAttempts: v.optional(v.number()),
   })
     .index("by_user", ["userId"])
     .index("by_scheduled", ["scheduledSendAt"])
@@ -266,6 +316,8 @@ export default defineSchema({
         v.literal("story"),
         v.literal("brief"),
         v.literal("custom"),
+        // 팔로업은 프리셋과 다른 별도 골격이다(원본 프리셋을 상속하지 않는다).
+        v.literal("followup"),
       ),
     ),
     /** 메일 컴플라이언스 게이트 판정: "pass" | "warn" | "fail" */

@@ -25,8 +25,15 @@ const emailTemplatePresetValidator = v.union(
   v.literal("brief"),
 );
 
-/** 프리셋 + 커스텀 — `emailDrafts.templateKind`와 같은 집합이어야 한다. */
-const emailTemplateKindValidator = v.union(emailTemplatePresetValidator, v.literal("custom"));
+/** 발송 수단 — 정본은 schema다(예약 레코드와 같은 집합이어야 한다). */
+type SendMode = "smtp" | "gmail_drafts" | "record_only";
+
+/** 프리셋 + 커스텀 + 팔로업 — `emailDrafts.templateKind`와 같은 집합이어야 한다. */
+const emailTemplateKindValidator = v.union(
+  emailTemplatePresetValidator,
+  v.literal("custom"),
+  v.literal("followup"),
+);
 import { journalistCode } from "./lib/mask";
 import { PLAN_LIMITS, currentMonth, type Plan } from "./lib/plans";
 import {
@@ -36,6 +43,7 @@ import {
   suppressedEmailSet,
 } from "./lib/sendGuard";
 import { checkEmailCompliance } from "./lib/emailCompliance";
+import { sendModeValidator } from "./schema";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 
@@ -281,6 +289,12 @@ async function confirmSent(
   await ctx.db.patch(campaignId, {
     status: count > 0 ? "sent" : "review",
     scheduledSendAt: undefined,
+    // 이번 실행이 끝났으므로 예약 실행 흔적을 모두 정리한다.
+    // 남겨 두면 재시도로 성공한 캠페인에 "발송 완료"와 실패 배너가 동시에 뜨고,
+    // 남은 시도 횟수 때문에 다음 예약이 첫 실패에 곧바로 상한에 걸린다.
+    dispatchedAt: undefined,
+    lastSendError: undefined,
+    sendAttempts: undefined,
   });
   return count;
 }
@@ -498,15 +512,22 @@ export const sendCampaign = mutation({
 });
 
 /**
- * 예약 발송 — 승인 게이트 후 미래 시각에 발송 기록(또는 Gmail 초안) 실행.
+ * 예약 발송 — 승인 게이트 후 미래 시각에 **선택한 수단으로** 실행.
+ *
+ * ⚠️ `sendMode`를 반드시 받아 저장한다. 실행 시점에는 사용자가 없으므로 그때 수단을
+ *    추론하면 안 된다(연결이 그 사이 끊겼을 수도 있고, 사용자가 동의하지 않은 수단으로
+ *    나갈 수도 있다). 예약 시점에 수단을 확정하고 연결까지 검증한다 —
+ *    파일럿 게이트를 예약 단계에서 미리 막는 것과 같은 논리다.
+ *
  * Convex scheduler.runAt 으로 정확히 한 번 실행 + cron 백업.
  */
 export const scheduleCampaign = mutation({
   args: {
     campaignId: v.id("campaigns"),
     scheduledSendAt: v.number(),
+    sendMode: sendModeValidator,
   },
-  handler: async (ctx, { campaignId, scheduledSendAt }) => {
+  handler: async (ctx, { campaignId, scheduledSendAt, sendMode }) => {
     const userId = await requireUser(ctx);
     const campaign = await ctx.db.get(campaignId);
     if (!campaign || campaign.userId !== userId) throw new Error("캠페인을 찾을 수 없습니다.");
@@ -514,6 +535,25 @@ export const scheduleCampaign = mutation({
     const now = Date.now();
     if (scheduledSendAt <= now + 30_000) {
       throw new Error("예약 시각은 최소 1분 뒤로 설정하세요. 즉시 발송은 ‘발송 기록’을 사용하세요.");
+    }
+
+    // 실행 시점에 "계정이 없어서 0통"으로 조용히 끝나는 것을 예약 단계에서 막는다.
+    if (sendMode === "smtp") {
+      const account = await ctx.db
+        .query("smtpAccounts")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .unique();
+      if (!account) {
+        throw new Error("발신 메일(SMTP)이 연결되지 않았습니다. 설정에서 연결한 뒤 예약하세요.");
+      }
+    } else if (sendMode === "gmail_drafts") {
+      const account = await ctx.db
+        .query("gmailAccounts")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .unique();
+      if (!account) {
+        throw new Error("Gmail이 연결되지 않았습니다. 설정에서 연결한 뒤 예약하세요.");
+      }
     }
 
     const profile = await getProfile(ctx, userId);
@@ -551,30 +591,137 @@ export const scheduleCampaign = mutation({
     for (const d of pending) {
       await ctx.db.patch(d._id, { status: "queued", scheduledSendAt });
     }
-    await ctx.db.patch(campaignId, { status: "sending", scheduledSendAt });
-
-    await ctx.scheduler.runAt(scheduledSendAt, internal.drafts.executeScheduledSend, {
-      campaignId,
-      userId,
+    await ctx.db.patch(campaignId, {
+      status: "sending",
+      scheduledSendAt,
+      sendMode,
+      // 재예약이면 이전 실행의 클레임·실패 기록을 지운다(낡은 사유가 남으면 오해를 만들고,
+      // 시도 횟수가 남으면 사용자가 원인을 고쳐도 즉시 상한에 걸린다).
+      dispatchedAt: undefined,
+      lastSendError: undefined,
+      sendAttempts: undefined,
     });
 
-    return { count: pending.length, scheduledSendAt };
+    await scheduleSendDispatch(ctx, { campaignId, userId, sendMode, scheduledSendAt });
+
+    return { count: pending.length, scheduledSendAt, sendMode };
   },
 });
 
 /**
- * scheduler / cron 에서 호출 — queued 초안을 sent 로 확정.
+ * 예약 실행 디스패치 — 수단별로 **실제로 메일을 보낼 수 있는 함수**를 예약한다.
+ *
+ * mutation은 액션을 직접 실행(`runAction`)할 수 없지만 **스케줄**은 할 수 있다.
+ * SMTP는 nodemailer + 비밀번호 복호화가 필요해 반드시 action이어야 하고,
+ * 그래서 예약 실행을 internalMutation에 두면 구조적으로 메일을 보낼 수 없다.
+ *
+ * ⚠️ `scheduledSendAt`을 인자로 **함께 넘긴다.** 실행 시점에 이 값이 캠페인의 현재
+ *    예약 시각과 다르면(즉시 발송으로 앞질렀거나 시각을 바꿔 재예약했거나) 그 잡은
+ *    무효다. 스케줄 잡은 취소할 수 없으므로(잡 id를 저장하지 않는다) 실행 측에서
+ *    유효성을 확인하는 것이 유일한 방어다 — `claimScheduledSend`가 대조한다.
+ */
+async function scheduleSendDispatch(
+  ctx: MutationCtx,
+  opts: {
+    campaignId: Id<"campaigns">;
+    userId: Id<"users">;
+    sendMode: SendMode;
+    /** 이 잡이 실행하려는 예약 시각. 실행 시점 대조용 토큰 역할을 한다. */
+    scheduledSendAt: number;
+    /** true면 즉시 실행(크론 백업 디스패치), false면 `scheduledSendAt`에 실행 */
+    immediate?: boolean;
+  },
+) {
+  const { campaignId, userId, sendMode, scheduledSendAt, immediate } = opts;
+  const args = { campaignId, userId, scheduledSendAt };
+  const target =
+    sendMode === "smtp"
+      ? internal.smtpActions.sendCampaignInternal
+      : sendMode === "gmail_drafts"
+        ? internal.gmailActions.pushCampaignInternal
+        : internal.drafts.executeScheduledSend;
+  if (immediate) {
+    await ctx.scheduler.runAfter(0, target, args);
+  } else {
+    await ctx.scheduler.runAt(scheduledSendAt, target, args);
+  }
+}
+
+/**
+ * 예약 실행 클레임 — **모든** 디스패치 경로의 상호배제 지점.
+ *
+ * ⚠️ 클레임을 크론 쪽에만 두면 안 된다. 정상 경로(`scheduler.runAt`)는 크론을 거치지
+ *    않으므로 클레임이 찍히지 않고, 그 액션이 SMTP 루프를 도는 수십 초 사이 크론이
+ *    같은 캠페인을 due로 보고 두 번째 발송을 띄운다 — 선별은 초안에 아무 락도 걸지
+ *    않으므로 두 액션이 **같은 목록**을 받아 같은 기자에게 두 번 보낸다.
+ *    mutation은 직렬화되므로 여기 한 곳에 모으면 어느 경로로 들어와도 한 번만 통과한다.
+ *
+ * 동시에 "이 예약이 아직 유효한가"도 여기서 판정한다:
+ *  - 캠페인이 이미 종료 상태(sent/done)면 무효
+ *  - 예약이 해제됐거나(즉시 발송으로 앞질렀거나 취소) 시각이 바뀌었으면(재예약) 무효
+ *
+ * @returns 클레임에 성공했으면 발송 수단, 실패했으면 null
+ */
+export const claimScheduledSend = internalMutation({
+  args: {
+    campaignId: v.id("campaigns"),
+    userId: v.id("users"),
+    /** 디스패치 시점에 유효했던 예약 시각 — 현재 값과 다르면 낡은 잡이다. */
+    scheduledSendAt: v.number(),
+  },
+  returns: v.union(sendModeValidator, v.null()),
+  handler: async (ctx, args) => claimSend(ctx, args),
+});
+
+/** 클레임 본체 — 같은 파일의 mutation(`executeScheduledSend`)도 직접 쓴다. */
+async function claimSend(
+  ctx: MutationCtx,
+  {
+    campaignId,
+    userId,
+    scheduledSendAt,
+  }: { campaignId: Id<"campaigns">; userId: Id<"users">; scheduledSendAt: number },
+): Promise<SendMode | null> {
+  {
+    const campaign = await ctx.db.get(campaignId);
+    if (!campaign || campaign.userId !== userId) return null;
+    // 이미 끝난 캠페인 — 남아 있던 잡이 늦게 깨어난 경우다.
+    if (campaign.status === "sent" || campaign.status === "done") return null;
+    if (campaign.status !== "sending") return null;
+    // 예약이 해제됐거나 다른 시각으로 재예약됐다 — 이 잡은 사용자가 원한 것이 아니다.
+    if (campaign.scheduledSendAt !== scheduledSendAt) return null;
+
+    const now = Date.now();
+    // 다른 경로가 방금 잡아 실행 중이면 비켜선다. 유효 시간이 지났으면 죽은 것으로 보고 재시도.
+    if (campaign.dispatchedAt !== undefined && now - campaign.dispatchedAt < DISPATCH_STALE_MS) {
+      return null;
+    }
+    await ctx.db.patch(campaignId, { dispatchedAt: now });
+    // 레거시 예약(수단 미기록)은 기존 동작인 기록 전용으로 처리한다.
+    return campaign.sendMode ?? "record_only";
+  }
+}
+
+/**
+ * scheduler / cron 에서 호출 — **기록 전용**(record_only) 예약의 실행부.
+ *
+ * ⚠️ 이 함수는 메일을 보내지 않는다. internalMutation이므로 외부 I/O가 구조적으로
+ *    불가능하다. 실발송·Gmail 초안 경로는 `scheduleSendDispatch`가 액션으로 보낸다.
+ *    여기에 발송을 붙이려는 시도를 하지 말 것 — 그게 이 버그의 원래 모습이었다.
+ *
  * 예약 시점 ~ 실행 시점 사이의 창이 가장 넓은 경로라 게이트가 특히 중요하다.
  */
 export const executeScheduledSend = internalMutation({
   args: {
     campaignId: v.id("campaigns"),
     userId: v.id("users"),
+    scheduledSendAt: v.number(),
   },
-  handler: async (ctx, { campaignId, userId }) => {
-    const campaign = await ctx.db.get(campaignId);
-    if (!campaign || campaign.userId !== userId) return 0;
-    if (campaign.status === "sent" || campaign.status === "done") return 0;
+  handler: async (ctx, { campaignId, userId, scheduledSendAt }) => {
+    // 다른 경로와 **같은 클레임**을 통과한다. 여기만 예외를 두면 크론과 겹칠 때
+    // 같은 캠페인이 두 번 확정된다(확정 자체는 멱등이지만 상태 전이가 요동친다).
+    const claimed = await claimSend(ctx, { campaignId, userId, scheduledSendAt });
+    if (claimed === null) return 0;
 
     const res = await finalizeCampaignSend(ctx, campaignId, userId);
     return res.sent;
@@ -582,23 +729,167 @@ export const executeScheduledSend = internalMutation({
 });
 
 /**
- * cron 백업: 기한 지난 queued 캠페인 일괄 처리.
+ * 디스패치 클레임 유효 시간.
+ *
+ * 액션이 죽거나 타임아웃되면 캠페인이 `sending` + 과거 `scheduledSendAt`으로 영구히
+ * 남아 다시는 처리되지 않는다. 이 시간이 지나면 크론이 재시도한다.
+ * 확정은 멱등이므로(`confirmSent`가 이미 sent인 건을 건너뛴다) 재시도가 중복 확정을
+ * 만들지 않는다.
+ *
+ * ⚠️ Convex 액션 실행 상한(10분)보다 **넉넉히 크게** 잡는다. 같게 두면 오래 걸리는
+ *    발송이 상한에 부딪히는 시점과 재시도가 허용되는 시점이 겹쳐, 이미 나갔지만 확정
+ *    전인 메일이 통째로 재발송된다.
+ */
+const DISPATCH_STALE_MS = 20 * 60 * 1000;
+
+/**
+ * 예약 실행 재시도 상한.
+ *
+ * 고쳐지지 않는 원인(비밀번호 변경·계정 잠김)에 대해 무한 재시도하면 매 시도가 실제
+ * 메일 서버 접속이라 상황을 악화시킨다. 상한에 닿으면 예약을 풀고 사용자에게 넘긴다.
+ */
+const MAX_SEND_ATTEMPTS = 3;
+
+/**
+ * cron 백업: 기한 지난 예약 캠페인을 **디스패치**한다.
  *
  * ⚠️ 이 경로는 예전에 수신거부 재대조를 하지 않아 억제된 기자에게 그대로 나갔다.
- *    이제 다른 두 경로와 **동일한 공통 함수**를 통과한다.
+ *    이제 모든 경로가 동일한 선별 게이트(`selectSendableDrafts`)를 통과한다.
+ * ⚠️ 직접 확정하지 않고 수단별 액션을 스케줄한다. 예전에는 여기서 바로 확정해
+ *    발신 수단과 무관하게 "메일 0통 + sent 기록"이 됐다.
  */
 export const processDueSends = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
-    const campaigns = await ctx.db.query("campaigns").collect();
-    let processed = 0;
-    for (const c of campaigns) {
-      if (c.status !== "sending" || !c.scheduledSendAt || c.scheduledSendAt > now) continue;
-      const res = await finalizeCampaignSend(ctx, c._id, c.userId);
-      processed += res.sent;
+    // 전체 테이블 스캔을 하지 않는다 — 예약 시각 인덱스 범위로 좁힌다.
+    // (하한 1은 scheduledSendAt이 undefined인 문서를 범위에서 제외하기 위한 것이다.)
+    const due = await ctx.db
+      .query("campaigns")
+      .withIndex("by_scheduled", (q) => q.gte("scheduledSendAt", 1).lte("scheduledSendAt", now))
+      .collect();
+
+    let dispatched = 0;
+    for (const c of due) {
+      if (c.status !== "sending" || c.scheduledSendAt === undefined) continue;
+      // 이미 실행 중이면 잡을 더 띄우지 않는다. 이것은 최적화일 뿐이고, 실제 상호배제는
+      // 액션 진입부의 `claimScheduledSend`가 보장한다(mutation은 직렬화된다).
+      if (c.dispatchedAt !== undefined && now - c.dispatchedAt < DISPATCH_STALE_MS) continue;
+
+      // 레거시 예약(수단 미기록)은 기존 동작인 기록 전용으로 처리한다.
+      // 사용자가 동의하지 않은 실발송으로 승격시키지 않는다.
+      const sendMode: SendMode = c.sendMode ?? "record_only";
+
+      await scheduleSendDispatch(ctx, {
+        campaignId: c._id,
+        userId: c.userId,
+        sendMode,
+        scheduledSendAt: c.scheduledSendAt,
+        immediate: true,
+      });
+      dispatched += 1;
     }
-    return processed;
+    return dispatched;
+  },
+});
+
+/**
+ * 예약 취소 — 실발송 예약을 되돌릴 수단.
+ *
+ * 스케줄 잡 자체는 취소할 수 없다(잡 id를 저장하지 않는다). 대신 예약을 해제하면
+ * 남은 잡의 `claimScheduledSend`가 시각 대조에서 실패해 아무것도 하지 않는다.
+ * 초안은 지우지 않는다 — 다시 예약하거나 즉시 발송할 수 있어야 한다.
+ */
+export const cancelSchedule = mutation({
+  args: { campaignId: v.id("campaigns") },
+  returns: v.object({ cancelled: v.number() }),
+  handler: async (ctx, { campaignId }) => {
+    const userId = await requireUser(ctx);
+    const campaign = await ctx.db.get(campaignId);
+    if (!campaign || campaign.userId !== userId) throw new Error("캠페인을 찾을 수 없습니다.");
+    if (campaign.status !== "sending" || campaign.scheduledSendAt === undefined) {
+      throw new Error("예약된 발송이 없습니다.");
+    }
+
+    const queued = (
+      await ctx.db
+        .query("emailDrafts")
+        .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
+        .collect()
+    ).filter((d) => d.status === "queued");
+    for (const d of queued) {
+      await ctx.db.patch(d._id, { status: "draft", scheduledSendAt: undefined });
+    }
+
+    await ctx.db.patch(campaignId, {
+      status: "review",
+      scheduledSendAt: undefined,
+      dispatchedAt: undefined,
+      lastSendError: undefined,
+      sendAttempts: undefined,
+    });
+    return { cancelled: queued.length };
+  },
+});
+
+/**
+ * 예약 실행 실패 기록 — 예약 시점에는 사용자가 화면에 없다.
+ *
+ * 액션이 throw하고 끝나면 캠페인은 `sending`에 멈춘 채 아무 설명도 남지 않는다.
+ * 사유를 남겨 캠페인 화면이 "왜 안 나갔는지"를 보여 줄 수 있게 한다.
+ */
+export const recordScheduledSendFailure = internalMutation({
+  args: {
+    campaignId: v.id("campaigns"),
+    userId: v.id("users"),
+    error: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, { campaignId, userId, error }) => {
+    const campaign = await ctx.db.get(campaignId);
+    if (!campaign || campaign.userId !== userId) return null;
+
+    // 확정 **이후** 단계에서 터진 예외(사용 기록 갱신 등)일 수 있다. 이미 발송된
+    // 캠페인의 상태를 승인 단계로 되돌리면 나간 메일의 게이트를 다시 여는 셈이다.
+    if (campaign.status === "sent" || campaign.status === "done") {
+      await ctx.db.patch(campaignId, { lastSendError: error.slice(0, 300) });
+      return null;
+    }
+    // 이 실패 경로에서는 이미 예약이 해제된 경우가 많다(파일럿 보류·0건 확정).
+    // 그때는 크론이 다시 잡지 않으므로 재시도 카운트를 올릴 의미가 없다.
+    if (campaign.scheduledSendAt === undefined) {
+      await ctx.db.patch(campaignId, {
+        lastSendError: error.slice(0, 300),
+        dispatchedAt: undefined,
+      });
+      return null;
+    }
+
+    const attempts = (campaign.sendAttempts ?? 0) + 1;
+    // 서버 원문이 그대로 노출되지 않게 길이를 제한한다.
+    const reason = error.slice(0, 300);
+
+    if (attempts >= MAX_SEND_ATTEMPTS) {
+      // 원인이 고쳐지지 않으면 재시도는 영구히 반복된다. 매 시도가 실제 메일 서버 접속이라
+      // 계정이 잠길 수도 있다. 예약을 해제해 사용자가 개입하게 한다.
+      // 초안은 지우지 않는다 — 고친 뒤 다시 예약하거나 즉시 발송할 수 있어야 한다.
+      await ctx.db.patch(campaignId, {
+        status: "review",
+        scheduledSendAt: undefined,
+        dispatchedAt: undefined,
+        sendAttempts: attempts,
+        lastSendError: `${reason} (${attempts}회 실패해 예약을 해제했습니다. 원인을 고친 뒤 다시 예약하세요.)`,
+      });
+      return null;
+    }
+
+    await ctx.db.patch(campaignId, {
+      lastSendError: reason,
+      sendAttempts: attempts,
+      // 클레임은 **풀지 않는다.** 풀면 다음 분에 곧바로 재시도해 실패가 분당 반복된다.
+      // 유효 시간(DISPATCH_STALE_MS)이 지나면 크론이 알아서 재시도한다 = 자연스러운 백오프.
+    });
+    return null;
   },
 });
 
@@ -631,8 +922,10 @@ export const listDraftsForEnhance = internalQuery({
           draftId: v.id("emailDrafts"),
           subject: v.string(),
           body: v.string(),
-          /** 골격 — 레거시 초안은 없으므로 소비자가 "standard"로 폴백한다. */
+          /** 골격 — 레거시 초안은 없으므로 소비자가 폴백한다. */
           templateKind: v.optional(emailTemplateKindValidator),
+          /** 팔로업 여부 — 골격 기록이 없는 레거시 팔로업을 유추하는 축. */
+          followUpOf: v.optional(v.id("emailDrafts")),
           beatPrimary: v.string(),
           topReferenceTitle: v.optional(v.string()),
           beatSecondary: v.optional(v.array(v.string())),
@@ -677,6 +970,8 @@ export const listDraftsForEnhance = internalQuery({
         subject: d.subject,
         body: d.body,
         templateKind: d.templateKind,
+        // 골격 기록이 없는 레거시 팔로업 초안을 유추하기 위한 축.
+        followUpOf: d.followUpOf,
         beatPrimary: j.beatPrimary,
         topReferenceTitle: j.topReferenceTitle,
         beatSecondary: j.beatSecondary,
@@ -849,6 +1144,9 @@ export const createFollowUp = mutation({
       body,
       status: "draft",
       followUpOf: draftId,
+      // 팔로업은 원본 프리셋을 상속하지 않는다 — 본문 골격 자체가 다르다.
+      // 이 값이 없으면 AI 개인화가 팔로업을 표준 7블록으로 취급해 늘려 버린다.
+      templateKind: "followup",
       complianceLevel: compliance.status,
       ...(compliance.notes.length ? { complianceNotes: compliance.notes } : {}),
     });

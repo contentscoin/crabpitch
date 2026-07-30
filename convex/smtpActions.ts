@@ -2,7 +2,7 @@
 
 import { v } from "convex/values";
 import nodemailer from "nodemailer";
-import { action } from "./_generated/server";
+import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "./_generated/dataModel";
@@ -131,7 +131,56 @@ export const sendCampaign = action({
   ): Promise<{ sent: number; failed: number; mode: "smtp"; message?: string }> => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("로그인이 필요합니다.");
+    return await sendCampaignForUser(ctx, campaignId, userId);
+  },
+});
 
+/**
+ * 예약 실행용 — 인증 컨텍스트 없이 userId를 받아 같은 본문을 수행한다.
+ *
+ * 스케줄러 실행 시점에는 `getAuthUserId`가 쓸 수 없으므로 public action을 그대로
+ * 예약할 수 없다. 발송 로직을 복제하면 게이트가 한쪽에서만 갱신되므로,
+ * 본문은 `sendCampaignForUser` 하나만 두고 진입점만 둘로 나눈다.
+ *
+ * ⚠️ 실패를 throw로 끝내지 않는다 — 예약 실행 시점에는 사용자가 화면에 없어서
+ *    아무도 그 예외를 보지 못한다. 사유를 캠페인에 남긴다.
+ */
+export const sendCampaignInternal = internalAction({
+  args: {
+    campaignId: v.id("campaigns"),
+    userId: v.id("users"),
+    scheduledSendAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, { campaignId, userId, scheduledSendAt }) => {
+    // 클레임에 실패하면 이 잡은 무효다 — 이미 다른 경로가 실행 중이거나, 즉시 발송으로
+    // 앞질렀거나, 시각을 바꿔 재예약했거나, 취소됐다. 아무것도 하지 않는다.
+    const claimed = await ctx.runMutation(internal.drafts.claimScheduledSend, {
+      campaignId,
+      userId,
+      scheduledSendAt,
+    });
+    if (claimed !== "smtp") return null;
+
+    try {
+      await sendCampaignForUser(ctx, campaignId, userId);
+    } catch (e) {
+      await ctx.runMutation(internal.drafts.recordScheduledSendFailure, {
+        campaignId,
+        userId,
+        error: e instanceof Error ? e.message : "예약 발송 실패",
+      });
+    }
+    return null;
+  },
+});
+
+async function sendCampaignForUser(
+  ctx: ActionCtx,
+  campaignId: Id<"campaigns">,
+  userId: Id<"users">,
+): Promise<{ sent: number; failed: number; mode: "smtp"; message?: string }> {
+  {
     const account = await ctx.runQuery(internal.smtpAccounts.getAccountInternal, { userId });
     if (!account) {
       throw new Error("메일 계정이 설정되지 않았습니다. 설정에서 발신 메일을 먼저 연결하세요.");
@@ -213,5 +262,5 @@ export const sendCampaign = action({
       mode: "smtp",
       message: `${account.email} 에서 ${sent}건을 발송했습니다.${failNote}${fatalNote}${excludedSummary(counts)}`,
     };
-  },
-});
+  }
+}

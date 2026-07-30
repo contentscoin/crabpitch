@@ -81,6 +81,15 @@ async function callLlm(
 }
 
 /**
+ * 재시도 시 올려 줄 토큰 예산.
+ *
+ * 추론 모델은 `max_tokens`를 thinking과 본문이 **함께** 소모한다. thinking이 예산을 다
+ * 쓰면 본문이 비거나 중간에 잘려서 돌아온다. 그 상태로 같은 예산으로 재시도하면
+ * 결정적으로 같은 실패다 — 사용자는 두 번 과금되고 결과는 그대로다.
+ */
+const JSON_RETRY_MAX_TOKENS = 8000;
+
+/**
  * JSON 응답 전용 호출 — 파싱 불가한 응답이 오면 **1회만** 교정 재시도한다.
  *
  * 왜 필요한가: 모든 파서는 파싱 실패 시 조용히 원본(fallback)을 돌려준다. 그래서 사용자
@@ -99,12 +108,22 @@ async function callLlmForJson(
   const first = await callLlm(resolved, system, user, maxTokens, { jsonOutput: true });
   if (first && parseJsonObject(first)) return first;
 
-  const repaired = [
-    user,
-    "",
-    "※ 직전 응답이 JSON으로 파싱되지 않았다. 설명·머리말·인사말·코드펜스 없이 JSON 객체 하나만 출력하라.",
-  ].join("\n");
-  const second = await callLlm(resolved, system, repaired, maxTokens, { jsonOutput: true });
+  // 빈 응답(추론 토큰 소진)과 파싱 실패(머리말·코드펜스)는 원인이 달라 지시도 다르다.
+  const wasEmpty = first === null || first.trim() === "";
+  // 예산은 **원인과 무관하게** 올린다. 중간에 잘린 응답("…\"body\":\"…" 로 끝나는 것)은
+  // 비어 있지 않아 문구 교정 분기로 가지만 원인은 예산이다. 같은 예산으로 재시도하면
+  // 결정적으로 같은 실패이고 사용자는 두 번 과금된다.
+  const retryTokens = Math.max(maxTokens ?? 0, JSON_RETRY_MAX_TOKENS);
+  const retryUser = wasEmpty
+    ? // 예산을 늘리는 것만으로는 부족할 수 있다 — 생각을 줄이라고 함께 지시한다.
+      [user, "", "※ 직전 응답이 비어 있었다. 긴 추론 없이 곧바로 JSON 객체만 출력하라."].join("\n")
+    : [
+        user,
+        "",
+        "※ 직전 응답이 JSON으로 파싱되지 않았다. 설명·머리말·인사말·코드펜스 없이 JSON 객체 하나만 출력하라.",
+      ].join("\n");
+
+  const second = await callLlm(resolved, system, retryUser, retryTokens, { jsonOutput: true });
   // 재시도도 실패하면 첫 응답을 돌려준다 — 파서가 부분 추출에 성공할 수도 있다.
   return second && parseJsonObject(second) ? second : (second ?? first);
 }
@@ -120,6 +139,15 @@ async function resolveLlm(
 function providerLabel(p: LlmProvider): string {
   return LLM_PROVIDER_META[p].label;
 }
+
+/**
+ * 다듬기 결과를 몇 건마다 저장할지.
+ *
+ * 초안 1건당 LLM 1콜이라 수신자가 많으면 액션이 타임아웃 한계에 가까워진다.
+ * 루프가 끝날 때 한 번에 저장하면 마지막에 실패했을 때 **이미 과금이 끝난 성공분 전부**가
+ * 버려진다. 배치로 흘려 보내 거기까지는 남게 한다(저장은 멱등이라 재실행도 안전하다).
+ */
+const ENHANCE_FLUSH_BATCH = 5;
 
 const NO_KEY_MESSAGE =
   "연결된 AI가 없습니다. 「내 AI」에서 GPT·Claude·Gemini 중 하나의 API 키를 등록하면 웹에서 바로 다듬을 수 있습니다.";
@@ -205,17 +233,36 @@ export const enhanceCampaignDrafts = action({
       return { enhanced: 0, mode: "skipped", message: "강화할 초안이 없습니다." };
     }
 
+    /**
+     * 실제로 저장된 건수 — **try 밖**에 둔다.
+     *
+     * 증분 저장의 목적은 도중 실패해도 과금된 성공분을 남기는 것이다. 그런데 카운터가
+     * try 안에 있으면 catch가 그 값을 읽을 수 없어 "0건 실패"로 보고하게 된다.
+     * 사용자는 실패로 알지만 초안 15건은 이미 바뀌어 있고, `applyEnhancedDrafts`가
+     * `approvedAt`을 지우므로 파일럿 게이트까지 다시 닫힌다.
+     */
+    let applied = 0;
+    /** 파서가 규정 위반·분량 이탈로 폐기한 건수 — 사용자에게 그대로 알린다. */
+    let rejected = 0;
+
     try {
-      const updates: Array<{
+      /** 아직 저장하지 않은 결과. `flush()`가 비운다. */
+      const pending: Array<{
         draftId: (typeof pack.drafts)[number]["draftId"];
         subject: string;
         body: string;
       }> = [];
-      /** 파서가 규정 위반·분량 이탈로 폐기한 건수 — 사용자에게 그대로 알린다. */
-      let rejected = 0;
+
+      const flush = async (): Promise<number> => {
+        if (pending.length === 0) return 0;
+        const batch = pending.splice(0, pending.length);
+        return await ctx.runMutation(internal.drafts.applyEnhancedDrafts, { updates: batch });
+      };
+
       for (const d of pack.drafts) {
-        // 레거시 초안은 골격 기록이 없다 — 표준 7블록으로 취급한다.
-        const kind = d.templateKind ?? "standard";
+        // 레거시 초안은 골격 기록이 없다. 팔로업은 `followUpOf`로 유추할 수 있으므로
+        // 백필 없이도 표준 7블록 규칙(원래 보도자료 내용을 다시 채우는)을 피한다.
+        const kind = d.templateKind ?? (d.followUpOf ? "followup" : "standard");
         const raw = await callLlmForJson(
           resolved,
           // 분량 지시는 이 초안의 실제 본문 길이에서 계산한다(고정 숫자 금지).
@@ -250,10 +297,17 @@ export const enhanceCampaignDrafts = action({
           rejected += 1;
           continue;
         }
-        updates.push({ draftId: d.draftId, subject: next.subject, body: next.body });
-      }
+        pending.push({ draftId: d.draftId, subject: next.subject, body: next.body });
 
-      if (updates.length === 0) {
+        // 배치 단위로 흘려 보낸다 — 루프 끝까지 모아 두면 20번째에서 타임아웃될 때
+        // 이미 과금이 끝난 19건이 통째로 버려진다.
+        if (pending.length >= ENHANCE_FLUSH_BATCH) {
+          applied += await flush();
+        }
+      }
+      applied += await flush();
+
+      if (applied === 0) {
         // 폐기(rejected)와 파싱 실패는 원인이 다르다 — 사용자가 할 일도 다르다.
         const reason =
           rejected > 0
@@ -268,9 +322,6 @@ export const enhanceCampaignDrafts = action({
         return { enhanced: 0, mode: "error", message: reason };
       }
 
-      const n: number = await ctx.runMutation(internal.drafts.applyEnhancedDrafts, {
-        updates,
-      });
       await ctx.runMutation(internal.aiKeys.recordUsage, {
         userId,
         provider: resolved.provider,
@@ -279,9 +330,9 @@ export const enhanceCampaignDrafts = action({
       const rejectedNote =
         rejected > 0 ? ` ${rejected}건은 규정·분량 검사에서 폐기해 원본을 유지했습니다.` : "";
       return {
-        enhanced: n,
+        enhanced: applied,
         mode: resolved.provider,
-        message: `${providerLabel(resolved.provider)}로 ${n}건 메일 초안을 개인화했습니다.${rejectedNote}`,
+        message: `${providerLabel(resolved.provider)}로 ${applied}건 메일 초안을 개인화했습니다.${rejectedNote}`,
       };
     } catch (e) {
       const msg = e instanceof Error ? e.message : "AI 개인화 실패";
@@ -291,7 +342,11 @@ export const enhanceCampaignDrafts = action({
         ok: false,
         error: msg,
       });
-      return { enhanced: 0, mode: "error", message: msg };
+      // 이미 저장된 건은 실제로 바뀌어 있다 — 0건이라고 보고하면 사용자가 초안을
+      // 다시 확인해야 하는 이유(파일럿 게이트 재잠금)를 알 수 없다.
+      const partial =
+        applied > 0 ? ` ${applied}건은 이미 반영됐습니다 — 초안을 다시 확인해 주세요.` : "";
+      return { enhanced: applied, mode: "error", message: `${msg}${partial}` };
     }
   },
 });

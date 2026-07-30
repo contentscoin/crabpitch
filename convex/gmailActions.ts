@@ -1,7 +1,7 @@
 "use node";
 
 import { v } from "convex/values";
-import { action } from "./_generated/server";
+import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "./_generated/dataModel";
@@ -177,7 +177,55 @@ export const pushCampaignToGmail = action({
   }> => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("로그인이 필요합니다.");
+    return await pushCampaignForUser(ctx, campaignId, userId);
+  },
+});
 
+/**
+ * 예약 실행용 — 인증 컨텍스트 없이 userId를 받아 같은 본문을 수행한다.
+ *
+ * 스케줄러 실행 시점에는 `getAuthUserId`가 쓸 수 없으므로 public action을 그대로
+ * 예약할 수 없다. 본문은 `pushCampaignForUser` 하나만 두고 진입점만 둘로 나눈다.
+ *
+ * ⚠️ 실패를 throw로 끝내지 않는다 — 예약 실행 시점에는 사용자가 화면에 없어서
+ *    아무도 그 예외를 보지 못한다. 사유를 캠페인에 남긴다.
+ */
+export const pushCampaignInternal = internalAction({
+  args: {
+    campaignId: v.id("campaigns"),
+    userId: v.id("users"),
+    scheduledSendAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, { campaignId, userId, scheduledSendAt }) => {
+    // 클레임에 실패하면 이 잡은 무효다 — 이미 다른 경로가 실행 중이거나, 즉시 발송으로
+    // 앞질렀거나, 시각을 바꿔 재예약했거나, 취소됐다. 아무것도 하지 않는다.
+    const claimed = await ctx.runMutation(internal.drafts.claimScheduledSend, {
+      campaignId,
+      userId,
+      scheduledSendAt,
+    });
+    if (claimed !== "gmail_drafts") return null;
+
+    try {
+      await pushCampaignForUser(ctx, campaignId, userId);
+    } catch (e) {
+      await ctx.runMutation(internal.drafts.recordScheduledSendFailure, {
+        campaignId,
+        userId,
+        error: e instanceof Error ? e.message : "예약 Gmail 초안 생성 실패",
+      });
+    }
+    return null;
+  },
+});
+
+async function pushCampaignForUser(
+  ctx: ActionCtx,
+  campaignId: Id<"campaigns">,
+  userId: Id<"users">,
+): Promise<{ sent: number; mode: "gmail_drafts"; message?: string }> {
+  {
     const { clientId, clientSecret } = requireGmailOAuthEnv();
     const account = await ctx.runQuery(internal.gmailAccounts.getAccountInternal, { userId });
     if (!account) {
@@ -233,5 +281,5 @@ export const pushCampaignToGmail = action({
       mode: "gmail_drafts",
       message: `Gmail '${GMAIL_PR_LABEL}' 라벨에 초안 ${sent}건을 생성했습니다. Gmail에서 검토 후 발송하세요.${excludedSummary(counts)}`,
     };
-  },
-});
+  }
+}

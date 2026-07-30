@@ -25,7 +25,14 @@ import {
   parseEnhanceEmailResult,
 } from "./anthropicEnhance";
 
-const ALL_KINDS: EmailTemplateKind[] = ["standard", "data", "story", "brief", "custom"];
+const ALL_KINDS: EmailTemplateKind[] = [
+  "standard",
+  "data",
+  "story",
+  "brief",
+  "custom",
+  "followup",
+];
 
 const EMAIL = {
   companyName: "크랩피치",
@@ -39,10 +46,24 @@ const OPT_OUT =
   "본 메일 수신을 원치 않으시면 회신으로 '수신거부'라 남겨주세요. 즉시 명단에서 제외하겠습니다.";
 
 describe("EmailTemplateKind", () => {
-  it("프리셋 4종 + custom을 인식하고 그 밖은 거부한다", () => {
+  it("프리셋 4종 + custom + followup을 인식하고 그 밖은 거부한다", () => {
     for (const k of ALL_KINDS) expect(isEmailTemplateKind(k)).toBe(true);
     expect(isEmailTemplateKind("standard2")).toBe(false);
     expect(isEmailTemplateKind("")).toBe(false);
+  });
+
+  /**
+   * 팔로업은 프리셋을 상속하지 않는다 — `buildFollowUpDraft`가 만드는 별도 골격이다.
+   * 원본 프리셋을 물려주면 AI가 없는 구조(데이터 불릿 등)를 보존하라는 지시를 받는다.
+   */
+  it("followup은 별도 골격으로 다뤄진다", () => {
+    const p = emailEnhanceSystemPrompt("followup", "가".repeat(300));
+    expect(p).toContain("팔로업");
+    expect(p).toContain("새 소식");
+    // 늘리는 것을 거의 허용하지 않는다 — 늘어나면 재촉하는 메일이 된다.
+    expect(EMAIL_BODY_SCALE.followup.max).toBeLessThanOrEqual(
+      EMAIL_BODY_SCALE.standard.max,
+    );
   });
 
   it("EMAIL_BODY_SCALE이 모든 골격을 빠짐없이 덮는다", () => {
