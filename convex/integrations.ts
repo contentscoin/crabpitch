@@ -16,7 +16,12 @@ export const getStatus = query({
     gmailOAuthSource: v.union(v.literal("gmail"), v.literal("auth"), v.literal("none")),
     anthropicConfigured: v.boolean(),
     siteUrlSet: v.boolean(),
-    /** SMTP 계정 저장에 필요한 봉인 키. 없으면 저장이 실패하므로 미리 보여 준다. */
+    /**
+     * 자격증명 봉인용 마스터 키.
+     *
+     * SMTP 비밀번호 **와 BYOK AI API 키**를 모두 이 키로 봉인한다. 없으면 두 저장 모두
+     * 실패하므로 설정 화면에서 미리 보여 준다.
+     */
     smtpEncryptionKeySet: v.boolean(),
   }),
   handler: async (ctx) => {

@@ -3,9 +3,11 @@ import { internalMutation, internalQuery, mutation, query } from "./_generated/s
 import { internal } from "./_generated/api";
 import { requireUser, getProfile, bumpSends } from "./model";
 import {
+  buildEmailContext,
   buildEmailDraftWithPreset,
   ctaLine,
   renderCustomTemplate,
+  type EmailTemplateKind,
   type JournalistContext,
 } from "./lib/emailTemplate";
 import {
@@ -22,6 +24,9 @@ const emailTemplatePresetValidator = v.union(
   v.literal("story"),
   v.literal("brief"),
 );
+
+/** 프리셋 + 커스텀 — `emailDrafts.templateKind`와 같은 집합이어야 한다. */
+const emailTemplateKindValidator = v.union(emailTemplatePresetValidator, v.literal("custom"));
 import { journalistCode } from "./lib/mask";
 import { PLAN_LIMITS, currentMonth, type Plan } from "./lib/plans";
 import {
@@ -322,6 +327,8 @@ export const generateForCampaign = mutation({
       custom = { subject: tpl.subject, body: tpl.body };
     }
     const presetId = preset ?? "standard";
+    /** 초안 레코드에 남길 골격 — 커스텀 템플릿은 프리셋과 규범이 다르다. */
+    const templateKind: EmailTemplateKind = custom ? "custom" : presetId;
 
     const matches = (
       await ctx.db
@@ -349,17 +356,8 @@ export const generateForCampaign = mutation({
       const j = await ctx.db.get(m.journalistId);
       if (!j) continue;
       // ⚠️ 초안 본문에 기자 실명을 넣지 않는다("기자님"). 실명은 발송 시점(Gmail)에만 주입.
-      const emailCtx = {
-        companyName: profile?.companyName ?? pr.who ?? "회사",
-        senderName: profile?.senderName ?? "담당자",
-        headline: pr.headlines[0] ?? pr.title,
-        bodyFact: pr.numbers ?? pr.body.slice(0, 80),
-        quote: pr.quote,
-        links: pr.links,
-        contact: profile?.contactEmail,
-        embargoAt: pr.embargoAt,
-        topicTags: pr.topicTags,
-      };
+      // 매핑은 `buildEmailContext` 하나로 통일한다 — 템플릿 미리보기 화면이 같은 함수를 쓴다.
+      const emailCtx = buildEmailContext(pr, profile);
       const jCtx = {
         beatPrimary: j.beatPrimary,
         topReferenceTitle: j.topReferenceTitle,
@@ -380,6 +378,8 @@ export const generateForCampaign = mutation({
         subject,
         body,
         status: "draft",
+        // AI 개인화 단계가 골격 의도(분량·구조)를 보존하려면 이 값이 필요하다.
+        templateKind,
         complianceLevel: check.status,
         ...(check.notes.length ? { complianceNotes: check.notes } : {}),
       });
@@ -430,11 +430,30 @@ export const listByCampaign = query({
  * 무료/유료 월 발송 한도를 강제한다.
  */
 export const sendCampaign = mutation({
-  args: { campaignId: v.id("campaigns") },
-  handler: async (ctx, { campaignId }) => {
+  args: {
+    campaignId: v.id("campaigns"),
+    /**
+     * "메일을 보내지 않고 발송됨으로만 기록한다"는 **명시적** 동의.
+     *
+     * 이 경로는 메일을 한 통도 보내지 않는데 초안을 sent로 잠그고(재생성 불가) 월 한도까지
+     * 소모한다. 크랩피치 밖에서 직접 보낸 사용자를 위한 기능이지 기본 경로가 아니다.
+     * 화면 경고만으로는 부족하다 — 서버가 최종 방어선이어야 한다.
+     */
+    recordOnly: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { campaignId, recordOnly }) => {
     const userId = await requireUser(ctx);
     const campaign = await ctx.db.get(campaignId);
     if (!campaign || campaign.userId !== userId) throw new Error("캠페인을 찾을 수 없습니다.");
+
+    // 발신 수단이 연결돼 있으면 이 경로를 쓸 이유가 없다 — 실제로 나가는 경로를 쓰게 한다.
+    // 미연결이면 명시적 동의 없이는 거부한다(되돌릴 수 없는 기록을 남기므로).
+    if (recordOnly !== true) {
+      throw new Error(
+        "이 작업은 메일을 보내지 않고 ‘발송됨’으로만 기록합니다. 설정에서 Gmail 또는 SMTP를 연결해 실제로 발송하거나, 이미 직접 보냈다면 기록 전용 동의에 체크하세요.",
+      );
+    }
+
     const profile = await getProfile(ctx, userId);
     const plan: Plan = (profile?.plan as Plan) ?? "free";
 
@@ -612,6 +631,8 @@ export const listDraftsForEnhance = internalQuery({
           draftId: v.id("emailDrafts"),
           subject: v.string(),
           body: v.string(),
+          /** 골격 — 레거시 초안은 없으므로 소비자가 "standard"로 폴백한다. */
+          templateKind: v.optional(emailTemplateKindValidator),
           beatPrimary: v.string(),
           topReferenceTitle: v.optional(v.string()),
           beatSecondary: v.optional(v.array(v.string())),
@@ -655,6 +676,7 @@ export const listDraftsForEnhance = internalQuery({
         draftId: d._id,
         subject: d.subject,
         body: d.body,
+        templateKind: d.templateKind,
         beatPrimary: j.beatPrimary,
         topReferenceTitle: j.topReferenceTitle,
         beatSecondary: j.beatSecondary,
@@ -687,7 +709,21 @@ export const applyEnhancedDrafts = internalMutation({
   returns: v.number(),
   handler: async (ctx, { updates }) => {
     for (const u of updates) {
-      await ctx.db.patch(u.draftId, { subject: u.subject, body: u.body });
+      const draft = await ctx.db.get(u.draftId);
+      if (!draft) continue;
+      // 본문이 바뀌면 생성 시점의 판정은 더 이상 유효하지 않다. 다시 검사하지 않으면
+      // 승인 화면의 배지·사유가 다듬기 이전 상태를 가리킨다(발송 게이트는 다시 보지만,
+      // 사용자가 보는 화면이 먼저 틀리면 승인 판단 자체가 잘못된 정보 위에서 이뤄진다).
+      const check = checkEmailCompliance(u.subject, u.body);
+      await ctx.db.patch(u.draftId, {
+        subject: u.subject,
+        body: u.body,
+        complianceLevel: check.status,
+        complianceNotes: check.notes.length ? check.notes : undefined,
+        // 사람이 확인한 것은 **이전** 문장이다. 확인 기록을 남겨 두면 파일럿 게이트가
+        // 아무도 읽지 않은 본문에 대해 열린다(게이트의 목적 자체가 무력화된다).
+        approvedAt: undefined,
+      });
     }
     return updates.length;
   },

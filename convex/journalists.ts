@@ -304,6 +304,12 @@ export const listMatches = query({
           topReferenceTitle: j?.topReferenceTitle,
           outletCategory: j?.outletCategory,
           packAgeDays,
+          // 템플릿 미리보기가 실제 초안과 **같은 문장**을 렌더하려면 후킹·앵글 분기에
+          // 쓰이는 컨텍스트가 필요하다. 없으면 미리보기가 실제와 다른 문장을 보여 주고,
+          // 그건 미리보기가 없는 것보다 나쁘다. (실명·이메일은 포함하지 않는다.)
+          beatSecondary: j?.beatSecondary,
+          beatDistribution: j?.beatDistribution,
+          referenceArticles: j?.referenceArticles,
         };
       }),
     );

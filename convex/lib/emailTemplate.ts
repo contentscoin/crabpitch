@@ -272,6 +272,19 @@ export function isEmailTemplatePresetId(v: string): v is EmailTemplatePresetId {
 }
 
 /**
+ * 초안이 **어떤 골격으로 만들어졌는지** — 프리셋 4종 + 커스텀 템플릿.
+ *
+ * 초안 레코드에 이 값을 남겨야 AI 개인화 단계가 골격 의도를 보존할 수 있다.
+ * 값이 없으면 AI는 모든 초안을 같은 규칙(600~800자 7블록)으로 다듬어서
+ * '초간결'을 고른 사용자의 4~5줄 메일을 800자로 부풀린다.
+ */
+export type EmailTemplateKind = EmailTemplatePresetId | "custom";
+
+export function isEmailTemplateKind(v: string): v is EmailTemplateKind {
+  return v === "custom" || isEmailTemplatePresetId(v);
+}
+
+/**
  * 개인화 후킹.
  *
  * 우선순위
@@ -299,10 +312,19 @@ export function personalHook(email: EmailContext, j: JournalistContext): string 
   return `${j.beatPrimary} 분야를 취재하시는 기자님께 먼저 전해드릴 소식이 있습니다.`;
 }
 
+/**
+ * 인용문 한 줄.
+ *
+ * 한국 보도자료 관행은 「이름 + 직함」 순서다("홍길동 대표는 …"). 직함만 아는 경우에는
+ * 이름 자리를 비우고, 둘 다 모르면 "대표"로 둔다.
+ * (기존 구현은 `${직함} ${이름}` 순서였고 이름이 항상 비어 있어 화자 없는 인용문이 나갔다.)
+ */
 function quoteLine(email: EmailContext): string {
-  return email.quote
-    ? `${email.spokesTitle ?? "대표"} ${email.spokesName ?? ""} "${email.quote}"라고 밝혔습니다.`.replace(/\s+/g, " ")
-    : "";
+  if (!email.quote) return "";
+  const name = email.spokesName?.trim();
+  const title = email.spokesTitle?.trim() || "대표";
+  const speaker = name ? `${name} ${title}` : title;
+  return `${speaker}는 "${email.quote}"라고 밝혔습니다.`.replace(/\s+/g, " ");
 }
 
 function linkLines(email: EmailContext): string {
@@ -415,6 +437,87 @@ export function buildEmailDraftWithPreset(
   return { subject, body };
 }
 
+/* ── 보도자료 → 메일 컨텍스트 매핑 ───────────────────────────
+ * 서버의 초안 생성(`drafts.generateForCampaign`)과 화면의 템플릿 미리보기가 **같은 함수**를
+ * 써야 한다. 매핑을 두 벌로 두면 미리보기가 실제 초안과 다른 문장을 보여 주고,
+ * 그건 미리보기가 없는 것보다 나쁘다.
+ */
+
+/** 숫자 근거가 없을 때 본문에서 대체할 최대 길이. */
+const BODY_FACT_FALLBACK_CHARS = 80;
+
+/**
+ * 앞부분을 문장 경계까지만 잘라 온다.
+ *
+ * 기존 동작은 `body.slice(0, 80)`이었다. 그러면 "…정산 소요 시간을 줄이기 위해 회사는"처럼
+ * 문장 중간 조각이 '핵심 수치' 자리에 실려 기자에게 나간다.
+ */
+export function leadingSentences(text: string, maxChars: number): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (clean.length <= maxChars) return clean;
+
+  // 상한을 넘기지 않는 **완전한 문장**까지만 담는다.
+  const sentences = clean.match(/[^.!?。]+[.!?。]+|[^.!?。]+$/g) ?? [clean];
+  let out = "";
+  for (const s of sentences) {
+    const next = out + s;
+    if (next.trimEnd().length > maxChars) break;
+    out = next;
+  }
+  const whole = out.trimEnd();
+  if (whole) return whole;
+
+  // 첫 문장 자체가 상한보다 길다 — 어절 경계에서 자르고 생략 기호를 남긴다.
+  const window = clean.slice(0, maxChars);
+  const lastSpace = window.lastIndexOf(" ");
+  return `${clean.slice(0, lastSpace > 0 ? lastSpace : maxChars).trimEnd()}…`;
+}
+
+/** `buildEmailContext`가 읽는 보도자료 필드만 추린 형태(Doc 전체를 요구하지 않는다). */
+export interface PressReleaseLike {
+  title: string;
+  headlines: string[];
+  body: string;
+  who?: string;
+  numbers?: string;
+  quote?: string;
+  links?: string[];
+  embargoAt?: number;
+  topicTags?: string[];
+  spokesName?: string;
+  spokesTitle?: string;
+}
+
+/** `buildEmailContext`가 읽는 발신 프로필 필드. */
+export interface SenderProfileLike {
+  companyName?: string;
+  senderName?: string;
+  contactEmail?: string;
+}
+
+export function buildEmailContext(
+  pr: PressReleaseLike,
+  profile: SenderProfileLike | null | undefined,
+  now?: number,
+): EmailContext {
+  return {
+    companyName: profile?.companyName ?? pr.who ?? "회사",
+    senderName: profile?.senderName ?? "담당자",
+    headline: pr.headlines[0] ?? pr.title,
+    // 숫자 근거가 없으면 본문 앞부분으로 대체한다 — 문장 경계를 지킨다.
+    bodyFact: pr.numbers?.trim() || leadingSentences(pr.body, BODY_FACT_FALLBACK_CHARS),
+    quote: pr.quote,
+    // 인용문 화자 — 비어 있으면 quoteLine이 "대표"만 쓰고 이름 자리는 비운다.
+    spokesName: pr.spokesName,
+    spokesTitle: pr.spokesTitle,
+    links: pr.links,
+    contact: profile?.contactEmail,
+    embargoAt: pr.embargoAt,
+    topicTags: pr.topicTags,
+    ...(now !== undefined ? { now } : {}),
+  };
+}
+
 /* ── 커스텀 템플릿 ────────────────────────────────────────────
  * 사용자가 제목/본문을 직접 쓰되 {{자리표시자}}로 개인화 값을 받는다.
  * 수신거부·기자님 호칭은 렌더링 시 강제 보정한다(컴플라이언스).
@@ -435,6 +538,31 @@ export const TEMPLATE_PLACEHOLDERS: Array<{ key: string; description: string }> 
   { key: "비트", description: "기자의 주 출입처(beat)" },
   { key: "최근기사", description: "후킹에 선택된 근거 기사 제목(오래됐거나 없으면 빈칸)" },
 ];
+
+/** 자리표시자 문법 — 렌더러와 검증기가 같은 정규식을 써야 한다. */
+const PLACEHOLDER_PATTERN = /\{\{\s*([^{}]+?)\s*\}\}/g;
+
+const KNOWN_PLACEHOLDER_KEYS: ReadonlySet<string> = new Set(
+  TEMPLATE_PLACEHOLDERS.map((p) => p.key),
+);
+
+/**
+ * 지원하지 않는 자리표시자 키 목록(중복 제거, 등장 순서).
+ *
+ * 렌더러는 모르는 키를 **원문 그대로 남긴다**(치환 실패를 조용히 삼키지 않으려는 설계).
+ * 그래서 `{{제목}}` 같은 오타는 기자에게 나가는 메일 본문에 리터럴로 실린다.
+ * 저장 시점과 편집기에서 이 함수로 잡는다.
+ */
+export function findUnknownPlaceholders(...templates: string[]): string[] {
+  const seen = new Set<string>();
+  for (const tpl of templates) {
+    for (const m of tpl.matchAll(PLACEHOLDER_PATTERN)) {
+      const key = m[1]!.trim();
+      if (!KNOWN_PLACEHOLDER_KEYS.has(key)) seen.add(key);
+    }
+  }
+  return [...seen];
+}
 
 export function renderCustomTemplate(
   subjectTemplate: string,
@@ -465,8 +593,8 @@ export function renderCustomTemplate(
   };
 
   const render = (tpl: string) =>
-    tpl.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (whole, key: string) =>
-      key in vars ? vars[key]! : whole,
+    tpl.replace(new RegExp(PLACEHOLDER_PATTERN.source, "g"), (whole, key: string) =>
+      key.trim() in vars ? vars[key.trim()]! : whole,
     );
 
   // 제목은 단일 라인이어야 한다({{자료링크}} 같은 멀티라인 값 삽입 대비).

@@ -45,6 +45,19 @@ export const EMAIL_BODY_CHAR_MIN = 600;
 export const EMAIL_BODY_CHAR_MAX = 800;
 
 /**
+ * ⚠️ 골격(프리셋)별 **절대** 분량 상·하한을 여기 두려는 시도를 하지 말 것. 한 번 했고 틀렸다.
+ *
+ * 템플릿 출력 길이는 골격이 아니라 **입력 길이**가 결정한다. 실측하면 같은 골격에서도
+ * 152자(최소 입력)~708자(긴 헤드라인·수치·인용문·링크 3개·엠바고)까지 벌어지고,
+ * 골격 간 차이는 50~80자뿐이다. 절대값 표를 만들면 갓 생성된 초안이 자기 목표를
+ * 위반하고, AI 다듬기 결과가 항상 폐기된다.
+ *
+ * 분량 통제는 **원본 대비 변화폭**으로 봐야 하고, 원본을 아는 지점은 이 게이트가 아니라
+ * 다듬기 단계다(`anthropicEnhance.EMAIL_BODY_SCALE`). 발송 게이트는 원본을 모르므로
+ * 절대 상한(`EMAIL_BODY_CHAR_MAX`)만 안전망으로 본다.
+ */
+
+/**
  * CTA(행동 요청)는 **무엇을 요청하는가**로 센다.
  *
  * "인터뷰를 원하시면 회신 주세요"는 요청 하나(인터뷰)에 응답 방법(회신)이 붙은 것이지
@@ -107,7 +120,7 @@ function checkNumberSources(body: string): ComplianceViolation[] {
 /**
  * 메일 초안 컴플라이언스 판정.
  *
- * @param opts.hasNumberWithComparison 타사 비교 맥락에서 무출처 수치를 쓴 경우 critical 승격
+ * @param opts.skipLengthCheck 분량 검사 자체를 끈다(팔로업 등 분량 규범이 다른 경로)
  */
 export function checkEmailCompliance(
   subject: string,
@@ -180,7 +193,7 @@ export function checkEmailCompliance(
     });
   }
 
-  // 구조 ③ 분량 — WARN 전용(근사 환산이라 하드블록하지 않는다)
+  // 구조 ③ 분량 — 절대 상한 안전망만. WARN 전용(근사 환산이라 하드블록하지 않는다)
   if (!opts?.skipLengthCheck) {
     const len = body.replace(/\s/g, "").length;
     if (len > EMAIL_BODY_CHAR_MAX) {
@@ -188,7 +201,7 @@ export function checkEmailCompliance(
         level: "structure",
         severity: "medium",
         label: "본문이 깁니다",
-        detail: `공백 제외 ${len}자 (권장 ${EMAIL_BODY_CHAR_MIN}~${EMAIL_BODY_CHAR_MAX}자)`,
+        detail: `공백 제외 ${len}자 (최대 ${EMAIL_BODY_CHAR_MAX}자)`,
         suggestion: "배경 설명을 줄이고 자료 링크로 넘기세요.",
       });
     }

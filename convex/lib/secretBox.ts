@@ -41,22 +41,26 @@ function fromBase64(b64: string): Uint8Array<ArrayBuffer> {
  *
  * 생성: `openssl rand -base64 32`
  */
-export async function importMasterKey(rawBase64: string): Promise<CryptoKey> {
+export async function importMasterKey(
+  rawBase64: string,
+  /** 오류 문구에 쓸 환경변수 이름 — 사용자가 무엇을 설정해야 하는지 바로 알 수 있어야 한다. */
+  envName = "SMTP_ENCRYPTION_KEY",
+): Promise<CryptoKey> {
   const key = rawBase64.trim();
   if (!key) {
     throw new Error(
-      "SMTP_ENCRYPTION_KEY 가 설정되지 않았습니다. `openssl rand -base64 32` 로 만들어 Convex 환경변수에 넣으세요.",
+      `${envName} 가 설정되지 않았습니다. \`openssl rand -base64 32\` 로 만들어 Convex 환경변수에 넣으세요.`,
     );
   }
   let bytes: Uint8Array<ArrayBuffer>;
   try {
     bytes = fromBase64(key);
   } catch {
-    throw new Error("SMTP_ENCRYPTION_KEY 가 base64가 아닙니다. `openssl rand -base64 32` 출력을 그대로 넣으세요.");
+    throw new Error(`${envName} 가 base64가 아닙니다. \`openssl rand -base64 32\` 출력을 그대로 넣으세요.`);
   }
   if (bytes.length !== 32) {
     throw new Error(
-      `SMTP_ENCRYPTION_KEY 는 32바이트여야 합니다(현재 ${bytes.length}바이트). \`openssl rand -base64 32\` 로 다시 만드세요.`,
+      `${envName} 는 32바이트여야 합니다(현재 ${bytes.length}바이트). \`openssl rand -base64 32\` 로 다시 만드세요.`,
     );
   }
   return crypto.subtle.importKey("raw", bytes, ALGO, false, ["encrypt", "decrypt"]);

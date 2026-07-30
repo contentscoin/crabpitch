@@ -17,6 +17,8 @@ type LlmProvider = "anthropic" | "openai" | "gemini";
  */
 export function AiProviderKeysPanel() {
   const status = useQuery(api.aiKeys.status);
+  // 키는 봉인해서 저장한다 — 마스터 키가 없으면 저장 자체가 실패하므로 미리 알린다.
+  const integrations = useQuery(api.integrations.getStatus);
   const save = useMutation(api.aiKeys.save);
   const remove = useMutation(api.aiKeys.remove);
   const setPreferred = useMutation(api.aiKeys.setPreferredProvider);
@@ -86,9 +88,21 @@ export function AiProviderKeysPanel() {
   }
 
   const anyConnected = status.activeProvider !== null;
+  const sealingUnavailable = integrations !== undefined && !integrations.smtpEncryptionKeySet;
 
   return (
     <div className="space-y-4">
+      {sealingUnavailable && (
+        <div className="rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
+          <p className="font-semibold text-warning">지금은 키를 저장할 수 없습니다.</p>
+          <p className="mt-1 text-foreground-muted">
+            API 키는 암호화해서 보관합니다. 서버에 봉인용 마스터 키(
+            <code className="text-xs">SMTP_ENCRYPTION_KEY</code>)가 설정되어 있지 않아 저장이
+            실패합니다. 평문으로 대신 저장하지는 않습니다.
+          </p>
+        </div>
+      )}
+
       <div className="flex items-start gap-3 rounded-lg border border-border bg-card p-4 text-sm">
         <Zap className="mt-0.5 h-5 w-5 shrink-0 text-brand" />
         <div className="text-foreground-muted">

@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireUser } from "./model";
+import { findUnknownPlaceholders, TEMPLATE_PLACEHOLDERS } from "./lib/emailTemplate";
 
 /** 내 커스텀 메일 템플릿 목록. */
 export const list = query({
@@ -56,6 +57,17 @@ export const save = mutation({
       throw new Error(`제목 템플릿은 ${MAX_SUBJECT_LEN}자 이내로 입력하세요.`);
     if (body.length > MAX_BODY_LEN)
       throw new Error(`본문 템플릿은 ${MAX_BODY_LEN.toLocaleString()}자 이내로 입력하세요.`);
+
+    // 렌더러는 모르는 자리표시자를 원문 그대로 남긴다. 여기서 막지 않으면 `{{제목}}`
+    // 같은 오타가 기자에게 나가는 메일 본문에 리터럴로 실린다(편집기에도 같은 경고가 있지만,
+    // 서버가 최종 방어선이다 — 편집기를 우회하는 경로가 생겨도 막힌다).
+    const unknown = findUnknownPlaceholders(subject, body);
+    if (unknown.length > 0) {
+      throw new Error(
+        `지원하지 않는 자리표시자입니다: ${unknown.map((k) => `{{${k}}}`).join(", ")}. ` +
+          `사용 가능: ${TEMPLATE_PLACEHOLDERS.map((p) => `{{${p.key}}}`).join(", ")}`,
+      );
+    }
 
     if (id) {
       const existing = await ctx.db.get(id);

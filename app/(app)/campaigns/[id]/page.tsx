@@ -2,7 +2,7 @@
 
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -29,10 +29,16 @@ import {
 import {
   EMAIL_TEMPLATE_PRESETS,
   TEMPLATE_PLACEHOLDERS,
+  buildEmailContext,
+  findUnknownPlaceholders,
   hasOptOut as hasUsableOptOut,
   isEmailTemplatePresetId,
+  renderCustomTemplate,
+  type EmailContext,
   type EmailTemplatePresetId,
+  type JournalistContext,
 } from "@/convex/lib/emailTemplate";
+import { checkEmailCompliance, EMAIL_BODY_CHAR_MAX } from "@/convex/lib/emailCompliance";
 import { needsPilotApproval } from "@/convex/lib/pilotGate";
 import { REPLY_TEMPLATE_VARIANTS } from "@/convex/lib/replyClassifier";
 import type { ReplyType } from "@/convex/lib/replyClassifier";
@@ -51,6 +57,8 @@ export default function CampaignDetailPage() {
   const smtp = useQuery(api.smtpAccounts.getConnection);
   const aiStatus = useQuery(api.aiKeys.status);
   const customTemplates = useQuery(api.emailTemplates.list);
+  // 템플릿 미리보기에 쓸 발신 정보(회사명·보내는 사람·연락처).
+  const myProfile = useQuery(api.profiles.getMyProfile);
   const similarity = useQuery(api.drafts.campaignSimilarity, { campaignId: id });
 
   const runMatch = useMutation(api.journalists.matchForCampaign);
@@ -67,6 +75,14 @@ export default function CampaignDetailPage() {
 
   const [busy, setBusy] = useState<string | null>(null);
   const [optOutConfirmed, setOptOutConfirmed] = useState(false);
+  /**
+   * 발신 수단 미연결 상태에서 "발송됨"으로만 기록하는 것에 대한 명시적 동의.
+   *
+   * 이 경로는 메일을 **한 통도 보내지 않는다**. 그런데 초안이 sent로 잠겨
+   * 재생성도 막히므로(generateForCampaign이 sent를 보존한다) 되돌릴 수 없다.
+   * 크랩피치 밖에서 직접 보낸 사용자를 위한 기능이지 기본 경로가 아니다.
+   */
+  const [recordOnlyConfirmed, setRecordOnlyConfirmed] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [syncNote, setSyncNote] = useState<string | null>(null);
   const [draftNote, setDraftNote] = useState<string | null>(null);
@@ -116,6 +132,51 @@ export default function CampaignDetailPage() {
       : smtp?.connected
         ? "smtp"
         : null;
+
+  /**
+   * 연결 상태를 아직 모르는 동안(쿼리 로딩)에도 effectiveSendMode는 null이다.
+   * "미연결"과 "모름"을 구분하지 않으면 로딩 중에 경고를 띄우게 된다.
+   */
+  const senderLoading = gmail === undefined || smtp === undefined;
+  const senderConnected = effectiveSendMode !== null;
+  /** 실제 발송이 일어나지 않는 경로 — 명시적 동의 없이는 실행을 막는다. */
+  const recordOnlyBlocked = !senderLoading && !senderConnected && !recordOnlyConfirmed;
+
+  /**
+   * 템플릿 미리보기 컨텍스트.
+   *
+   * 서버 초안 생성과 **같은** `buildEmailContext`를 쓴다 — 매핑을 화면에서 다시 구현하면
+   * 미리보기가 실제 초안과 다른 문장을 보여 주고, 그건 미리보기가 없는 것보다 나쁘다.
+   * 표본 기자는 매칭 1순위(포함된 기자 우선)다. 매칭 전이면 예시 기자로 렌더해
+   * 편집기가 첫 사용에도 빈 화면을 보이지 않게 한다.
+   */
+  const previewContext = useMemo((): {
+    email: EmailContext;
+    journalist: JournalistContext;
+    label: string;
+    isSample: boolean;
+  } | null => {
+    const pr = data?.pressRelease;
+    if (!pr) return null;
+    const sample = (matches ?? []).find((m) => m.included) ?? (matches ?? [])[0];
+    return {
+      email: buildEmailContext(pr, myProfile?.profile),
+      journalist: sample
+        ? {
+            beatPrimary: sample.beatPrimary || "IT·스타트업",
+            topReferenceTitle: sample.topReferenceTitle,
+            outletCategory: sample.outletCategory as JournalistContext["outletCategory"],
+            // 후킹 문장·beat 앵글 분기가 이 값들로 갈린다 — 빠지면 미리보기가
+            // 실제 초안과 다른 문장을 보여 준다.
+            beatSecondary: sample.beatSecondary,
+            beatDistribution: sample.beatDistribution,
+            referenceArticles: sample.referenceArticles,
+          }
+        : { beatPrimary: "IT·스타트업", outletCategory: "it" },
+      label: sample ? `${sample.code} · ${sample.outlet}` : "예시 기자 · IT 전문지",
+      isSample: !sample,
+    };
+  }, [data?.pressRelease, matches, myProfile?.profile]);
 
   function templateArgs(): {
     preset?: EmailTemplatePresetId;
@@ -341,6 +402,7 @@ export default function CampaignDetailPage() {
           value={templateChoice}
           onChange={setTemplateChoice}
           customTemplates={customTemplates ?? []}
+          preview={previewContext}
         />
 
         <div className="mb-4 flex flex-wrap gap-2">
@@ -434,6 +496,35 @@ export default function CampaignDetailPage() {
               </div>
             )}
 
+            {!senderLoading && !senderConnected && (
+              <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2.5 text-sm">
+                <p className="font-semibold text-danger">발신 수단이 연결되지 않았습니다 — 메일이 나가지 않습니다.</p>
+                <p className="mt-1 text-foreground-muted">
+                  지금 발송하면 <b>메일은 한 통도 보내지지 않고</b> 초안만 ‘발송됨’으로 기록됩니다. 기록된
+                  초안은 감사 추적을 위해 다시 생성할 수 없으니, 먼저 발신 수단을 연결하세요.
+                </p>
+                <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                  <Link href="/settings">
+                    <Button type="button" size="sm">
+                      발신 수단 연결하기
+                    </Button>
+                  </Link>
+                  <span className="text-xs text-muted">Gmail 1클릭 또는 SMTP(회사 메일)</span>
+                </div>
+                <label className="mt-3 flex items-start gap-2 text-xs text-foreground-muted">
+                  <input
+                    type="checkbox"
+                    checked={recordOnlyConfirmed}
+                    onChange={(e) => setRecordOnlyConfirmed(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 accent-brand"
+                  />
+                  <span>
+                    이미 크랩피치 밖에서 직접 보냈습니다. <b>발송 없이 기록만</b> 남기는 것에 동의합니다.
+                  </span>
+                </label>
+              </div>
+            )}
+
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -512,12 +603,19 @@ export default function CampaignDetailPage() {
                       const result = await pushGmail({ campaignId: id });
                       if (result.message) setSendNote(result.message);
                     } else {
-                      await sendCampaign({ campaignId: id });
+                      // 발신 수단 미연결 — 메일은 나가지 않는다. 서버도 명시적 동의를 요구한다.
+                      await sendCampaign({ campaignId: id, recordOnly: true });
                     }
                   })
                 }
                 disabled={
-                  !optOutConfirmed || busy === "send" || !drafts || drafts.length === 0 || pilotBlocked
+                  !optOutConfirmed ||
+                  busy === "send" ||
+                  !drafts ||
+                  drafts.length === 0 ||
+                  pilotBlocked ||
+                  senderLoading ||
+                  recordOnlyBlocked
                 }
               >
                 <Send className="h-4 w-4" />{" "}
@@ -525,22 +623,26 @@ export default function CampaignDetailPage() {
                   ? "처리 중…"
                   : pilotBlocked
                     ? "초안 확인 필요"
-                    : scheduleLocal
-                      ? "예약 발송 (승인)"
-                      : effectiveSendMode === "smtp"
-                        ? "메일 발송 (승인)"
-                        : effectiveSendMode === "gmail"
-                          ? "Gmail 초안 생성 (승인)"
-                          : "발송 기록 (승인)"}
+                    : recordOnlyBlocked
+                      ? "발신 수단 연결 필요"
+                      : scheduleLocal
+                        ? "예약 발송 (승인)"
+                        : effectiveSendMode === "smtp"
+                          ? "메일 발송 (승인)"
+                          : effectiveSendMode === "gmail"
+                            ? "Gmail 초안 생성 (승인)"
+                            : "발송 없이 기록만 (승인)"}
               </Button>
               <span className="text-xs text-muted">
-                {scheduleLocal
-                  ? "* 예약 시각에 발송 기록으로 확정됩니다(매분 크론·스케줄러)."
-                  : effectiveSendMode === "smtp"
-                    ? `* ${smtp!.email} 에서 기자에게 메일이 즉시 나갑니다. 되돌릴 수 없습니다.`
-                    : effectiveSendMode === "gmail"
-                      ? `* 연결된 Gmail(${gmail!.email})의 ‘언론홍보’ 라벨에 초안을 만듭니다. 실발송은 Gmail에서 확인 후.`
-                      : "* 발신 메일 미연결 시 ‘발송됨’으로만 기록합니다. 설정에서 Gmail 또는 SMTP를 연결하면 실제로 나갑니다."}
+                {senderLoading
+                  ? "* 발신 수단을 확인하고 있습니다…"
+                  : !senderConnected
+                    ? "* 메일은 나가지 않습니다. 위에서 발신 수단을 연결하세요."
+                    : scheduleLocal
+                      ? "* 예약 시각에 발송 기록으로 확정됩니다(매분 크론·스케줄러)."
+                      : effectiveSendMode === "smtp"
+                        ? `* ${smtp!.email} 에서 기자에게 메일이 즉시 나갑니다. 되돌릴 수 없습니다.`
+                        : `* 연결된 Gmail(${gmail!.email})의 ‘언론홍보’ 라벨에 초안을 만듭니다. 실발송은 Gmail에서 확인 후.`}
               </span>
             </div>
             {sendNote && <p className="text-xs text-muted">{sendNote}</p>}
@@ -719,6 +821,15 @@ function DraftItem({
   );
 }
 
+/**
+ * 새 템플릿의 기본 골격.
+ *
+ * ⚠️ 행동 요청은 반드시 `{{매체CTA}}`로 둔다. 직접 문장을 쓰면("추가 자료나 대표 인터뷰가
+ *    필요하시면…") 컴플라이언스 게이트의 ASK_PATTERNS가 자료·인터뷰를 **각각** 세어
+ *    'CTA 중복' 경고를 만든다. 아무것도 고치지 않은 새 템플릿이 스스로 경고를 띄우면
+ *    사용자는 자기가 뭘 잘못했는지 찾게 된다.
+ *    `{{매체CTA}}`는 매체 유형에 맞는 요청 1개로 치환되므로 규칙 위반이 원천 차단된다.
+ */
 const CUSTOM_BODY_SCAFFOLD = `{{후킹}}
 
 {{회사명}}은(는) {{헤드라인}}. {{핵심수치}}
@@ -727,20 +838,30 @@ const CUSTOM_BODY_SCAFFOLD = `{{후킹}}
 
 {{자료링크}}
 
-추가 자료나 대표 인터뷰가 필요하시면 편하게 회신 주세요.
+{{매체CTA}}
 
 {{발신자}} 드림
 {{연락처}}`;
+
+interface TemplatePreviewContext {
+  email: EmailContext;
+  journalist: JournalistContext;
+  label: string;
+  isSample: boolean;
+}
 
 /** 메일 초안 템플릿 선택 + 커스텀 템플릿 편집. */
 function TemplatePicker({
   value,
   onChange,
   customTemplates,
+  preview,
 }: {
   value: string;
   onChange: (v: string) => void;
   customTemplates: { _id: string; name: string; subject: string; body: string }[];
+  /** 미리보기용 컨텍스트. 보도자료가 없으면 null(미리보기 숨김). */
+  preview: TemplatePreviewContext | null;
 }) {
   const saveTemplate = useMutation(api.emailTemplates.save);
   const removeTemplate = useMutation(api.emailTemplates.remove);
@@ -751,10 +872,68 @@ function TemplatePicker({
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+
+  /**
+   * 자리표시자를 커서 위치에 넣는다.
+   *
+   * 손으로 `{{...}}`를 타이핑하면 오타가 생기고, 렌더러는 모르는 키를 원문 그대로 남기므로
+   * 오타가 기자에게 나가는 본문에 리터럴로 실린다. 버튼 삽입이 그 경로를 없앤다.
+   */
+  function insertPlaceholder(key: string) {
+    const token = `{{${key}}}`;
+    const el = bodyRef.current;
+    if (!el) {
+      setBody((b) => `${b}${token}`);
+      return;
+    }
+    const start = el.selectionStart ?? body.length;
+    const end = el.selectionEnd ?? start;
+    setBody(`${body.slice(0, start)}${token}${body.slice(end)}`);
+    // 연속 삽입이 자연스럽도록 커서를 토큰 뒤로 옮긴다(상태 반영 후여야 한다).
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + token.length;
+      el.setSelectionRange(pos, pos);
+    });
+  }
 
   const selectedCustom = value.startsWith("custom:")
     ? customTemplates.find((t) => `custom:${t._id}` === value) ?? null
     : null;
+
+  /**
+   * 실시간 미리보기 + 규정 검사.
+   *
+   * `renderCustomTemplate`·`checkEmailCompliance`는 의존성 없는 순수 함수라 서버 왕복 없이
+   * 브라우저에서 그대로 돌린다. 디바운스도 필요 없다(문자열 치환 1패스 + 정규식 몇 개).
+   * 저장 전에 결과를 볼 수 없어서 사용자가 13개 자리표시자 문법을 머릿속으로
+   * 시뮬레이션해야 했던 것이 이 편집기의 가장 큰 문제였다.
+   */
+  const rendered = useMemo(() => {
+    if (!preview || !editorOpen) return null;
+    const unknown = findUnknownPlaceholders(subject, body);
+    try {
+      const out = renderCustomTemplate(subject, body, preview.email, preview.journalist);
+      return {
+        ...out,
+        unknown,
+        compliance: checkEmailCompliance(out.subject, out.body),
+        chars: out.body.replace(/\s/g, "").length,
+      };
+    } catch {
+      // 렌더러가 던질 경로는 없지만, 편집 중 입력으로 화면이 통째로 죽는 것만은 막는다.
+      return null;
+    }
+  }, [preview, editorOpen, subject, body]);
+
+  /**
+   * 오타 자리표시자가 있으면 저장을 막는다.
+   *
+   * `rendered`는 미리보기 컨텍스트가 없으면 null이므로 검사도 따로 계산한다 —
+   * 보도자료가 없다고 해서 오타 검증을 건너뛰면 안 된다.
+   */
+  const hasUnknown = findUnknownPlaceholders(subject, body).length > 0;
 
   function openEditor(tpl: { _id: string; name: string; subject: string; body: string } | null) {
     if (tpl) {
@@ -883,36 +1062,132 @@ function TemplatePicker({
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
                 placeholder="[{{회사명}}] {{헤드라인}}"
+                aria-invalid={hasUnknown || undefined}
               />
             </div>
           </div>
-          <div>
-            <Label htmlFor="tpl-body">본문 템플릿</Label>
-            <Textarea
-              id="tpl-body"
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              rows={10}
-            />
+
+          <div className="grid gap-3 lg:grid-cols-2">
+            {/* 왼쪽: 편집 */}
+            <div>
+              <Label htmlFor="tpl-body">본문 템플릿</Label>
+              <Textarea
+                id="tpl-body"
+                ref={bodyRef}
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                rows={14}
+                className="font-mono text-xs"
+                aria-invalid={hasUnknown || undefined}
+                aria-describedby="tpl-placeholder-help"
+              />
+              <p id="tpl-placeholder-help" className="mt-1.5 text-xs text-muted">
+                아래를 눌러 넣으세요 — 직접 타이핑하면 오타가 그대로 메일에 실립니다.
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {TEMPLATE_PLACEHOLDERS.map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    title={p.description}
+                    onClick={() => insertPlaceholder(p.key)}
+                    className="rounded border border-border bg-card px-1.5 py-0.5 font-mono text-[11px] text-foreground-muted hover:border-brand hover:text-brand"
+                  >
+                    {`{{${p.key}}}`}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 오른쪽: 실시간 미리보기 */}
+            <div>
+              <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-1">
+                <span className="text-sm font-semibold">미리보기</span>
+                {preview && (
+                  <span className="text-xs text-muted">
+                    {preview.label}
+                    {preview.isSample && " (매칭 후 실제 기자로 바뀝니다)"}
+                  </span>
+                )}
+              </div>
+              {!rendered ? (
+                <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted">
+                  보도자료를 불러오면 실제 발송될 문장을 여기서 바로 보여 드립니다.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  <div className="rounded-md border border-border bg-card px-3 py-2">
+                    <p className="text-[11px] font-semibold text-muted">제목</p>
+                    <p className="text-sm font-semibold">{rendered.subject}</p>
+                  </div>
+                  <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-card px-3 py-2 text-xs leading-relaxed">
+                    {rendered.body}
+                  </pre>
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                    {hasUsableOptOut(rendered.body) ? (
+                      <Badge variant="success">수신거부 포함</Badge>
+                    ) : (
+                      <Badge variant="danger">수신거부 없음</Badge>
+                    )}
+                    <Badge
+                      variant={
+                        rendered.compliance.status === "pass"
+                          ? "success"
+                          : rendered.compliance.status === "warn"
+                            ? "warning"
+                            : "danger"
+                      }
+                    >
+                      {rendered.compliance.status === "pass"
+                        ? "규정 통과"
+                        : rendered.compliance.status === "warn"
+                          ? "확인 필요"
+                          : "발송 차단"}
+                    </Badge>
+                    <span className="text-muted">
+                      공백 제외 {rendered.chars}자 (최대 {EMAIL_BODY_CHAR_MAX}자)
+                    </span>
+                  </div>
+                  {rendered.unknown.length > 0 && (
+                    <p className="rounded-md bg-danger/10 px-2.5 py-2 text-xs text-danger">
+                      지원하지 않는 자리표시자{" "}
+                      <b>{rendered.unknown.map((k) => `{{${k}}}`).join(", ")}</b> — 치환되지 않고
+                      그대로 발송됩니다. 위 버튼에서 골라 넣으세요.
+                    </p>
+                  )}
+                  {rendered.compliance.violations.length > 0 && (
+                    <ul className="space-y-1 text-xs text-foreground-muted">
+                      {rendered.compliance.violations.map((v, i) => (
+                        <li key={`${v.label}-${i}`}>
+                          · <b>{v.label}</b>
+                          {v.suggestion ? ` — ${v.suggestion}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-          <details className="text-xs text-foreground-muted">
-            <summary className="cursor-pointer font-semibold">사용 가능한 자리표시자</summary>
-            <ul className="mt-1 grid gap-x-4 sm:grid-cols-2">
-              {TEMPLATE_PLACEHOLDERS.map((p) => (
-                <li key={p.key}>
-                  <code>{`{{${p.key}}}`}</code> — {p.description}
-                </li>
-              ))}
-            </ul>
-          </details>
+
           {note && <p className="text-xs text-danger">{note}</p>}
-          <div className="flex gap-2">
-            <Button type="button" size="sm" disabled={busy || !body.trim()} onClick={onSave}>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              disabled={busy || !body.trim() || hasUnknown}
+              onClick={onSave}
+            >
               {busy ? "저장 중…" : editingId ? "수정 저장" : "템플릿 저장"}
             </Button>
             <Button type="button" size="sm" variant="subtle" onClick={() => setEditorOpen(false)}>
               닫기
             </Button>
+            {hasUnknown && (
+              <span className="text-xs text-danger">
+                자리표시자 오타를 고치면 저장할 수 있습니다.
+              </span>
+            )}
           </div>
         </div>
       )}

@@ -195,6 +195,15 @@ export default defineSchema({
     faq: v.optional(v.array(v.object({ q: v.string(), a: v.string() }))),
     /** 부제 2개(각 40자 이내) */
     subheads: v.optional(v.array(v.string())),
+    /**
+     * 인용문 화자 — 「이름 + 직함」 순서로 조립된다("홍길동 대표는 …").
+     *
+     * 이 두 필드가 없으면 메일 초안의 인용문이 화자 없이 「대표는 "…"라고 밝혔습니다」로
+     * 나간다. `EmailContext`에는 원래 있던 필드인데 폼·스키마에 입력 경로가 없어
+     * 한 번도 채워지지 않았다.
+     */
+    spokesName: v.optional(v.string()),
+    spokesTitle: v.optional(v.string()),
   }).index("by_user", ["userId"]).index("by_client", ["agencyClientId"]),
 
   // 배포 캠페인
@@ -243,6 +252,22 @@ export default defineSchema({
     ),
     sentAt: v.optional(v.number()),
     scheduledSendAt: v.optional(v.number()),
+    /**
+     * 이 초안을 만든 골격 — 프리셋 4종 또는 "custom".
+     *
+     * AI 개인화 단계가 이 값을 읽어 골격별 분량·구조 지시를 만든다. 없으면 모든 초안이
+     * 표준 7블록 규칙으로 다듬어져 '데이터 중심'·'초간결' 선택이 무의미해진다.
+     * 레거시 초안은 undefined — 읽는 쪽이 "standard"로 폴백한다.
+     */
+    templateKind: v.optional(
+      v.union(
+        v.literal("standard"),
+        v.literal("data"),
+        v.literal("story"),
+        v.literal("brief"),
+        v.literal("custom"),
+      ),
+    ),
     /** 메일 컴플라이언스 게이트 판정: "pass" | "warn" | "fail" */
     complianceLevel: v.optional(v.string()),
     /** 위반 요약(사용자 노출용 한글 문구) + 발송 제외 사유 */
@@ -465,7 +490,28 @@ export default defineSchema({
       v.literal("openai"),
       v.literal("gemini"),
     ),
-    apiKey: v.string(),
+    /**
+     * ⚠️ 레거시 평문 컬럼 — 신규 저장은 `apiKeySealed`에만 쓴다.
+     *
+     * 남겨 두는 이유는 이미 저장된 키로 계속 호출이 되어야 하기 때문이다(읽기 폴백).
+     * 사용자가 키를 다시 저장하면 봉인 컬럼으로 옮겨지고 이 값은 지워진다.
+     */
+    apiKey: v.optional(v.string()),
+    /**
+     * AES-256-GCM으로 봉인한 API 키(`secretBox`).
+     *
+     * 해시가 아니라 봉인인 이유: 호출 시점에 **원문을 프로바이더로 보내야** 한다.
+     * SMTP 비밀번호(`smtpAccounts.passwordSealed`)와 같은 등급의 비밀인데 한쪽만
+     * 평문이던 정책 비대칭을 없앤다.
+     */
+    apiKeySealed: v.optional(v.string()),
+    /**
+     * 화면 표시용 마스킹 문자열(비밀 아님).
+     *
+     * 저장 시점에 만들어 둔다 — 그러지 않으면 목록을 그릴 때마다 키를 복호화해야 하고,
+     * 원문을 다루는 지점이 불필요하게 늘어난다.
+     */
+    keyMasked: v.optional(v.string()),
     model: v.optional(v.string()), // 미설정 시 프로바이더 기본 모델
     createdAt: v.number(),
     lastUsedAt: v.optional(v.number()),

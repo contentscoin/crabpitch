@@ -58,6 +58,8 @@ export default function NewCampaignPage() {
     body: "",
     numbers: "",
     quote: "",
+    spokesName: "",
+    spokesTitle: "",
     topicTags: "",
     links: "",
     boilerplate: "",
@@ -182,6 +184,8 @@ export default function NewCampaignPage() {
         who: form.who || undefined,
         numbers: form.numbers || undefined,
         quote: form.quote || undefined,
+        spokesName: form.spokesName.trim() || undefined,
+        spokesTitle: form.spokesTitle.trim() || undefined,
         links: links.length ? links : undefined,
         keyTakeaways: keyTakeaways.length ? keyTakeaways : undefined,
         subheads: subheads.length ? subheads : undefined,
@@ -313,6 +317,35 @@ export default function NewCampaignPage() {
                 onChange={(e) => set("quote", e.target.value)}
                 placeholder="바로 인용 가능한 구체적 코멘트"
               />
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <Input
+                  aria-label="인용문 화자 이름"
+                  value={form.spokesName}
+                  onChange={(e) => set("spokesName", e.target.value)}
+                  placeholder="화자 이름 (예: 홍길동)"
+                />
+                <Input
+                  aria-label="인용문 화자 직함"
+                  value={form.spokesTitle}
+                  onChange={(e) => set("spokesTitle", e.target.value)}
+                  placeholder="직함 (예: 대표, CTO)"
+                />
+              </div>
+              <p className="mt-1 text-xs text-muted">
+                {form.quote ? (
+                  <>
+                    메일 초안에 이렇게 실립니다 —{" "}
+                    <b className="text-foreground">
+                      {`${form.spokesName.trim() ? `${form.spokesName.trim()} ` : ""}${
+                        form.spokesTitle.trim() || "대표"
+                      }는 "${form.quote}"라고 밝혔습니다.`}
+                    </b>
+                    {!form.spokesName.trim() && " 이름을 비우면 화자 없이 나갑니다."}
+                  </>
+                ) : (
+                  "화자 이름·직함을 적으면 메일 초안이 「홍길동 대표는 …라고 밝혔습니다」 형태로 조립됩니다."
+                )}
+              </p>
             </div>
 
             <div>

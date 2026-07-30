@@ -67,6 +67,9 @@ export const create = mutation({
     numbers: v.optional(v.string()),
     quote: v.optional(v.string()),
     links: v.optional(v.array(v.string())),
+    /** 인용문 화자 — 메일 초안의 「홍길동 대표는 …」 조립에 쓰인다. */
+    spokesName: v.optional(v.string()),
+    spokesTitle: v.optional(v.string()),
     ...geoArgs,
   },
   handler: async (ctx, args) => {
@@ -96,6 +99,8 @@ export const create = mutation({
       newsValue: args.newsValue,
       numbers: args.numbers,
       quote: args.quote,
+      spokesName: args.spokesName,
+      spokesTitle: args.spokesTitle,
       links: args.links,
       keyTakeaways: args.keyTakeaways,
       faq: args.faq,
@@ -118,6 +123,9 @@ export const update = mutation({
     title: v.optional(v.string()),
     headlines: v.optional(v.array(v.string())),
     body: v.optional(v.string()),
+    /** 화자 — 이 필드가 생기기 전에 만든 보도자료도 나중에 채울 수 있어야 한다. */
+    spokesName: v.optional(v.string()),
+    spokesTitle: v.optional(v.string()),
     ...geoArgs,
   },
   handler: async (ctx, args) => {
@@ -130,6 +138,8 @@ export const update = mutation({
       ...(args.title !== undefined ? { title: args.title } : {}),
       ...(args.headlines !== undefined ? { headlines: args.headlines } : {}),
       ...(args.body !== undefined ? { body: args.body } : {}),
+      ...(args.spokesName !== undefined ? { spokesName: args.spokesName } : {}),
+      ...(args.spokesTitle !== undefined ? { spokesTitle: args.spokesTitle } : {}),
       ...(args.keyTakeaways !== undefined ? { keyTakeaways: args.keyTakeaways } : {}),
       ...(args.faq !== undefined ? { faq: args.faq } : {}),
       ...(args.subheads !== undefined ? { subheads: args.subheads } : {}),

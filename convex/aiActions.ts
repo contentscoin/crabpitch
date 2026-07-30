@@ -9,6 +9,7 @@ import {
   emailEnhanceSystemPrompt,
   emailEnhanceUserPrompt,
   parseEnhanceEmailResult,
+  parseJsonObject,
   parsePolishPressResult,
   pressPolishSystemPrompt,
   pressPolishUserPrompt,
@@ -55,12 +56,14 @@ async function callLlm(
   system: string,
   user: string,
   maxTokens?: number,
+  opts?: { jsonOutput?: boolean },
 ): Promise<string | null> {
   const req = buildLlmRequest(resolved.provider, resolved.apiKey, {
     model: resolved.model ?? undefined,
     system,
     user,
     maxTokens,
+    jsonOutput: opts?.jsonOutput,
   });
   const res = await fetch(req.url, {
     method: "POST",
@@ -75,6 +78,35 @@ async function callLlm(
   }
   const data: unknown = await res.json();
   return parseLlmResponse(resolved.provider, data);
+}
+
+/**
+ * JSON 응답 전용 호출 — 파싱 불가한 응답이 오면 **1회만** 교정 재시도한다.
+ *
+ * 왜 필요한가: 모든 파서는 파싱 실패 시 조용히 원본(fallback)을 돌려준다. 그래서 사용자
+ * 입장에서는 "AI로 다듬기"를 눌러 비용까지 나갔는데 결과가 한 글자도 안 바뀐 상태가 된다.
+ * Claude는 JSON 모드를 쓸 수 없어(위 `JSON_MODE_PROVIDERS` 주석) 이 재시도가 유일한 방어다.
+ *
+ * 재시도는 1회로 제한한다 — 초안 N건을 순차 처리하는 경로에서 무한정 늘리면
+ * 비용과 지연이 수신자 수에 곱해진다.
+ */
+async function callLlmForJson(
+  resolved: ResolvedLlm,
+  system: string,
+  user: string,
+  maxTokens?: number,
+): Promise<string | null> {
+  const first = await callLlm(resolved, system, user, maxTokens, { jsonOutput: true });
+  if (first && parseJsonObject(first)) return first;
+
+  const repaired = [
+    user,
+    "",
+    "※ 직전 응답이 JSON으로 파싱되지 않았다. 설명·머리말·인사말·코드펜스 없이 JSON 객체 하나만 출력하라.",
+  ].join("\n");
+  const second = await callLlm(resolved, system, repaired, maxTokens, { jsonOutput: true });
+  // 재시도도 실패하면 첫 응답을 돌려준다 — 파서가 부분 추출에 성공할 수도 있다.
+  return second && parseJsonObject(second) ? second : (second ?? first);
 }
 
 async function resolveLlm(
@@ -179,10 +211,15 @@ export const enhanceCampaignDrafts = action({
         subject: string;
         body: string;
       }> = [];
+      /** 파서가 규정 위반·분량 이탈로 폐기한 건수 — 사용자에게 그대로 알린다. */
+      let rejected = 0;
       for (const d of pack.drafts) {
-        const raw = await callLlm(
+        // 레거시 초안은 골격 기록이 없다 — 표준 7블록으로 취급한다.
+        const kind = d.templateKind ?? "standard";
+        const raw = await callLlmForJson(
           resolved,
-          emailEnhanceSystemPrompt(),
+          // 분량 지시는 이 초안의 실제 본문 길이에서 계산한다(고정 숫자 금지).
+          emailEnhanceSystemPrompt(kind, d.body),
           emailEnhanceUserPrompt({
             subject: d.subject,
             body: d.body,
@@ -205,22 +242,30 @@ export const enhanceCampaignDrafts = action({
           }),
         );
         if (!raw) continue;
-        const next = parseEnhanceEmailResult(raw, { subject: d.subject, body: d.body });
+        const next = parseEnhanceEmailResult(raw, { subject: d.subject, body: d.body }, kind);
+        // 파서가 규정 위반·분량 이탈로 원본을 되돌렸으면 **바뀐 것이 없다**.
+        // 그걸 updates에 담으면 "N건 개인화했습니다"라고 보고하면서 실제로는 한 글자도
+        // 안 바뀌는 상태가 된다 — 사용자가 결과를 신뢰할 수 없게 만든다.
+        if (next.subject === d.subject && next.body === d.body) {
+          rejected += 1;
+          continue;
+        }
         updates.push({ draftId: d.draftId, subject: next.subject, body: next.body });
       }
 
       if (updates.length === 0) {
+        // 폐기(rejected)와 파싱 실패는 원인이 다르다 — 사용자가 할 일도 다르다.
+        const reason =
+          rejected > 0
+            ? `${rejected}건 모두 규정·분량 검사에서 폐기되어 템플릿 초안을 그대로 유지했습니다.`
+            : `${providerLabel(resolved.provider)} 응답을 파싱하지 못했습니다.`;
         await ctx.runMutation(internal.aiKeys.recordUsage, {
           userId,
           provider: resolved.provider,
           ok: false,
-          error: "응답 파싱 실패",
+          error: rejected > 0 ? "다듬기 결과 전량 폐기" : "응답 파싱 실패",
         });
-        return {
-          enhanced: 0,
-          mode: "error",
-          message: `${providerLabel(resolved.provider)} 응답을 파싱하지 못했습니다.`,
-        };
+        return { enhanced: 0, mode: "error", message: reason };
       }
 
       const n: number = await ctx.runMutation(internal.drafts.applyEnhancedDrafts, {
@@ -231,10 +276,12 @@ export const enhanceCampaignDrafts = action({
         provider: resolved.provider,
         ok: true,
       });
+      const rejectedNote =
+        rejected > 0 ? ` ${rejected}건은 규정·분량 검사에서 폐기해 원본을 유지했습니다.` : "";
       return {
         enhanced: n,
         mode: resolved.provider,
-        message: `${providerLabel(resolved.provider)}로 ${n}건 메일 초안을 개인화했습니다.`,
+        message: `${providerLabel(resolved.provider)}로 ${n}건 메일 초안을 개인화했습니다.${rejectedNote}`,
       };
     } catch (e) {
       const msg = e instanceof Error ? e.message : "AI 개인화 실패";
@@ -301,7 +348,7 @@ export const polishPressRelease = action({
     }
 
     try {
-      const raw = await callLlm(
+      const raw = await callLlmForJson(
         resolved,
         pressPolishSystemPrompt(),
         pressPolishUserPrompt({
@@ -446,7 +493,7 @@ export const generateMediaKit = action({
     if (!resolved) return { kit: EMPTY_KIT, mode: "skipped", message: NO_KEY_MESSAGE };
 
     try {
-      const raw = await callLlm(
+      const raw = await callLlmForJson(
         resolved,
         mediaKitGenerateSystemPrompt(),
         mediaKitGenerateUserPrompt(args),
@@ -517,7 +564,7 @@ export const enhanceMediaKit = action({
     if (!resolved) return { kit, gaps: [], mode: "skipped", message: NO_KEY_MESSAGE };
 
     try {
-      const raw = await callLlm(
+      const raw = await callLlmForJson(
         resolved,
         mediaKitEnhanceSystemPrompt(),
         mediaKitEnhanceUserPrompt({ companyName, ...kit }),
@@ -609,7 +656,7 @@ export const classifyReplyWithAi = action({
     }
 
     try {
-      const raw = await callLlm(
+      const raw = await callLlmForJson(
         resolved,
         replyClassifySystemPrompt(),
         // PII 마스킹: 회신 원문에 섞인 기자 이메일·전화는 외부 제공자로 나가지 않는다.

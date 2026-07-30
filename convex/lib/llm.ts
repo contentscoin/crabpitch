@@ -71,6 +71,45 @@ export interface LlmCallInput {
   system: string;
   user: string;
   maxTokens?: number;
+  /**
+   * 응답을 JSON 객체로 강제한다(프로바이더가 지원하는 경우에만).
+   *
+   * 프롬프트 문장("JSON만 출력")만으로는 모델이 머리말·코드펜스를 붙여 파싱이 깨진다.
+   * 파싱이 깨지면 호출부는 조용히 원본으로 되돌아가므로, 사용자는 키를 등록하고
+   * 비용을 냈는데 아무 변화가 없는 상태를 보게 된다.
+   */
+  jsonOutput?: boolean;
+}
+
+/**
+ * ⚠️ `temperature`·`top_p`를 넣지 말 것.
+ *
+ * 두 프로바이더의 **기본 모델이 추론 모델**이고, 샘플링 파라미터를 기본값이 아닌 값으로
+ * 보내면 400을 반환한다.
+ *  - Anthropic: temperature/top_p/top_k는 Claude 4.7 이상에서 미지원 —
+ *    기본값이 아닌 값을 넣으면 400. (기본 모델 `claude-opus-5`가 해당)
+ *  - OpenAI: GPT-5 계열은 `reasoning_effort: "none"`일 때만 temperature를 받는다.
+ *    (기본 모델 `gpt-5.1`이 해당)
+ * 출력 성향은 프롬프트와 `jsonOutput`으로 통제한다.
+ *
+ * 출처: https://platform.claude.com/docs/en/build-with-claude/working-with-messages
+ */
+
+/**
+ * JSON 모드를 지원하는 프로바이더.
+ *
+ * anthropic은 제외한다 — Messages API의 구조화 출력은 모델별 지원 범위가 갈리고
+ * (기본 모델 `claude-opus-5`의 지원 여부가 문서에서 확인되지 않는다) 잘못된 필드를
+ * 보내면 요청 전체가 실패한다. Claude는 프롬프트 + `callLlmForJson`의 재시도로 다룬다.
+ */
+const JSON_MODE_PROVIDERS: ReadonlySet<LlmProvider> = new Set<LlmProvider>(["openai", "gemini"]);
+
+/**
+ * OpenAI의 `json_object` 모드는 프롬프트에 "json"이라는 단어가 없으면 400을 반환한다.
+ * 호출부가 프롬프트를 고치다가 단어를 지우면 전 기능이 죽으므로 여기서 방어한다.
+ */
+function mentionsJson(input: LlmCallInput): boolean {
+  return /json/i.test(input.system) || /json/i.test(input.user);
 }
 
 export interface LlmHttpRequest {
@@ -88,6 +127,8 @@ export function buildLlmRequest(
   const model = input.model?.trim() || LLM_PROVIDER_META[provider].defaultModel;
   // Claude Opus 5는 thinking이 기본 활성 — max_tokens가 thinking+본문 합산 상한이라 여유를 둔다.
   const maxTokens = input.maxTokens ?? 4000;
+  const jsonMode =
+    input.jsonOutput === true && JSON_MODE_PROVIDERS.has(provider) && mentionsJson(input);
 
   switch (provider) {
     case "anthropic":
@@ -119,6 +160,7 @@ export function buildLlmRequest(
             { role: "system", content: input.system },
             { role: "user", content: input.user },
           ],
+          ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
         }),
       };
     case "gemini":
@@ -131,7 +173,10 @@ export function buildLlmRequest(
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: input.system }] },
           contents: [{ role: "user", parts: [{ text: input.user }] }],
-          generationConfig: { maxOutputTokens: maxTokens },
+          generationConfig: {
+            maxOutputTokens: maxTokens,
+            ...(jsonMode ? { responseMimeType: "application/json" } : {}),
+          },
         }),
       };
   }
