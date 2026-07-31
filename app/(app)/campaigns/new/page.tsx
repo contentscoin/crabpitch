@@ -105,6 +105,13 @@ export default function NewCampaignPage() {
     setError(null);
     setPolishing(true);
     setNote(null);
+    /*
+      ⚠️ `lint`도 반드시 초기화한다. 라이브 리전은 **DOM 변경**으로 발화하므로, 같은 문구가
+         다시 세팅되면 React가 텍스트 노드를 건드리지 않아 아무것도 낭독되지 않는다.
+         AI 미연결 상태로 두 번 점검하면 위반 건수가 같아 요약 문구가 문자 그대로 동일해지고,
+         사용자 입장에서는 버튼을 눌렀는데 반응이 없는 것이 된다.
+    */
+    setLint(null);
     try {
       const tags = form.topicTags
         .split(/[,\s]+/)
@@ -443,7 +450,15 @@ export default function NewCampaignPage() {
               <p className="mt-1 text-xs text-muted">
                 보도자료 하단 회사 소개입니다. AI 다듬기에 함께 전달돼 미디어킷과 같은 문장을 유지합니다.
               </p>
-              {kitNote && <p className="mt-1 text-xs text-muted">{kitNote}</p>}
+              {/* 사용자 동작의 결과 문구다 — 같은 화면의 note·error와 같게 낭독되어야 한다. */}
+              <p role="status" className="sr-only">
+                {kitNote ?? ""}
+              </p>
+              {kitNote && (
+                <p aria-hidden="true" className="mt-1 text-xs text-muted">
+                  {kitNote}
+                </p>
+              )}
             </div>
 
             <div>

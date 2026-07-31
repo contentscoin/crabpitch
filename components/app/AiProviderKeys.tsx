@@ -5,6 +5,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Check, KeyRound, Plug2, Trash2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { toUserMessage } from "@/lib/errorMessage";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Input, Label } from "@/components/ui/Input";
@@ -56,7 +57,7 @@ export function AiProviderKeysPanel() {
         note(provider, true, "키를 저장했습니다. 「연결 테스트」로 확인해 보세요.");
       }
     } catch (e) {
-      note(provider, false, e instanceof Error ? e.message : "저장에 실패했습니다.");
+      note(provider, false, toUserMessage(e, "저장에 실패했습니다."));
     } finally {
       setBusy(null);
     }
@@ -68,7 +69,7 @@ export function AiProviderKeysPanel() {
       const res = await test({ provider });
       note(provider, res.ok, res.message);
     } catch (e) {
-      note(provider, false, e instanceof Error ? e.message : "테스트에 실패했습니다.");
+      note(provider, false, toUserMessage(e, "테스트에 실패했습니다."));
     } finally {
       setBusy(null);
     }

@@ -554,7 +554,22 @@ export default function CampaignDetailPage() {
               수신자·수신거부 문구를 확인했으며, 발송으로 기록하는 데 동의합니다.
             </label>
 
-            {sendError && <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{sendError}</p>}
+            {/*
+              발송·예약·초안 생성 실패를 전부 받는 자리다 — 저장소에서 오류 노출도가 가장 높다.
+              성공 문구(`sendNote`)만 낭독되고 여기가 침묵하면, 스크린리더 사용자는 발송이
+              성공한 경우에만 결과를 듣게 된다. 실패는 assertive로 끊고 알린다.
+            */}
+            <p role="alert" className="sr-only">
+              {sendError ?? ""}
+            </p>
+            {sendError && (
+              <p
+                aria-hidden="true"
+                className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger"
+              >
+                {sendError}
+              </p>
+            )}
 
             <div className="flex flex-wrap items-end gap-3">
               <div>
@@ -1065,7 +1080,7 @@ function TemplatePicker({
       onChange(`custom:${savedId}`);
       setEditorOpen(false);
     } catch (e) {
-      setNote(e instanceof Error ? e.message : "저장에 실패했습니다.");
+      setNote(toUserMessage(e, "저장에 실패했습니다."));
     } finally {
       setBusy(false);
     }
@@ -1414,7 +1429,7 @@ function ReplyItem({
     try {
       await applyTemplate({ id: reply._id as Id<"replies">, variantId });
     } catch (e) {
-      setVariantError(e instanceof Error ? e.message : "템플릿 적용에 실패했습니다.");
+      setVariantError(toUserMessage(e, "템플릿 적용에 실패했습니다."));
     } finally {
       setVariantBusy(false);
     }
@@ -1472,7 +1487,14 @@ function ReplyItem({
           ))}
         </div>
       )}
-      {variantError && <p className="mt-1 text-xs text-danger">{variantError}</p>}
+      <p role="alert" className="sr-only">
+        {variantError ?? ""}
+      </p>
+      {variantError && (
+        <p aria-hidden="true" className="mt-1 text-xs text-danger">
+          {variantError}
+        </p>
+      )}
       {reply.handled && variants.length > 1 && (
         <p className="mt-2 text-xs text-muted">
           응대 톤: {variants.find((v) => v.id === activeVariant)?.label ?? activeVariant}
@@ -1540,7 +1562,7 @@ function ReplyItem({
                         setCorrectionOpen(false);
                         setCorrectionNote("");
                       } catch (e) {
-                        setVariantError(e instanceof Error ? e.message : "정정 요청에 실패했습니다.");
+                        setVariantError(toUserMessage(e, "정정 요청에 실패했습니다."));
                       } finally {
                         setVariantBusy(false);
                       }
@@ -1576,7 +1598,7 @@ function ReplyItem({
                     reapproachOk: opt.value,
                   });
                 } catch (e) {
-                  setVariantError(e instanceof Error ? e.message : "저장에 실패했습니다.");
+                  setVariantError(toUserMessage(e, "저장에 실패했습니다."));
                 } finally {
                   setVariantBusy(false);
                 }
@@ -1624,7 +1646,7 @@ function FollowUpSection({ campaignId }: { campaignId: Id<"campaigns"> }) {
       setOpenId(null);
       setNote("팔로업 초안을 만들었습니다. ③단계 초안 목록에서 확인하고 발송하세요.");
     } catch (e) {
-      setNote(e instanceof Error ? e.message : "팔로업 초안 생성에 실패했습니다.");
+      setNote(toUserMessage(e, "팔로업 초안 생성에 실패했습니다."));
     } finally {
       setBusy(false);
     }

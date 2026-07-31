@@ -53,6 +53,12 @@ export default function CampaignsPage() {
               <li key={c._id}>
                 <Link
                   href={`/campaigns/${c._id}`}
+                  /*
+                    카드 전체를 링크로 둔다(터치 타깃). 다만 그러면 링크의 접근 가능한 이름이
+                    카드 안 모든 텍스트를 이어 붙인 것("… 발송중 매칭 12 초안 8 …")이 되므로
+                    `aria-label`로 이름을 캠페인명으로 고정한다. 숫자는 링크를 펼쳐 읽으면 된다.
+                  */
+                  aria-label={c.name}
                   className="block rounded-lg border border-border bg-card p-4 transition-colors hover:bg-surface"
                 >
                   <div className="flex items-start justify-between gap-2">

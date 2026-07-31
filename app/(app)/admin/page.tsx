@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { Button, buttonClasses } from "@/components/ui/Button";
+import { toUserMessage } from "@/lib/errorMessage";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { PageHeader, StatCard } from "@/components/app/bits";
@@ -224,7 +225,7 @@ export default function AdminPage() {
       const detail = await fn();
       setPackMsg(detail ? detail : `${label} 완료`);
     } catch (e) {
-      setPackError(e instanceof Error ? e.message : `${label}에 실패했습니다.`);
+      setPackError(toUserMessage(e, `${label}에 실패했습니다.`));
     } finally {
       setPackBusy(false);
     }
@@ -254,7 +255,7 @@ export default function AdminPage() {
       await fn();
       setMsg(label);
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "실패했습니다.");
+      setMsg(toUserMessage(e, "실패했습니다."));
     } finally {
       setBusy(false);
     }
@@ -689,7 +690,7 @@ export default function AdminPage() {
                   try {
                     await setMatchingPolicy({ excludeStaleMatches: e.target.checked });
                   } catch (err) {
-                    setPackError(err instanceof Error ? err.message : "설정 변경 실패");
+                    setPackError(toUserMessage(err, "설정 변경 실패"));
                   } finally {
                     setPolicyBusy(false);
                   }

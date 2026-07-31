@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AlertTriangle, FileText, Plus, Sparkles, Wand2 } from "lucide-react";
 import { Button, buttonClasses } from "@/components/ui/Button";
+import { toUserMessage } from "@/lib/errorMessage";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Input, Label, Textarea } from "@/components/ui/Input";
@@ -482,7 +483,7 @@ function MediaKitEditor({ id }: { id: Id<"mediaKits"> }) {
         setAiNote(res.message ?? "보강안을 폼에 채웠습니다. 확인 후 저장하세요.");
       }
     } catch (e) {
-      setAiError(e instanceof Error ? e.message : "AI 호출에 실패했습니다.");
+      setAiError(toUserMessage(e, "AI 호출에 실패했습니다."));
     } finally {
       setAiBusy(null);
     }

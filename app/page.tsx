@@ -339,10 +339,16 @@ export default function LandingPage() {
           <Link
             href="/signin"
             /*
-              어두운 배경 위에 있어 기본 focus ring offset 색(background)이 맞지 않는다 —
-              `ring-offset-deep`으로 바꿔 링이 배경에 묻히지 않게 한다.
+              어두운 배경 위에 있어 기본 focus ring offset 색(background)이 맞지 않는다.
+
+              ⚠️ modifier(`focus-visible:`)를 반드시 함께 붙여야 한다. modifier 없이 쓰면
+                 `tailwind-merge`가 BASE의 ring-offset 색과 **충돌로 보지 않아** 둘 다 남고,
+                 링이 보이는 시점에는 특이도가 높은 BASE 쪽이 이겨 아무 효과가 없다.
             */
-            className={buttonClasses({ size: "lg", className: "mt-7 px-7 ring-offset-deep" })}
+            className={buttonClasses({
+              size: "lg",
+              className: "mt-7 px-7 focus-visible:ring-offset-deep",
+            })}
           >
             🦀 무료로 시작하기
           </Link>

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -36,25 +36,66 @@ const read = (p: string) => readFileSync(join(ROOT, p), "utf-8");
 //    "첫 글자로 판정"만으로는 걸러지지 않고, 그 안의 산문이 코드로 취급된다 — 실제로
 //    `sm:table-cell`을 설명하는 주석 때문에 "숨는 컬럼이 없다" 가드가 오탐했다.
 //    블록 열림/닫힘을 추적해 주석 전체를 버린다.
+//
+//    ⚠️ 블록 주석은 **구간만** 잘라낸다. 줄 단위로 버리면 `{/* 설명 */} <코드>` 처럼 주석과
+//       코드가 같은 줄에 있을 때 **코드까지 사라져** `not.toMatch` 가드가 조용히 통과한다.
+//       (이전 구현이 정확히 그 버그를 만들었다.)
+//    ⚠️ 한 줄 주석은 **줄 전체가 주석일 때만** 버린다. 문자열 안의 `//`(`https://`)를 자르면
+//       뒤쪽 코드가 검사 대상에서 빠져 같은 종류의 조용한 통과가 생긴다.
 const readCode = (p: string) => {
   const out: string[] = [];
   let inBlock = false;
-  for (const line of read(p).split("\n")) {
-    const t = line.trimStart();
-    if (inBlock) {
-      if (t.includes("*/")) inBlock = false;
-      continue;
+  for (const raw of read(p).split("\n")) {
+    let rest = raw;
+    let kept = "";
+    for (;;) {
+      if (inBlock) {
+        const end = rest.indexOf("*/");
+        if (end === -1) {
+          rest = "";
+          break;
+        }
+        inBlock = false;
+        // `*/}`(JSX 주석 닫힘)의 `}`까지 함께 버린다.
+        rest = rest.slice(end + 2).replace(/^\}/, "");
+        continue;
+      }
+      const open = rest.indexOf("/*");
+      if (open === -1) {
+        kept += rest;
+        break;
+      }
+      // `{/*`(JSX 주석 열림)의 `{`도 함께 버린다.
+      kept += rest.slice(0, open).replace(/\{\s*$/, "");
+      rest = rest.slice(open + 2);
+      inBlock = true;
     }
-    if (t.startsWith("//")) continue;
-    if (t.startsWith("/*") || t.startsWith("{/*")) {
-      // 같은 줄에서 닫히지 않으면 다음 줄부터 블록 안이다.
-      if (!t.includes("*/")) inBlock = true;
-      continue;
-    }
-    out.push(line);
+    if (kept.trimStart().startsWith("//")) continue;
+    out.push(kept);
   }
   return out.join("\n");
 };
+
+/**
+ * 저장소의 모든 `.tsx` — 파일 목록을 손으로 적는 가드는 **새 파일을 놓친다.**
+ * "이 형태가 어디에도 없어야 한다"류 가드는 반드시 이것을 돌아야 한다.
+ */
+function tsxFiles(): string[] {
+  const out: string[] = [];
+  const walk = (rel: string) => {
+    for (const e of readdirSync(join(ROOT, rel), { withFileTypes: true })) {
+      const p = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) {
+        if (e.name === "node_modules" || e.name === ".next" || e.name === ".git") continue;
+        walk(p);
+      } else if (e.name.endsWith(".tsx")) {
+        out.push(p);
+      }
+    }
+  };
+  for (const root of ["app", "components"]) walk(root);
+  return out.sort();
+}
 
 /**
  * 파괴적 액션 호출부 — `window.confirm`이 남아 있으면 안 된다.
@@ -740,9 +781,17 @@ describe("탐색 접근성", () => {
     expect(src).toMatch(/href="#main"/);
     expect(src).toMatch(/id="main"/);
     expect(src).toMatch(/tabIndex=\{-1\}/);
-    // display:none으로 감추면 포커스를 받을 수 없다 → transform으로 밀어낸다.
+    /*
+      display:none으로 감추면 포커스를 받을 수 없다 → transform으로 화면 밖에 둔다.
+      **오프스크린 클래스도 함께 단정한다** — 그것만 지우면 모든 화면 좌상단에 버튼이
+      상시 노출되는데 `focus:translate-y-0`만 보는 가드는 초록이다.
+    */
+    expect(src).toMatch(/-translate-y-20/);
     expect(src).toMatch(/focus:translate-y-0/);
     expect(src).not.toMatch(/href="#main"[\s\S]{0,120}hidden/);
+    // 브랜드 배경에 흰색을 박으면 다크 모드에서 대비가 2.58:1로 떨어진다 → 토큰을 쓴다.
+    expect(src).toMatch(/bg-brand[^"]*text-brand-foreground/);
+    expect(src).not.toMatch(/href="#main"[\s\S]{0,200}text-white/);
   });
 
   /**
@@ -752,8 +801,13 @@ describe("탐색 접근성", () => {
   it("ThemeToggle이 마운트 전에는 아이콘을 그리지 않는다", () => {
     const src = readCode("components/ThemeToggle.tsx");
     expect(src).toMatch(/if \(!mounted\)/);
-    // 자리를 비워 두면 아이콘이 나타날 때 옆 요소가 밀린다.
-    expect(src).toMatch(/aria-hidden="true"/);
+    /*
+      자리를 비워 두면 아이콘이 나타날 때 옆 요소가 밀린다.
+      `aria-hidden="true"` 존재만 보면 안 된다 — Sun·Moon 아이콘도 그 속성을 갖게 되어
+      플레이스홀더를 지워도 통과한다. 버튼과 **같은 크기 상수**를 쓰는지 본다.
+    */
+    expect(src).toMatch(/const BOX = /);
+    expect(src.match(/\$\{BOX\}/g) ?? []).toHaveLength(2);
     // 토글 상태는 이름이 아니라 aria-pressed로 알린다. 이름이 매번 바뀌면 같은 버튼인지 모른다.
     expect(src).toMatch(/aria-label="다크 모드"/);
     expect(src).toMatch(/aria-pressed=\{dark\}/);
@@ -766,22 +820,17 @@ describe("버튼처럼 보이는 링크", () => {
    *    포커스 스톱이 둘로 늘어난다(Tab 두 번, 스크린리더가 링크와 버튼을 각각 읽는다).
    *    저장소 전체에서 이 형태가 사라져야 한다.
    */
+  /**
+   * 파일 목록을 손으로 적지 않는다 — 배열에 없는 **새 파일**이 같은 실수를 하면 빠져나간다.
+   * 저장소의 tsx 전체를 훑는다.
+   */
   it("Link 안에 Button을 넣은 곳이 없다", () => {
-    const files = [
-      "app/(app)/admin/page.tsx",
-      "app/(app)/campaigns/[id]/page.tsx",
-      "app/(app)/campaigns/new/page.tsx",
-      "app/(app)/campaigns/page.tsx",
-      "app/(app)/dashboard/page.tsx",
-      "app/(app)/media-kit/page.tsx",
-      "components/app/McpGuide.tsx",
-      "components/app/Topbar.tsx",
-      "components/app/UserMcpKeys.tsx",
-    ];
-    for (const f of files) {
-      // `<Link …>` 다음 줄에 곧바로 `<Button`이 오는 형태.
-      expect(readCode(f), f).not.toMatch(/<Link[^>]*>\s*\n\s*<Button/);
+    const offenders: string[] = [];
+    for (const f of tsxFiles()) {
+      // 같은 줄(`<Link href="x"><Button>`)과 다음 줄, 둘 다 잡는다.
+      if (/<Link[^>]*>\s*<Button[\s/>]/.test(readCode(f))) offenders.push(f);
     }
+    expect(offenders).toEqual([]);
   });
 
   /**
@@ -800,8 +849,20 @@ describe("버튼처럼 보이는 링크", () => {
     for (const cta of ctas) expect(cta, cta).toContain("buttonClasses");
   });
 
-  it("포커스 링이 프리미티브 한 곳에서만 정의된다", () => {
+  /**
+   * `buttonClasses`가 포커스 링을 담당한다 — 랜딩 CTA가 손으로 쓴 클래스였을 때 링이
+   * 없었던 원인이 이것이다.
+   *
+   * ⚠️ "프리미티브 한 곳에서만 정의된다"고 쓰면 안 된다 — 사실이 아니다. `Input`·`Toast`도
+   *    각자 `focus-visible:ring-2`를 쓴다(포커스 가능한 프리미티브가 여러 개이므로 당연하다).
+   *    검사할 것은 "**화면 파일**이 링을 손으로 쓰지 않는다"다.
+   */
+  it("포커스 링은 프리미티브가 담당하고 화면이 직접 쓰지 않는다", () => {
     expect(readCode("components/ui/Button.tsx")).toMatch(/focus-visible:ring-2/);
+    const offenders = tsxFiles()
+      .filter((f) => !f.startsWith("components/ui/"))
+      .filter((f) => /focus-visible:ring-2/.test(readCode(f)));
+    expect(offenders).toEqual([]);
   });
 });
 
@@ -845,6 +906,7 @@ describe("화면에 남는 상태 알림", () => {
   const LIVE_REGIONS: Array<[string, string]> = [
     ["app/(app)/campaigns/[id]/page.tsx", "sendNote"],
     ["app/(app)/campaigns/new/page.tsx", "note"],
+    ["app/(app)/campaigns/new/page.tsx", "kitNote"],
   ];
 
   for (const [file, state] of LIVE_REGIONS) {
@@ -869,11 +931,33 @@ describe("화면에 남는 상태 알림", () => {
     }
   });
 
-  it("실패는 assertive로 알린다", () => {
-    // 방금 누른 동작이 실패했다는 사실은 다른 낭독을 끊고 알려야 한다.
-    expect(readCode("app/(app)/campaigns/new/page.tsx")).toMatch(
-      /<p role="alert" className="sr-only">/,
-    );
+  /**
+   * 성공만 낭독하고 실패가 침묵하면, 스크린리더 사용자는 **성공한 경우에만** 결과를 듣는다.
+   * `campaigns/[id]`의 `sendError`는 발송·예약·초안 생성 실패를 전부 받는 자리다.
+   */
+  it("실패도 낭독된다 — assertive로", () => {
+    for (const [f, state] of [
+      ["app/(app)/campaigns/new/page.tsx", "error"],
+      ["app/(app)/campaigns/[id]/page.tsx", "sendError"],
+      ["app/(app)/campaigns/[id]/page.tsx", "variantError"],
+    ] as const) {
+      expect(readCode(f), `${f} ${state}`).toMatch(
+        new RegExp(`<p role="alert" className="sr-only">\\s*\\{${state} \\?\\? ""\\}`),
+      );
+    }
+  });
+
+  /**
+   * 라이브 리전은 **DOM 변경**으로 발화한다. 같은 결과를 두 번 만들면 텍스트 노드가
+   * 그대로여서 아무것도 낭독되지 않는다 — 버튼을 눌렀는데 반응이 없는 것이 된다.
+   * 재실행 전에 상태를 비워야 반드시 한 번은 변경이 일어난다.
+   */
+  it("재실행 시 알림 상태를 초기화한다", () => {
+    const src = readCode("app/(app)/campaigns/new/page.tsx");
+    const fn = src.slice(src.indexOf("async function onPolish"), src.indexOf("async function onSubmit"));
+    for (const s of ["setError(null)", "setNote(null)", "setLint(null)"]) {
+      expect(fn, s).toContain(s);
+    }
   });
 
   /**
@@ -897,8 +981,13 @@ describe("모바일에서 사라지던 정보", () => {
     // 좁은 화면 전용 배지 + 넓은 화면 전용 막대, 둘 다 있어야 한다.
     expect(src).toMatch(/sm:hidden/);
     expect(src).toMatch(/hidden w-44 sm:block/);
-    // 배지만 보면 "7/10"이 무엇인지 알 수 없다.
-    expect(src).toMatch(/sr-only">이번 달 발송/);
+    /*
+      배지만 보면 "7/10"이 무엇인지 알 수 없다 — 라벨이 **보이는 글자**여야 한다.
+      `title`로 대신하면 안 된다: 이 배지는 좁은 화면(대개 터치 기기) 전용인데
+      `title`은 hover가 필요해 정작 대상 기기에서 볼 수 없다.
+    */
+    expect(src).toMatch(/>발송 </);
+    expect(src).not.toMatch(/title=\{`이번 달 발송/);
   });
 
   /**
@@ -928,6 +1017,38 @@ describe("모바일에서 사라지던 정보", () => {
       expect(src).toMatch(/<caption className="sr-only">/);
       expect(src).toMatch(/scope="col"/);
     });
+
+    /**
+     * ⚠️ 두 벌 마크업의 **표류**가 이 변경의 최대 유지보수 위험이다.
+     *
+     * 구조만 검사하면(카드 존재·표 존재·숨는 컬럼 부재) 표에 컬럼을 하나 추가하고 카드를
+     * 방치해도 전부 통과한다 — 좁은 화면에서 그 정보가 다시 사라지는데 가드는 초록이다.
+     * 표의 열 이름 집합과 카드의 라벨 집합이 같은지 본다.
+     */
+    it(`${file}: 카드와 표가 같은 항목을 보여 준다`, () => {
+      const src = readCode(file);
+      const ths = [...src.matchAll(/scope="col"[^>]*>\s*([^<]+?)\s*</g)].map((m) => m[1]);
+      // 카드의 항목 라벨: `<dt …>라벨</dt>` 또는 배열 리터럴의 `["라벨", 값]`.
+      const dts = [...src.matchAll(/<dt[^>]*>\s*([^<{]+?)\s*</g)].map((m) => m[1]);
+      const tuples = [...src.matchAll(/\[\s*"([^"]+)",\s*c\./g)].map((m) => m[1]);
+      const cardLabels = new Set([...dts, ...tuples]);
+
+      expect(ths.length, "표 열 이름을 못 읽었다").toBeGreaterThan(0);
+      expect(cardLabels.size, "카드 라벨을 못 읽었다").toBeGreaterThan(0);
+
+      // 표에만 있고 카드에 없는 항목 = 좁은 화면에서 사라지는 정보.
+      // 카드가 라벨 없이 보여 주는 항목(캠페인명·매체 등 제목 자리)은 제외 대상이므로
+      // 화면별 예외를 명시한다 — 예외를 늘리려면 그 항목이 카드에서 어떻게 보이는지 적어야 한다.
+      const shownWithoutLabel: Record<string, string[]> = {
+        // 캠페인명은 카드 제목, 상태는 제목 옆 배지.
+        "app/(app)/campaigns/page.tsx": ["캠페인", "상태"],
+        // 기자 코드는 카드 제목, 매체는 그 아래 줄, 신뢰도는 우측 배지.
+        "app/(app)/journalists/page.tsx": ["기자", "매체", "신뢰도"],
+      };
+      const exempt = new Set(shownWithoutLabel[file] ?? []);
+      const missing = ths.filter((t) => !cardLabels.has(t) && !exempt.has(t));
+      expect(missing, `카드에서 빠진 항목: ${missing.join(", ")}`).toEqual([]);
+    });
   }
 
   /**
@@ -940,5 +1061,30 @@ describe("모바일에서 사라지던 정보", () => {
     expect(src).toMatch(/bg-gradient-to-l from-card/);
     // 마스크가 탭을 가로막으면 안 된다.
     expect(src).toMatch(/pointer-events-none/);
+  });
+});
+
+
+describe("빌드 CSS 오염", () => {
+  /**
+   * Tailwind v4는 gitignore되지 않은 파일 전부에서 클래스 후보를 뽑는다 — 문서가 클래스
+   * 이름을 **설명하기만 해도** 아무도 쓰지 않는 규칙이 빌드 CSS에 들어간다.
+   * 실제로 검토 문서가 언급한 `-top-full`이 CSS에 들어가 "코드가 그 클래스를 쓴다"는
+   * 오해를 만들었다. `docs/`는 클래스 이름을 자주 인용하므로 제외해 둔다.
+   */
+  it("마크다운을 클래스 스캔 대상에서 뺀다", () => {
+    expect(read("app/globals.css")).toMatch(/@source not "\.\.\/\*\*\/\*\.md";/);
+  });
+
+  /**
+   * modifier 없는 유틸리티를 `buttonClasses`의 `className`으로 넘기면 안 되는 경우가 있다.
+   * `ring-offset-*`처럼 BASE가 `focus-visible:` modifier로 이미 지정한 속성은, modifier 없이
+   * 덮으려 하면 `tailwind-merge`가 충돌로 보지 않아 둘 다 남고 특이도에서 BASE가 이긴다.
+   */
+  it("focus 링 오프셋을 덮을 때 modifier를 함께 쓴다", () => {
+    const src = readCode("app/page.tsx");
+    expect(src).toMatch(/focus-visible:ring-offset-deep/);
+    // modifier 없는 형태가 className에 들어가면 조용히 무효가 된다.
+    expect(src).not.toMatch(/className: "[^"]*(?<!:)ring-offset-deep/);
   });
 });

@@ -36,10 +36,13 @@ export function UsageMeter() {
               ? "border-warning/40 bg-warning/10 text-warning"
               : "border-border bg-surface text-foreground-muted",
         )}
-        // 배지만 보면 "7/10"이 무엇인지 알 수 없다.
-        title={`이번 달 발송 사용량 ${countText}`}
       >
-        <span className="sr-only">이번 달 발송 </span>
+        {/*
+          ⚠️ `title`로 설명하지 않는다 — 이 배지는 `sm:hidden`(좁은 화면 = 대개 터치 기기)에만
+             나오는데 `title`은 hover가 필요해서 정작 대상 기기에서 볼 수 없다.
+             "발송"을 글자로 함께 보여 주면 "7/10"이 무엇인지 화면에서 바로 읽힌다.
+        */}
+        <span className="font-normal text-muted">발송 </span>
         {countText}
       </span>
 
