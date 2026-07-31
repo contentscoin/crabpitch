@@ -16,7 +16,7 @@ import {
   Check,
   Wand2,
 } from "lucide-react";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge, ConfidenceBadge } from "@/components/ui/Badge";
 import { Input, Label, Textarea } from "@/components/ui/Input";
@@ -460,13 +460,12 @@ export default function CampaignDetailPage() {
             </Button>
           )}
           {drafts && drafts.length > 0 && !aiLoading && !aiConnected && (
-            <Link href="/ai">
-              <Button
-                variant="ghost"
-                title="내 AI에서 본인 GPT·Claude·Gemini API 키를 등록하면 초안을 AI로 개인화할 수 있습니다."
-              >
-                <Wand2 className="h-4 w-4" /> AI 연결하고 다듬기
-              </Button>
+            <Link
+              href="/ai"
+              className={buttonClasses({ variant: "ghost" })}
+              title="내 AI에서 본인 GPT·Claude·Gemini API 키를 등록하면 초안을 AI로 개인화할 수 있습니다."
+            >
+              <Wand2 className="h-4 w-4" aria-hidden="true" /> AI 연결하고 다듬기
             </Link>
           )}
           {includedCount === 0 && <p className="mt-2 w-full text-xs text-muted">먼저 매칭에서 발송할 기자를 포함하세요.</p>}
@@ -526,10 +525,8 @@ export default function CampaignDetailPage() {
                   초안은 감사 추적을 위해 다시 생성할 수 없으니, 먼저 발신 수단을 연결하세요.
                 </p>
                 <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                  <Link href="/settings">
-                    <Button type="button" size="sm">
-                      발신 수단 연결하기
-                    </Button>
+                  <Link href="/settings" className={buttonClasses({ size: "sm" })}>
+                    발신 수단 연결하기
                   </Link>
                   <span className="text-xs text-muted">Gmail 1클릭 또는 SMTP(회사 메일)</span>
                 </div>
@@ -693,7 +690,22 @@ export default function CampaignDetailPage() {
                         : `* 연결된 Gmail(${gmail!.email})의 ‘언론홍보’ 라벨에 초안을 만듭니다. 실발송은 Gmail에서 확인 후.`}
               </span>
             </div>
-            {sendNote && <p className="text-xs text-muted">{sendNote}</p>}
+            {/*
+              발송·예약 결과는 화면에 남아야 하는 정보라 Toast로 옮기지 않았다(PR#1 판단).
+              대신 라이브 리전으로 낭독되게 한다.
+
+              ⚠️ 항상 마운트 + `sr-only`. 조건부 렌더는 스크린리더가 변화를 놓치고,
+                 `display:none`으로 감춘 라이브 리전은 내용이 들어와도 낭독되지 않는다.
+                 `sr-only`는 `position:absolute`라 부모의 `space-y-4`도 건드리지 않는다.
+            */}
+            <p role="status" className="sr-only">
+              {sendNote ?? ""}
+            </p>
+            {sendNote && (
+              <p aria-hidden="true" className="text-xs text-muted">
+                {sendNote}
+              </p>
+            )}
             {campaign.scheduledSendAt && campaign.status === "sending" && (
               <div className="flex flex-wrap items-center gap-3">
                 <p className="text-sm font-semibold text-brand">

@@ -97,3 +97,38 @@ describe("toUserMessage", () => {
     }
   });
 });
+
+
+/**
+ * 호출부는 무엇을 하다 실패했는지 안다("AI 다듬기에 실패했습니다"). 서버가 쓸 만한 문구를
+ * 주지 않은 경우 범용 기본 문구보다 그쪽이 낫다.
+ */
+describe("fallback 인자", () => {
+  const FALLBACK = "AI 다듬기에 실패했습니다.";
+
+  it("서버 문구가 없으면 fallback을 쓴다", () => {
+    for (const e of [undefined, null, {}, new Error(""), new Error("   "), ""]) {
+      expect(toUserMessage(e, FALLBACK), String(e)).toBe(FALLBACK);
+    }
+  });
+
+  it("껍데기만 온 경우에도 fallback을 쓴다", () => {
+    // 접두를 벗기면 아무것도 남지 않는 경우.
+    expect(toUserMessage(new Error("[CONVEX A(aiActions:enhance)] Uncaught Error:"), FALLBACK)).toBe(
+      FALLBACK,
+    );
+  });
+
+  it("서버가 쓸 만한 문구를 주면 fallback을 쓰지 않는다", () => {
+    expect(
+      toUserMessage(
+        new Error("[CONVEX A(aiActions:enhance)] Uncaught Error: API 키가 유효하지 않습니다."),
+        FALLBACK,
+      ),
+    ).toBe("API 키가 유효하지 않습니다.");
+  });
+
+  it("생략하면 기존 기본 문구를 유지한다 — 기존 호출부 동작이 바뀌지 않는다", () => {
+    expect(toUserMessage(new Error(""))).toBe(DEFAULT_ERROR_MESSAGE);
+  });
+});

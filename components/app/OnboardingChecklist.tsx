@@ -63,14 +63,15 @@ export function OnboardingChecklist({
         </div>
 
         {/*
-          `Progress`에는 아직 `role="progressbar"`가 없다. 여기서 붙이면 기존 사용처
-          3곳(사용량 미터·미디어킷 완성도·보도자료 점수)이 **이름 없는 progressbar**가 되어
-          새 위반을 만든다. 접근성 작업(라벨 필수화 + 4곳 문구 지정)은 별도로 한다.
-          그때까지는 장식으로 감춰 두고 위의 "n/m" 텍스트가 의미를 전달한다.
+          `Progress`가 `label`을 필수로 받게 되면서 막대도 이름을 갖는다 — 더 이상
+          `aria-hidden`으로 감출 이유가 없다. 위의 "n/m" 텍스트는 그대로 둔다(색·막대만으로
+          전달하지 않기 위한 것이므로 중복이 아니다).
         */}
-        <div aria-hidden="true" className="mt-3">
-          <Progress value={percent} />
-        </div>
+        <Progress
+          value={percent}
+          label={hasAccountScoped ? "이 클라이언트 온보딩 진행률" : "온보딩 진행률"}
+          className="mt-3"
+        />
 
         {/*
           ⚠️ 단계 목록을 둘로 쪼개지 않는다. 쪼개면 순서 번호가 각각 1부터 다시 시작해

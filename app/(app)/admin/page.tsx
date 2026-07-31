@@ -17,7 +17,7 @@ import {
   BarChart3,
 } from "lucide-react";
 import Link from "next/link";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { PageHeader, StatCard } from "@/components/app/bits";
@@ -279,10 +279,8 @@ export default function AdminPage() {
               <code className="rounded bg-surface px-1">ADMIN_EMAILS</code> 에
               이메일을 추가하거나, 기존 관리자가 권한을 부여해야 합니다.
             </p>
-            <Link href="/dashboard">
-              <Button type="button" size="sm" variant="subtle">
-                대시보드로
-              </Button>
+            <Link href="/dashboard" className={buttonClasses({ size: "sm", variant: "subtle" })}>
+              대시보드로
             </Link>
           </CardContent>
         </Card>

@@ -12,6 +12,7 @@ import {
   KeyRound,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { buttonClasses } from "@/components/ui/Button";
 import { PLANS, COMPARE_ROWS, STEPS } from "@/lib/brand";
 import {
   CRABPITCH_SKILL_REPO_URL,
@@ -37,10 +38,7 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <Link
-              href="/signin"
-              className="rounded-md bg-brand px-4 py-2 text-sm font-bold text-brand-foreground shadow-sm transition-colors hover:bg-brand-hover"
-            >
+            <Link href="/signin" className={buttonClasses({ size: "sm", className: "px-4" })}>
               무료로 시작
             </Link>
           </div>
@@ -64,14 +62,14 @@ export default function LandingPage() {
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Link
               href="/signin"
-              className="rounded-md bg-brand px-6 py-3.5 text-base font-bold text-brand-foreground shadow-md transition-all hover:bg-brand-hover hover:-translate-y-0.5"
+              className={buttonClasses({
+                size: "lg",
+                className: "shadow-md hover:-translate-y-0.5",
+              })}
             >
               무료로 첫 배포 시작
             </Link>
-            <a
-              href="#mcp"
-              className="rounded-md border border-border bg-card px-6 py-3.5 text-base font-bold text-foreground transition-colors hover:bg-surface"
-            >
+            <a href="#mcp" className={buttonClasses({ variant: "outline", size: "lg" })}>
               내 AI로 쓰는 법
             </a>
           </div>
@@ -182,10 +180,7 @@ export default function LandingPage() {
                 </li>
               </ul>
               <div className="mt-5">
-                <Link
-                  href="/signin"
-                  className="inline-flex rounded-md bg-brand px-4 py-2.5 text-sm font-bold text-brand-foreground hover:bg-brand-hover"
-                >
+                <Link href="/signin" className={buttonClasses()}>
                   로그인하고 연결하기
                 </Link>
               </div>
@@ -263,12 +258,12 @@ export default function LandingPage() {
               </ul>
               <Link
                 href="/signin"
-                className={cn(
-                  "mt-6 rounded-md py-2.5 text-center text-sm font-bold transition-colors",
-                  p.popular
-                    ? "bg-brand text-brand-foreground hover:bg-brand-hover"
-                    : "border border-border bg-surface text-foreground hover:bg-surface-2",
-                )}
+                // 카드마다 CTA 문구가 같을 수 있어("무료로 시작") 링크 목록에서 구별되지 않는다.
+                aria-label={`${p.name} 플랜 — ${p.cta}`}
+                className={buttonClasses({
+                  variant: p.popular ? "brand" : "subtle",
+                  className: "mt-6 w-full",
+                })}
               >
                 {p.cta}
               </Link>
@@ -343,7 +338,11 @@ export default function LandingPage() {
           <p className="mt-3 text-lg text-white/75">무료로 첫 언론 노출을 경험하세요. 카드 등록 없이 시작합니다.</p>
           <Link
             href="/signin"
-            className="mt-7 inline-block rounded-md bg-brand px-7 py-3.5 text-base font-bold text-brand-foreground transition-colors hover:bg-brand-hover"
+            /*
+              어두운 배경 위에 있어 기본 focus ring offset 색(background)이 맞지 않는다 —
+              `ring-offset-deep`으로 바꿔 링이 배경에 묻히지 않게 한다.
+            */
+            className={buttonClasses({ size: "lg", className: "mt-7 px-7 ring-offset-deep" })}
           >
             🦀 무료로 시작하기
           </Link>

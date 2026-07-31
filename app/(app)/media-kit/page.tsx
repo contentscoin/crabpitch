@@ -6,7 +6,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AlertTriangle, FileText, Plus, Sparkles, Wand2 } from "lucide-react";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Input, Label, Textarea } from "@/components/ui/Input";
@@ -67,6 +67,7 @@ export default function MediaKitPage() {
       ) : kits.length === 0 ? (
         <EmptyState
           icon={FileText}
+          as="h2"
           title="미디어킷이 없습니다"
           description="보일러플레이트·핵심 메시지·팩트시트·인용문을 담아 배포 메일 첨부로 사용하세요."
           action={<Button onClick={newKit}>미디어킷 만들기</Button>}
@@ -87,7 +88,12 @@ export default function MediaKitPage() {
                   <span className="font-semibold">{k.name}</span>
                   <span className="text-xs font-bold text-brand">{k.completeness}%</span>
                 </div>
-                <Progress value={k.completeness} className="mt-2" />
+                {/* 목록 안이라 킷 이름을 넣어야 서로 구별된다. */}
+                <Progress
+                  value={k.completeness}
+                  label={`${k.name} 완성도`}
+                  className="mt-2"
+                />
               </button>
             ))}
           </div>
@@ -508,10 +514,8 @@ function MediaKitEditor({ id }: { id: Id<"mediaKits"> }) {
                 연결된 AI가 없습니다. 크랩피치는 공용 AI 키를 제공하지 않습니다 — 본인 API 키를 등록하면 초안 생성·보강을
                 쓸 수 있습니다.
               </p>
-              <Link href="/ai">
-                <Button variant="subtle">
-                  <Wand2 className="h-4 w-4" /> 내 AI 연결하기
-                </Button>
+              <Link href="/ai" className={buttonClasses({ variant: "subtle" })}>
+                <Wand2 className="h-4 w-4" aria-hidden="true" /> 내 AI 연결하기
               </Link>
             </div>
           ) : (
@@ -755,7 +759,12 @@ function CompletenessPanel({ report, savedScore }: { report: MediaKitCompletenes
         <span className="text-sm font-semibold">완성도 (현재 입력 기준)</span>
         <span className="text-sm font-bold tabular-nums text-brand">{report.score}%</span>
       </div>
-      <Progress value={report.score} tone={tone} className="mt-2" />
+      <Progress
+        value={report.score}
+        label="편집 중인 미디어킷 완성도"
+        tone={tone}
+        className="mt-2"
+      />
       {report.score !== savedScore && (
         <p className="mt-1.5 text-xs text-muted">저장된 값 {savedScore}% · 저장하면 현재 입력 기준으로 갱신됩니다.</p>
       )}

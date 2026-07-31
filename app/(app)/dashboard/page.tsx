@@ -14,7 +14,7 @@ import {
   BarChart3,
   CalendarClock,
 } from "lucide-react";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { PageHeader, StatCard, EmptyState, CampaignStatusBadge, REPLY_TYPES } from "@/components/app/bits";
 import { McpDashboardCard } from "@/components/app/McpGuide";
@@ -71,10 +71,8 @@ export default function DashboardPage() {
         title={companyName ? `${companyName} 대시보드` : "대시보드"}
         description="매칭 → 작성 → 발송 → 응대. 실행 루프와 게재·회신 성과를 한눈에 봅니다."
         action={
-          <Link href="/campaigns/new">
-            <Button>
-              <Send className="h-4 w-4" /> 새 보도자료 배포
-            </Button>
+          <Link href="/campaigns/new" className={buttonClasses()}>
+            <Send className="h-4 w-4" aria-hidden="true" /> 새 보도자료 배포
           </Link>
         }
       />

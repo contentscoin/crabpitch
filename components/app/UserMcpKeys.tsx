@@ -6,7 +6,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Check, Copy, KeyRound, Link2, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Input, Label } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
@@ -107,10 +107,8 @@ export function UserMcpKeysPanel() {
             <Badge variant="outline">사용 불가</Badge>
           </div>
           <p className="text-sm text-foreground-muted">{access.message}</p>
-          <Link href="/settings">
-            <Button type="button" size="sm" variant="subtle">
-              설정에서 플랜 변경
-            </Button>
+          <Link href="/settings" className={buttonClasses({ size: "sm", variant: "subtle" })}>
+            설정에서 플랜 변경
           </Link>
         </CardContent>
       </Card>

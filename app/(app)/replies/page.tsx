@@ -27,6 +27,7 @@ export default function RepliesPage() {
       ) : inbox.length === 0 ? (
         <EmptyState
           icon={Inbox}
+          as="h2"
           title="받은 회신이 없습니다"
           description="캠페인 상세에서 기자 회신을 입력하면 여기에 분류되어 모입니다."
         />

@@ -31,15 +31,30 @@ const read = (p: string) => readFileSync(join(ROOT, p), "utf-8");
 //    통째로 사라진다. 이 헬퍼를 쓰는 가드는 전부 `not.toContain`이므로 코드가 잘려 나가면
 //    테스트는 **통과한다**(false pass) — 오류 방향이 조용한 통과인 것은 검사에서 가장
 //    나쁜 성질이다. 첫 비공백 문자로만 판정하면 리터럴을 건드리지 않는다.
-const readCode = (p: string) =>
-  read(p)
-    .split("\n")
-    .filter((line) => {
-      const t = line.trimStart();
-      // 한 줄 주석 · 블록 주석 시작 · 블록 주석 본문(` * …`).
-      return !(t.startsWith("//") || t.startsWith("/*") || t.startsWith("*"));
-    })
-    .join("\n");
+//
+//    JSX 주석(`{/* … */}`)까지 다뤄야 한다. 본문 줄이 `*` 없이 평문으로 시작하기 때문에
+//    "첫 글자로 판정"만으로는 걸러지지 않고, 그 안의 산문이 코드로 취급된다 — 실제로
+//    `sm:table-cell`을 설명하는 주석 때문에 "숨는 컬럼이 없다" 가드가 오탐했다.
+//    블록 열림/닫힘을 추적해 주석 전체를 버린다.
+const readCode = (p: string) => {
+  const out: string[] = [];
+  let inBlock = false;
+  for (const line of read(p).split("\n")) {
+    const t = line.trimStart();
+    if (inBlock) {
+      if (t.includes("*/")) inBlock = false;
+      continue;
+    }
+    if (t.startsWith("//")) continue;
+    if (t.startsWith("/*") || t.startsWith("{/*")) {
+      // 같은 줄에서 닫히지 않으면 다음 줄부터 블록 안이다.
+      if (!t.includes("*/")) inBlock = true;
+      continue;
+    }
+    out.push(line);
+  }
+  return out.join("\n");
+};
 
 /**
  * 파괴적 액션 호출부 — `window.confirm`이 남아 있으면 안 된다.
@@ -442,15 +457,20 @@ describe("온보딩 체크리스트", () => {
   });
 
   /**
-   * 진행률을 막대(색)로만 전달하면 안 된다. `Progress`에는 아직 `role="progressbar"`가
-   * 없고, 지금 붙이면 기존 사용처 3곳(사용량 미터·미디어킷 완성도·보도자료 점수)이
-   * **이름 없는 progressbar**가 되어 새 위반을 만든다 → 접근성 작업은 PR#3에서 한다.
-   * 그때까지 막대는 장식이고, 보이는 "n/m" 텍스트가 의미를 전달해야 한다.
+   * 진행률을 막대(색)로만 전달하면 안 된다.
+   *
+   * 처음에는 막대를 `aria-hidden` 장식으로 두고 보이는 "n/m" 텍스트에만 의존했다 —
+   * `Progress`에 `role="progressbar"`가 없어서, 거기 역할만 붙이면 기존 사용처 3곳이
+   * **이름 없는 progressbar**가 되기 때문이었다. `Progress`가 `label`을 필수로 받게 되면서
+   * 그 제약이 사라졌으므로 막대도 이름을 갖는다. 보이는 텍스트는 그대로 남긴다 —
+   * 색·막대만으로 전달하지 않기 위한 것이므로 중복이 아니다.
    */
-  it("진행률이 보이는 텍스트로 전달된다 — 막대는 장식이다", () => {
-    const src = read("components/app/OnboardingChecklist.tsx");
+  it("진행률이 보이는 텍스트로 전달된다", () => {
+    const src = readCode("components/app/OnboardingChecklist.tsx");
     expect(src).toMatch(/\{doneCount\}\/\{totalCount\}/);
-    expect(src).toMatch(/aria-hidden="true"[\s\S]{0,120}<Progress/);
+    // 막대를 다시 장식으로 감추면 안 된다 — 이제 이름이 있다.
+    expect(src).not.toMatch(/aria-hidden="true"[\s\S]{0,80}<Progress/);
+    expect(src).toMatch(/<Progress[\s\S]{0,160}label=/);
   });
 
   it("완료 여부를 색·아이콘만으로 전달하지 않는다", () => {
@@ -641,5 +661,284 @@ describe("발신 수단 미연결 배너", () => {
   it("닫기 버튼에 접근 가능한 이름이 있다", () => {
     // 아이콘만 있는 버튼은 낭독할 이름이 없다.
     expect(read("components/app/SenderBanner.tsx")).toMatch(/aria-label="24시간 동안 숨기기"/);
+  });
+});
+
+
+describe("Progress 접근성", () => {
+  const src = readCode("components/ui/Progress.tsx");
+
+  it("progressbar 역할과 값을 노출한다", () => {
+    expect(src).toMatch(/role="progressbar"/);
+    expect(src).toMatch(/aria-valuenow=\{Math\.round\(/);
+    expect(src).toMatch(/aria-valuemin=\{0\}/);
+    expect(src).toMatch(/aria-valuemax=\{100\}/);
+  });
+
+  /**
+   * ⚠️ `label`은 **필수 prop**이어야 한다.
+   *
+   * optional로 두면 "진행률 50%"처럼 무엇의 진행률인지 알 수 없는 낭독이 생긴다 —
+   * 역할이 없던 이전 상태보다 나쁘다. 필수로 두면 새 호출부가 빠뜨리는 순간 타입 오류다.
+   */
+  it("label이 필수 prop이다", () => {
+    expect(src).toMatch(/^\s*label: string;$/m);
+    expect(src).not.toMatch(/label\?: string/);
+    expect(src).toMatch(/aria-label=\{label\}/);
+  });
+
+  /**
+   * 모든 호출부가 label을 준다. 타입 검사로도 걸리지만, 여기서 잡으면 "무엇의 진행률인지"를
+   * 실제로 구별되는 문구로 지었는지까지 확인할 수 있다.
+   */
+  it("호출부 4곳이 서로 구별되는 이름을 준다", () => {
+    const sites: Array<[string, RegExp]> = [
+      ["components/app/UsageMeter.tsx", /label="이번 달 발송 사용량"/],
+      // 목록 안이라 항목을 구별할 수 있어야 한다 — 고정 문구면 전부 같은 이름이 된다.
+      ["app/(app)/media-kit/page.tsx", /label=\{`\$\{k\.name\} 완성도`\}/],
+      ["app/(app)/media-kit/page.tsx", /label="편집 중인 미디어킷 완성도"/],
+      ["components/app/OnboardingChecklist.tsx", /온보딩 진행률/],
+    ];
+    for (const [file, re] of sites) {
+      expect(readCode(file), `${file} ${re}`).toMatch(re);
+    }
+  });
+
+  it("Progress를 쓰는 곳은 모두 label을 넘긴다", () => {
+    for (const f of [
+      "components/app/UsageMeter.tsx",
+      "app/(app)/media-kit/page.tsx",
+      "components/app/OnboardingChecklist.tsx",
+    ]) {
+      const s = readCode(f);
+      const uses = s.match(/<Progress[\s\S]*?\/>/g) ?? [];
+      expect(uses.length, f).toBeGreaterThan(0);
+      for (const u of uses) expect(u, `${f}: ${u}`).toContain("label=");
+    }
+  });
+});
+
+describe("탐색 접근성", () => {
+  it("활성 내비게이션 링크에 aria-current가 있다", () => {
+    const src = readCode("components/app/Sidebar.tsx");
+    // `false`를 주면 `aria-current="false"`가 남는다 — undefined여야 속성이 사라진다.
+    expect(src).toMatch(/aria-current=\{active \? "page" : undefined\}/);
+  });
+
+  it("내비게이션 landmark에 이름이 있다", () => {
+    // 데스크톱·모바일 nav가 둘 다 있다(동시에 렌더되지는 않는다).
+    const src = readCode("components/app/Sidebar.tsx");
+    expect(src.match(/<nav aria-label="주요 메뉴"/g) ?? []).toHaveLength(2);
+  });
+
+  /**
+   * 매 화면마다 내비게이션 탭 8개를 지나야 본문에 닿는 문제.
+   * `tabIndex={-1}`이 없으면 해시만 바뀌고 포커스는 문서 처음에 남는다.
+   */
+  it("건너뛰기 링크와 main#main이 있다", () => {
+    const src = readCode("components/app/AppShell.tsx");
+    expect(src).toMatch(/href="#main"/);
+    expect(src).toMatch(/id="main"/);
+    expect(src).toMatch(/tabIndex=\{-1\}/);
+    // display:none으로 감추면 포커스를 받을 수 없다 → transform으로 밀어낸다.
+    expect(src).toMatch(/focus:translate-y-0/);
+    expect(src).not.toMatch(/href="#main"[\s\S]{0,120}hidden/);
+  });
+
+  /**
+   * 실제 테마는 `document.documentElement`의 클래스에 있고 `useEffect` 이후에만 읽을 수
+   * 있다. 마운트 전에 아이콘을 그리면 다크 모드 사용자에게 반대 아이콘이 한 프레임 보인다.
+   */
+  it("ThemeToggle이 마운트 전에는 아이콘을 그리지 않는다", () => {
+    const src = readCode("components/ThemeToggle.tsx");
+    expect(src).toMatch(/if \(!mounted\)/);
+    // 자리를 비워 두면 아이콘이 나타날 때 옆 요소가 밀린다.
+    expect(src).toMatch(/aria-hidden="true"/);
+    // 토글 상태는 이름이 아니라 aria-pressed로 알린다. 이름이 매번 바뀌면 같은 버튼인지 모른다.
+    expect(src).toMatch(/aria-label="다크 모드"/);
+    expect(src).toMatch(/aria-pressed=\{dark\}/);
+  });
+});
+
+describe("버튼처럼 보이는 링크", () => {
+  /**
+   * ⚠️ `<Link>` 안에 `<Button>`을 넣으면 `<a>` 안에 `<button>`이 들어간다 — 무효 HTML이고
+   *    포커스 스톱이 둘로 늘어난다(Tab 두 번, 스크린리더가 링크와 버튼을 각각 읽는다).
+   *    저장소 전체에서 이 형태가 사라져야 한다.
+   */
+  it("Link 안에 Button을 넣은 곳이 없다", () => {
+    const files = [
+      "app/(app)/admin/page.tsx",
+      "app/(app)/campaigns/[id]/page.tsx",
+      "app/(app)/campaigns/new/page.tsx",
+      "app/(app)/campaigns/page.tsx",
+      "app/(app)/dashboard/page.tsx",
+      "app/(app)/media-kit/page.tsx",
+      "components/app/McpGuide.tsx",
+      "components/app/Topbar.tsx",
+      "components/app/UserMcpKeys.tsx",
+    ];
+    for (const f of files) {
+      // `<Link …>` 다음 줄에 곧바로 `<Button`이 오는 형태.
+      expect(readCode(f), f).not.toMatch(/<Link[^>]*>\s*\n\s*<Button/);
+    }
+  });
+
+  /**
+   * 랜딩 CTA는 손으로 쓴 클래스 문자열이었다 — `focus-visible:ring`이 없어서 **키보드
+   * 사용자가 지금 어디 있는지 볼 수 없었다.** `buttonClasses`가 그 링을 포함한다.
+   */
+  it("랜딩 CTA가 buttonClasses를 쓴다", () => {
+    const src = readCode("app/page.tsx");
+    /*
+      "bg-brand 문자열이 없다"로 쓰면 안 된다 — "가장 인기" 배지처럼 CTA가 아닌 요소도
+      브랜드 색을 쓴다. 검사 대상은 **CTA 링크**다: `/signin`으로 가는 모든 Link가
+      buttonClasses를 쓰는지 본다.
+    */
+    const ctas = src.match(/<Link\s+href="\/signin"[\s\S]{0,400}?>/g) ?? [];
+    expect(ctas.length).toBeGreaterThan(0);
+    for (const cta of ctas) expect(cta, cta).toContain("buttonClasses");
+  });
+
+  it("포커스 링이 프리미티브 한 곳에서만 정의된다", () => {
+    expect(readCode("components/ui/Button.tsx")).toMatch(/focus-visible:ring-2/);
+  });
+});
+
+describe("heading 순서", () => {
+  /**
+   * `EmptyState`의 기본값 `h3`은 섹션 heading(`h2`) 안에 있을 때만 맞다.
+   * `PageHeader`(h1) 바로 아래에 두면 h2를 건너뛴다.
+   */
+  it("EmptyState가 heading 레벨을 받는다", () => {
+    const src = readCode("components/app/bits.tsx");
+    expect(src).toMatch(/as: Heading = "h3"/);
+    expect(src).toMatch(/<Heading className=/);
+  });
+
+  it("PageHeader 직하의 EmptyState는 h2를 지정한다", () => {
+    for (const f of [
+      "app/(app)/campaigns/page.tsx",
+      "app/(app)/journalists/page.tsx",
+      "app/(app)/media-kit/page.tsx",
+      "app/(app)/replies/page.tsx",
+    ]) {
+      expect(readCode(f), f).toMatch(/<EmptyState[\s\S]{0,200}as="h2"/);
+    }
+  });
+
+  it("섹션 heading 안의 EmptyState는 기본값을 쓴다", () => {
+    // 대시보드의 EmptyState는 <h2>최근 캠페인</h2> 아래라 h3이 맞다.
+    expect(readCode("app/(app)/dashboard/page.tsx")).not.toMatch(
+      /<EmptyState[\s\S]{0,200}as="h2"/,
+    );
+  });
+});
+
+describe("화면에 남는 상태 알림", () => {
+  /**
+   * ⚠️ 라이브 리전 3원칙 — 셋 다 지켜야 실제로 낭독된다.
+   *   ① 항상 마운트(내용과 함께 삽입되면 변화를 감지하지 못한다)
+   *   ② `display:none`으로 감추지 않는다(숨겨진 리전에 들어온 내용은 낭독되지 않는다)
+   *   ③ 그래서 `sr-only`(position:absolute) — 부모의 `space-y-*`에 빈 여백도 만들지 않는다
+   */
+  const LIVE_REGIONS: Array<[string, string]> = [
+    ["app/(app)/campaigns/[id]/page.tsx", "sendNote"],
+    ["app/(app)/campaigns/new/page.tsx", "note"],
+  ];
+
+  for (const [file, state] of LIVE_REGIONS) {
+    it(`${file}: ${state}가 라이브 리전으로 낭독된다`, () => {
+      const src = readCode(file);
+      expect(src).toMatch(
+        new RegExp(`<p role="status" className="sr-only">\\s*\\{${state} \\?\\? ""\\}`),
+      );
+    });
+  }
+
+  it("조건부로 삽입되는 라이브 리전이 없다", () => {
+    for (const [file] of LIVE_REGIONS) {
+      // `{x && <p role="status">…` 형태는 컨테이너가 내용과 함께 삽입되는 것이다.
+      expect(readCode(file), file).not.toMatch(/&&\s*\(?\s*<p role="(status|alert)"/);
+    }
+  });
+
+  it("라이브 리전을 display:none으로 감추지 않는다", () => {
+    for (const [file] of LIVE_REGIONS) {
+      expect(readCode(file), file).not.toMatch(/role="(status|alert)"[^>]*empty:hidden/);
+    }
+  });
+
+  it("실패는 assertive로 알린다", () => {
+    // 방금 누른 동작이 실패했다는 사실은 다른 낭독을 끊고 알려야 한다.
+    expect(readCode("app/(app)/campaigns/new/page.tsx")).toMatch(
+      /<p role="alert" className="sr-only">/,
+    );
+  });
+
+  /**
+   * 라이브 리전으로 **낭독되는** 문구는 반드시 정규화를 거쳐야 한다.
+   * 그러지 않으면 스크린리더가 `[CONVEX A(aiActions:enhance)] Uncaught Error: …`를 읽는다.
+   */
+  it("낭독되는 오류 문구가 정규화를 거친다", () => {
+    const src = readCode("app/(app)/campaigns/new/page.tsx");
+    expect(src).not.toMatch(/setError\(err instanceof Error \? err\.message/);
+    expect(src.match(/setError\(toUserMessage\(err, /g) ?? []).toHaveLength(2);
+  });
+});
+
+describe("모바일에서 사라지던 정보", () => {
+  /**
+   * `hidden sm:block`이었다 — 한도에 걸린 사용자가 작은 화면에서는 **발송이 막힌 이유를
+   * 볼 수 없었다.** 발송 불가의 가장 흔한 원인인데 그 정보가 화면에서 사라지는 것이다.
+   */
+  it("UsageMeter가 좁은 화면에서 숨지 않는다", () => {
+    const src = readCode("components/app/UsageMeter.tsx");
+    // 좁은 화면 전용 배지 + 넓은 화면 전용 막대, 둘 다 있어야 한다.
+    expect(src).toMatch(/sm:hidden/);
+    expect(src).toMatch(/hidden w-44 sm:block/);
+    // 배지만 보면 "7/10"이 무엇인지 알 수 없다.
+    expect(src).toMatch(/sr-only">이번 달 발송/);
+  });
+
+  /**
+   * 표를 그대로 두면 숨는 컬럼 때문에 **"회신 3"만 남고 그 3이 무엇 중 3인지 알 수 없다.**
+   * 전환 기준이 서로 다르다: 캠페인은 `sm`, 기자는 `lg`(가장 늦게 숨는 컬럼이
+   * `lg:table-cell`이라 `sm` 기준이면 640~1024px에서 정보가 계속 사라진다 — 태블릿 세로).
+   */
+  const LIST_PAGES: Array<[string, string]> = [
+    ["app/(app)/campaigns/page.tsx", "sm"],
+    ["app/(app)/journalists/page.tsx", "lg"],
+  ];
+
+  for (const [file, bp] of LIST_PAGES) {
+    it(`${file}: ${bp} 미만에서 카드로 바뀐다`, () => {
+      const src = readCode(file);
+      expect(src).toMatch(new RegExp(`className="space-y-2 ${bp}:hidden"`));
+      expect(src).toMatch(new RegExp(`hidden[^"]*${bp}:block`));
+    });
+
+    it(`${file}: 표에 숨는 컬럼이 남아 있지 않다`, () => {
+      // 카드로 전환했으므로 컬럼을 감출 이유가 없다 — 감춘 채로 두면 두 벌을 관리하게 된다.
+      expect(readCode(file), file).not.toMatch(/table-cell/);
+    });
+
+    it(`${file}: 표에 이름과 열 방향이 있다`, () => {
+      const src = readCode(file);
+      expect(src).toMatch(/<caption className="sr-only">/);
+      expect(src).toMatch(/scope="col"/);
+    });
+  }
+
+  /**
+   * 탭이 8개(관리자 9개)라 좁은 화면에서는 반드시 잘린다. 잘린 자리가 그냥 끝난 것처럼
+   * 보이면 남은 탭을 찾지 못한다.
+   */
+  it("MobileNav에 스크롤 가능 힌트가 있다", () => {
+    const src = readCode("components/app/Sidebar.tsx");
+    expect(src).toMatch(/overflow-x-auto/);
+    expect(src).toMatch(/bg-gradient-to-l from-card/);
+    // 마스크가 탭을 가로막으면 안 된다.
+    expect(src).toMatch(/pointer-events-none/);
   });
 });

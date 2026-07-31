@@ -57,10 +57,15 @@ function stripPrefixes(line: string): string {
   return out.trim();
 }
 
-export function toUserMessage(e: unknown): string {
+/**
+ * @param fallback 서버가 쓸 만한 문구를 주지 않았을 때 쓸 대체 문구.
+ *   호출부는 무엇을 하다 실패했는지 알기 때문에("AI 다듬기에 실패했습니다") 범용
+ *   기본 문구보다 구체적으로 쓸 수 있다. 생략하면 `DEFAULT_ERROR_MESSAGE`.
+ */
+export function toUserMessage(e: unknown, fallback: string = DEFAULT_ERROR_MESSAGE): string {
   // ① Error가 아니면 문자열일 때만 그 값을 쓴다.
   const raw = e instanceof Error ? e.message : typeof e === "string" ? e : "";
-  if (!raw.trim()) return DEFAULT_ERROR_MESSAGE;
+  if (!raw.trim()) return fallback;
 
   // ② 줄 단위로 나눠 공백 제거.
   const lines = raw.split("\n").map((l) => l.trim());
@@ -74,5 +79,5 @@ export function toUserMessage(e: unknown): string {
   const meaningful = body.map(stripPrefixes).filter((l) => l.length > 0);
 
   // ⑥ 그 외에는 원문을 그대로 통과시킨다.
-  return meaningful[0] ?? DEFAULT_ERROR_MESSAGE;
+  return meaningful[0] ?? fallback;
 }
