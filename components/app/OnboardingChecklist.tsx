@@ -44,9 +44,8 @@ export function OnboardingChecklist({
   // 다 끝났으면 **렌더하지 않는다.** "완료" 상태로 남기면 영구히 자리를 먹는다.
   if (checklist.allDone) return null;
 
-  const { steps, counted, doneCount, totalCount, nextStep } = checklist;
-  const accountScoped = steps.filter((s) => s.accountScoped);
-  const clientScoped = steps.filter((s) => !s.accountScoped);
+  const { steps, doneCount, totalCount, nextStep } = checklist;
+  const hasAccountScoped = steps.some((s) => s.accountScoped);
   const percent = totalCount === 0 ? 0 : Math.round((doneCount / totalCount) * 100);
 
   return (
@@ -57,7 +56,7 @@ export function OnboardingChecklist({
           {/* 진행률은 **보이는 텍스트**로 전달한다. 막대는 장식이다. */}
           <span className="text-sm font-semibold tabular-nums text-brand">
             {doneCount}/{totalCount}
-            {server.isClientScoped && (
+            {hasAccountScoped && (
               <span className="ml-1 font-normal text-muted">(이 클라이언트)</span>
             )}
           </span>
@@ -66,36 +65,29 @@ export function OnboardingChecklist({
         {/*
           `Progress`에는 아직 `role="progressbar"`가 없다. 여기서 붙이면 기존 사용처
           3곳(사용량 미터·미디어킷 완성도·보도자료 점수)이 **이름 없는 progressbar**가 되어
-          새 위반을 만든다. 접근성 작업(라벨 필수화 + 4곳 문구 지정)은 PR#3에서 한다.
+          새 위반을 만든다. 접근성 작업(라벨 필수화 + 4곳 문구 지정)은 별도로 한다.
           그때까지는 장식으로 감춰 두고 위의 "n/m" 텍스트가 의미를 전달한다.
         */}
         <div aria-hidden="true" className="mt-3">
           <Progress value={percent} />
         </div>
 
+        {/*
+          ⚠️ 단계 목록을 둘로 쪼개지 않는다. 쪼개면 순서 번호가 각각 1부터 다시 시작해
+          스크린리더가 "1 of 3" 다음에 다시 "1 of 2"를 읽고, "5단계 중 어디"라는 정보가
+          마크업에서 사라진다. 하나의 목록에 정본 순서대로 두고, 진행률에서 빠지는 단계는
+          항목 안의 "계정 공통" 표시로 알린다.
+        */}
         <ol className="mt-4 space-y-2">
-          {clientScoped.map((step) => (
+          {steps.map((step) => (
             <StepRow key={step.id} step={step} isNext={step.id === nextStep?.id} />
           ))}
         </ol>
 
-        {accountScoped.length > 0 && (
-          <div className="mt-4 border-t border-border pt-3">
-            <p className="text-xs font-semibold text-muted">계정 공통 설정</p>
-            <p className="mt-0.5 text-xs text-muted">
-              발신 정보와 발신 수단은 클라이언트별로 나뉘지 않습니다 — 계정에 하나만 둡니다.
-            </p>
-            <ol className="mt-2 space-y-2">
-              {accountScoped.map((step) => (
-                <StepRow key={step.id} step={step} isNext={step.id === nextStep?.id} muted />
-              ))}
-            </ol>
-          </div>
-        )}
-
-        {counted.length === 0 && (
-          <p className="mt-3 text-xs text-muted">
-            이 클라이언트로 할 일이 없습니다. 위 계정 공통 설정을 먼저 마치세요.
+        {hasAccountScoped && (
+          <p className="mt-3 border-t border-border pt-3 text-xs text-muted">
+            <span className="font-semibold">계정 공통</span> 표시된 단계는 클라이언트별로 나뉘지
+            않아 위 진행률에서 빠집니다 — 계정에 한 번만 설정하면 됩니다.
           </p>
         )}
       </CardContent>
@@ -109,15 +101,14 @@ export function OnboardingChecklist({
  * **미완료 단계 중 첫 번째만** CTA를 강조한다. 전부 강조하면 다음 한 걸음이 무엇인지
  * 알 수 없고, 온보딩의 목적이 사라진다.
  */
-function StepRow({
-  step,
-  isNext,
-  muted,
-}: {
-  step: OnboardingStep;
-  isNext: boolean;
-  muted?: boolean;
-}) {
+function StepRow({ step, isNext }: { step: OnboardingStep; isNext: boolean }) {
+  /*
+    링크 이름에 단계 라벨을 넣는다. "지금 하기"/"이동"/"확인"만 있으면 링크 목록으로
+    훑는 스크린리더 사용자에게 "이동, 이동, 확인"만 남아 어느 단계인지 알 수 없다
+    (WCAG 2.4.9 — 링크 목적을 링크 텍스트만으로 알 수 있어야 한다).
+  */
+  const actionText = step.done ? "확인" : isNext ? "지금 하기" : "이동";
+
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
       <span
@@ -151,32 +142,34 @@ function StepRow({
           {/* 상태를 색·아이콘에만 의존하지 않는다. */}
           <span className="sr-only">{step.done ? " (완료)" : " (미완료)"}</span>
         </span>
+        {step.accountScoped && (
+          <span className="ml-2 rounded border border-border px-1.5 py-0.5 text-[10px] font-semibold text-muted">
+            계정 공통
+          </span>
+        )}
         <span
           className={cn(
             "ml-2 text-xs",
-            step.warn ? "text-warning" : muted ? "text-muted" : "text-foreground-muted",
+            step.warn ? "text-warning" : "text-foreground-muted",
           )}
         >
           {step.description}
         </span>
       </span>
 
-      {!step.done && (
+      {/* 완료 단계는 경고가 있을 때만 링크를 남긴다 — 고칠 것이 있는 경우다. */}
+      {(!step.done || step.warn) && (
         <Link
           href={step.href}
+          aria-label={`${step.label} — ${actionText}`}
           className={
             isNext
               ? buttonClasses({ size: "sm" })
               : buttonClasses({ size: "sm", variant: "subtle" })
           }
         >
-          {isNext ? "지금 하기" : "이동"}
+          {actionText}
           {isNext && <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />}
-        </Link>
-      )}
-      {step.done && step.warn && (
-        <Link href={step.href} className={buttonClasses({ size: "sm", variant: "subtle" })}>
-          확인
         </Link>
       )}
     </li>

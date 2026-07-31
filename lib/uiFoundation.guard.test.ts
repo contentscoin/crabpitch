@@ -26,11 +26,20 @@ const read = (p: string) => readFileSync(join(ROOT, p), "utf-8");
  * 가드를 통과시키려고 같은 실수를 막아 주는 기록을 지워야 한다 — 가드가 문서를 해친다.
  * `lib/errorMessage.ts` 가드에서 이미 같은 판단을 했다(정규식 리터럴만 검사).
  */
+// ⚠️ **행 단위**로만 지운다. 주석 구분자를 정규식으로 잘라내면 문자열 리터럴을 훼손한다:
+//    `const a = "x // y";`가 `const a = "x`로 잘리고, 블록 주석 구분자를 담은 리터럴은
+//    통째로 사라진다. 이 헬퍼를 쓰는 가드는 전부 `not.toContain`이므로 코드가 잘려 나가면
+//    테스트는 **통과한다**(false pass) — 오류 방향이 조용한 통과인 것은 검사에서 가장
+//    나쁜 성질이다. 첫 비공백 문자로만 판정하면 리터럴을 건드리지 않는다.
 const readCode = (p: string) =>
   read(p)
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    // 앞에 공백이나 줄 시작이 오는 경우만 — `https://`의 `//`를 건드리지 않는다.
-    .replace(/(^|\s)\/\/.*$/gm, "$1");
+    .split("\n")
+    .filter((line) => {
+      const t = line.trimStart();
+      // 한 줄 주석 · 블록 주석 시작 · 블록 주석 본문(` * …`).
+      return !(t.startsWith("//") || t.startsWith("/*") || t.startsWith("*"));
+    })
+    .join("\n");
 
 /**
  * 파괴적 액션 호출부 — `window.confirm`이 남아 있으면 안 된다.
@@ -333,10 +342,28 @@ describe("온보딩 체크리스트", () => {
     expect(block).not.toContain("profileConfirmedAt");
   });
 
-  it("updateProfile은 profileConfirmedAt을 찍는다", () => {
-    const src = read("convex/profiles.ts");
-    const block = src.slice(src.indexOf("export const updateProfile"));
-    expect(block).toMatch(/profileConfirmedAt: Date\.now\(\)/);
+  /**
+   * `updateProfile`은 발신 정보 저장 전용이 아니다 — 설정 화면의 플랜 카드가
+   * `update({ plan })`으로, Gmail 연결 흐름이 `update({ gmailConnected })`로 같은 mutation을
+   * 쓴다. 인자를 보지 않고 도장을 찍으면 **플랜 버튼 한 번으로 ①단계가 완료된다.**
+   * `ensureProfile`을 막아 봐야 자동 완료가 다른 문으로 들어오는 것이다.
+   */
+  it("updateProfile은 발신 정보 인자가 왔을 때만 도장을 찍는다", () => {
+    const src = readCode("convex/profiles.ts");
+    // 무조건 찍는 형태가 아니어야 한다.
+    expect(src).not.toMatch(/^\s*profileConfirmedAt: Date\.now\(\),$/m);
+    expect(src).toMatch(/confirmsSenderIdentity\(args\) \? \{ profileConfirmedAt/);
+    // 판정은 발신 아이덴티티 3필드만 본다. plan·gmailConnected·boilerplate는 아니다.
+    const fn = src.slice(
+      src.indexOf("function confirmsSenderIdentity"),
+      src.indexOf("export const updateProfile"),
+    );
+    for (const f of ["companyName", "senderName", "contactEmail"]) {
+      expect(fn, f).toContain(`args.${f} !== undefined`);
+    }
+    for (const f of ["plan", "gmailConnected", "boilerplate"]) {
+      expect(fn, f).not.toContain(`args.${f}`);
+    }
   });
 
   /**
@@ -353,9 +380,7 @@ describe("온보딩 체크리스트", () => {
    * `journalists`에는 `userId`가 없다 — 전역 테이블이고 인덱스도 `by_email`/`by_beat`뿐이다.
    * "기자 리스트 확보"류의 사용자별 단계를 여기서 판정하려 하면 축이 맞지 않는다.
    */
-  it("journalists 테이블로 사용자별 진행을 판정하지 않는다", () => {
-    expect(readCode("convex/onboarding.ts")).not.toContain("journalists");
-  });
+
 
   /**
    * 캠페인·매칭·발송은 `campaigns.list`(클라이언트 축을 존중)로 계산한다.
@@ -366,8 +391,13 @@ describe("온보딩 체크리스트", () => {
     const src = readCode("convex/onboarding.ts");
     expect(src).not.toContain("getAnalytics");
     expect(src).not.toMatch(/query\("campaigns"\)/);
-    // 체크리스트는 이미 구독 중인 데이터를 prop으로 받는다.
-    expect(read("components/app/OnboardingChecklist.tsx")).toMatch(/campaigns,/);
+    /*
+      체크리스트는 이미 구독 중인 데이터를 prop으로 받는다.
+      prop 이름 문자열(`/campaigns,/`)을 보면 안 된다 — 구조분해에 걸려서, 컴포넌트가
+      `campaigns.list`를 **직접 구독하기 시작해도 통과한다**. 막으려는 것이 정확히
+      그 상황이므로 `api.campaigns` 참조 자체를 금지한다.
+    */
+    expect(readCode("components/app/OnboardingChecklist.tsx")).not.toContain("api.campaigns");
   });
 
   it("발신 수단은 사용자 축으로만 조회한다", () => {
@@ -386,7 +416,7 @@ describe("온보딩 체크리스트", () => {
     for (const fn of [
       "buildOnboardingChecklist",
       "toCampaignState",
-      "shouldShowSenderBanner",
+      "senderBannerState",
       "parseSnoozedUntil",
     ]) {
       expect(lib, fn).toContain(`export function ${fn}`);
@@ -396,9 +426,10 @@ describe("온보딩 체크리스트", () => {
     expect(cmp).toContain("toCampaignState");
   });
 
-  it("대시보드가 체크리스트를 렌더한다", () => {
-    const src = read("app/(app)/dashboard/page.tsx");
-    expect(src).toMatch(/<OnboardingChecklist campaigns=\{campaigns\} \/>/);
+  it("대시보드가 체크리스트에 구독 중인 캠페인을 넘긴다", () => {
+    // 원문 한 줄 일치로 두면 포매터가 줄을 나누는 순간 깨진다 — 태그와 prop만 본다.
+    const src = readCode("app/(app)/dashboard/page.tsx");
+    expect(src).toMatch(/<OnboardingChecklist[\s\S]{0,80}campaigns=\{campaigns\}/);
   });
 
   /**
@@ -425,6 +456,35 @@ describe("온보딩 체크리스트", () => {
   it("완료 여부를 색·아이콘만으로 전달하지 않는다", () => {
     expect(read("components/app/OnboardingChecklist.tsx")).toMatch(/sr-only/);
   });
+
+  /**
+   * 단계를 두 개의 `<ol>`로 쪼개면 번호가 각각 1부터 다시 시작해, 스크린리더가
+   * "1 of 3" 다음에 다시 "1 of 2"를 읽는다 — "5단계 중 어디"라는 정보가 마크업에서 사라진다.
+   */
+  it("단계 목록이 하나의 <ol>이다", () => {
+    const src = readCode("components/app/OnboardingChecklist.tsx");
+    expect(src.match(/<ol[ >]/g) ?? []).toHaveLength(1);
+    // 정본 순서 그대로 렌더한다(계정 공통을 따로 모으지 않는다).
+    expect(src).toMatch(/steps\.map\(\(step\) =>/);
+  });
+
+  /**
+   * 링크 목록으로 훑는 스크린리더 사용자에게 "이동, 이동, 확인"만 남으면 어느 단계인지
+   * 알 수 없다(WCAG 2.4.9 — 링크 목적을 링크 텍스트만으로 알 수 있어야 한다).
+   */
+  it("단계 링크 이름에 단계 라벨이 들어간다", () => {
+    expect(read("components/app/OnboardingChecklist.tsx")).toMatch(
+      /aria-label=\{`\$\{step\.label\}/,
+    );
+  });
+
+  /** 도달할 수 없는 분기는 읽는 사람에게 없는 상태가 있다고 잘못 알린다. */
+  it("도달 불가 분기를 두지 않는다", () => {
+    // ③④⑤는 항상 counted에 들어가므로 counted.length === 0은 참이 될 수 없다.
+    expect(readCode("components/app/OnboardingChecklist.tsx")).not.toContain(
+      "counted.length === 0",
+    );
+  });
 });
 
 describe("에이전시 클라이언트 축", () => {
@@ -434,14 +494,46 @@ describe("에이전시 클라이언트 축", () => {
    * 한 진행률에 섞으면 클라이언트를 전환할 때 숫자의 의미가 붕괴한다.
    */
   it("클라이언트 컨텍스트에서 계정 공통 단계를 진행률에서 뺀다", () => {
-    const src = read("lib/onboarding.ts");
-    expect(src).toMatch(/accountScoped/);
+    const src = readCode("lib/onboarding.ts");
     expect(src).toMatch(/counted = steps\.filter\(\(s\) => !s\.accountScoped\)/);
   });
 
   it("진행률에서 빠진 단계도 '다음 할 일'에서는 사라지지 않는다", () => {
     // nextStep을 counted에서 찾으면 계정 공통 미완료가 영구히 숨는다.
-    expect(read("lib/onboarding.ts")).toMatch(/nextStep: steps\.find/);
+    expect(readCode("lib/onboarding.ts")).toMatch(/nextStep: steps\.find/);
+  });
+
+  /**
+   * ⚠️ 진행률에서 빼는 것과 **화면에서 없애는 것**은 다르다.
+   *
+   * `allDone`이 `counted`만 봤다면 클라이언트 축 3단계를 마친 순간 카드가 사라지고,
+   * 대시보드에서는 배너도 스스로를 끄므로 "발신 수단 미연결"을 아무도 말하지 않는다.
+   * `record_only` 발송은 발신 계정을 요구하지 않으므로 도달 가능한 조합이다.
+   */
+  it("allDone은 계정 공통 단계까지 본다", () => {
+    expect(readCode("lib/onboarding.ts")).toMatch(/allDone: steps\.every\(/);
+  });
+
+  /**
+   * `activeClientId` 존재만으로 축을 판정하면 `campaigns.list`와 어긋난다 — 클라이언트
+   * 문서 삭제·멤버십 박탈 시 그 쿼리는 조용히 사용자 축으로 떨어지지만 `activeClientId`는
+   * 남는다. 그 상태에서 "(이 클라이언트) n/3"이라고 적으면 라벨과 집계 대상이 달라진다.
+   */
+  it("축 판정을 campaigns.list와 같은 헬퍼로 한다", () => {
+    for (const f of ["convex/campaigns.ts", "convex/onboarding.ts"]) {
+      expect(readCode(f), f).toContain("resolveActiveClientScope");
+      // 자기만의 판정을 다시 만들면 두 쿼리가 갈린다.
+      expect(readCode(f), f).not.toMatch(/if \(profile\?\.activeClientId\)/);
+    }
+    expect(readCode("convex/lib/agencyAuth.ts")).toMatch(
+      /export async function resolveActiveClientScope/,
+    );
+  });
+
+  it("대시보드도 같은 축 판정을 쓴다 — 세 번째 사본을 만들지 않는다", () => {
+    const src = readCode("app/(app)/dashboard/page.tsx");
+    expect(src).toMatch(/onboarding\?\.isClientScoped/);
+    expect(src).not.toContain("profile?.profile?.activeClientId");
   });
 
   /**
@@ -475,7 +567,34 @@ describe("발신 수단 미연결 배너", () => {
   });
 
   it("표시 조건이 순수 함수로 분리돼 있다", () => {
-    expect(read("components/app/SenderBanner.tsx")).toContain("shouldShowSenderBanner");
+    expect(read("components/app/SenderBanner.tsx")).toContain("senderBannerState");
+  });
+
+  /**
+   * ⚠️ 임계값이 "발신 계정 행이 있는가"가 아니라 **"기자에게 메일이 나가는가"**여야 한다.
+   *    행 존재로 판정하면 Gmail 전용 사용자와 SMTP가 고장 난 사용자 — 실제로 발송이
+   *    막히는 두 상태 — 가 아무 경고도 못 받고, 이 기능이 없애려던 실패 경로(발송을
+   *    눌러야 알게 됨)가 그대로 남는다.
+   */
+  it("Gmail 전용·SMTP 오류도 경고 대상이다", () => {
+    const src = readCode("lib/onboarding.ts");
+    // 배너 판정 함수 안만 본다 — `senderKind !== "none"`은 체크리스트 ②의 완료 판정으로는
+    // 정당하다(연결 자체는 됐으므로). 배너 임계값으로 쓰는 것만 금지 대상이다.
+    const fn = src.slice(src.indexOf("export function senderBannerState"));
+    expect(fn).toMatch(/senderKind === "gmail"/);
+    expect(fn).toMatch(/smtpStatus === "error"/);
+    expect(fn).not.toMatch(/senderKind !== "none"/);
+  });
+
+  /**
+   * 대시보드에서 감추는 것은 `blocked`뿐이다. `blocked`는 ②가 미완료라 체크리스트가
+   * 반드시 렌더되지만, `partial`·`check`는 ②가 완료(경고)여서 `allDone`이 참일 수 있다 →
+   * 체크리스트가 사라진 자리에서 배너가 말해야 한다.
+   */
+  it("대시보드 제외가 blocked에만 적용된다", () => {
+    const src = readCode("lib/onboarding.ts");
+    expect(src).toMatch(/pathname\.startsWith\("\/settings"\)/);
+    expect(src).toMatch(/tone === "blocked" && pathname === "\/dashboard"/);
   });
 
   /**
@@ -483,35 +602,40 @@ describe("발신 수단 미연결 배너", () => {
    * 렌더하면 하이드레이션 불일치가 나고, 닫아 둔 배너가 매 새로고침마다 깜빡인다.
    */
   it("마운트 후에만 렌더한다 — localStorage를 서버에서 읽을 수 없다", () => {
-    const src = read("components/app/SenderBanner.tsx");
-    expect(src).toMatch(/setMounted\(true\)/);
-    expect(read("lib/onboarding.ts")).toMatch(/if \(!mounted\) return false/);
-  });
-
-  it("localStorage 접근을 try로 감싼다", () => {
-    // 사파리 프라이빗 모드 등에서 getItem/setItem이 던진다 → 앱 전체가 죽는다.
-    const src = read("components/app/SenderBanner.tsx");
-    expect(src.match(/try \{/g) ?? []).toHaveLength(2);
+    expect(readCode("lib/onboarding.ts")).toMatch(/if \(!mounted\) return null/);
+    expect(readCode("components/app/SenderBanner.tsx")).toMatch(
+      /mounted: snoozedUntil !== null/,
+    );
   });
 
   /**
-   * 대시보드에서는 띄우지 않는다 — `senderKind === "none"`이면 체크리스트 ②가 반드시
-   * 미완료이므로 체크리스트가 항상 렌더된다 → 같은 말을 두 곳에서 하게 된다.
-   * 설정 화면에서도 띄우지 않는다 — 이미 고칠 수 있는 화면이다.
+   * `localStorage` 접근은 사파리 프라이빗 모드 등에서 던진다 → 배너 하나 때문에 앱 셸이
+   * 죽는다. 컴포넌트에서 직접 만지지 않고 `lib`의 감싼 함수만 쓴다 — 그래야 던지는
+   * 상황을 스텁으로 실제 테스트할 수 있다(`lib/onboarding.test.ts`).
    */
-  it("체크리스트와 중복되는 화면에서는 띄우지 않는다", () => {
-    const src = read("lib/onboarding.ts");
-    expect(src).toMatch(/pathname\.startsWith\("\/settings"\)/);
-    expect(src).toMatch(/pathname === "\/dashboard"/);
+  it("컴포넌트가 localStorage를 직접 만지지 않는다", () => {
+    const src = readCode("components/app/SenderBanner.tsx");
+    expect(src).not.toContain("localStorage");
+    expect(src).toContain("readSnoozedUntil");
+    expect(src).toContain("writeSnoozedUntil");
   });
 
   it("닫기는 영구 숨김이 아니라 24시간 스누즈다", () => {
-    const lib = read("lib/onboarding.ts");
-    expect(lib).toMatch(/SENDER_BANNER_SNOOZE_MS = 24 \* 60 \* 60 \* 1000/);
+    expect(readCode("lib/onboarding.ts")).toMatch(
+      /SENDER_BANNER_SNOOZE_MS = 24 \* 60 \* 60 \* 1000/,
+    );
     // 영구 숨김이면 발송이 안 되는 이유를 영구히 모른 채 쓰게 된다.
-    expect(read("components/app/SenderBanner.tsx")).toMatch(
+    expect(readCode("components/app/SenderBanner.tsx")).toMatch(
       /Date\.now\(\) \+ SENDER_BANNER_SNOOZE_MS/,
     );
+  });
+
+  /** 고정 키를 쓰면 한 브라우저를 공유하는 다른 계정이 스누즈를 상속한다. */
+  it("스누즈 키가 사용자별로 나뉜다", () => {
+    expect(readCode("lib/onboarding.ts")).toMatch(
+      /export function senderBannerSnoozeKey\(scopeKey: string\)/,
+    );
+    expect(readCode("components/app/SenderBanner.tsx")).toContain("scopeKey");
   });
 
   it("닫기 버튼에 접근 가능한 이름이 있다", () => {

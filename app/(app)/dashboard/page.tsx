@@ -28,13 +28,23 @@ export default function DashboardPage() {
   const analytics = useQuery(api.usage.getAnalytics);
   const campaigns = useQuery(api.campaigns.list);
   const profile = useQuery(api.profiles.getMyProfile);
+  const onboarding = useQuery(api.onboarding.getMyChecklist);
   const seedDemo = useMutation(api.seed.seedDemoForMe);
   const toast = useToast();
   const [seeding, setSeeding] = useState(false);
 
   const companyName = profile?.profile?.companyName ?? profile?.user?.name ?? "";
-  // 에이전시 클라이언트 컨텍스트인가. `campaigns.list`가 `by_client`로 전환되는 조건과 같다.
-  const isClientScoped = profile?.profile?.activeClientId !== undefined;
+
+  /*
+    축 판정은 `getMyChecklist`에서 받는다 — `profile.activeClientId` 존재만 보면
+    `campaigns.list`와 어긋난다(클라이언트 문서 삭제·멤버십 박탈 시 그 쿼리는 조용히
+    사용자 축으로 떨어지지만 `activeClientId`는 남아 있다).
+    `OnboardingChecklist`가 같은 쿼리를 구독하므로 Convex가 구독을 합쳐 추가 비용은 없다.
+
+    로딩 중(`undefined`)에는 데모 버튼을 **숨긴 채로 둔다**. 보여 준 뒤 사라지게 하면
+    누르려던 버튼이 손 밑에서 없어진다.
+  */
+  const isClientScoped = onboarding?.isClientScoped ?? true;
 
   async function runSeed() {
     setSeeding(true);
