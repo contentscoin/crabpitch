@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -12,7 +12,7 @@ import { Card, CardContent } from "@/components/ui/Card";
 import { Input, Textarea } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { FormField } from "@/components/ui/FormField";
-import { Skeleton } from "@/components/ui/Skeleton";
+import { Skeleton, SkeletonText } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import { toUserMessage } from "@/lib/errorMessage";
 import {
@@ -38,6 +38,7 @@ export default function SettingsPage() {
 
 function SettingsInner() {
   const toast = useToast();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const data = useQuery(api.profiles.getMyProfile);
   const usage = useQuery(api.usage.getMyUsage);
@@ -86,13 +87,16 @@ function SettingsInner() {
   // OAuth 콜백 결과는 성공·실패가 확실히 갈린다 — 색으로 구분해야 한다.
   useEffect(() => {
     const status = searchParams.get("gmail");
+    if (status !== "connected" && status !== "error") return;
+
     if (status === "connected") toast.success("Gmail 연결이 완료되었습니다.");
-    if (status === "error") {
-      const reason = searchParams.get("reason") ?? "unknown";
-      toast.error(`Gmail 연결 실패: ${reason}`);
-    }
-    // toast는 안정적인 참조라 의존성에 넣어도 재실행되지 않는다.
-  }, [searchParams, toast]);
+    else toast.error(`Gmail 연결 실패: ${searchParams.get("reason") ?? "unknown"}`);
+
+    // 쿼리를 지운다 — 남겨 두면 재마운트마다 같은 토스트가 다시 뜨고,
+    // StrictMode 개발 환경에서는 즉시 2건이 뜬다.
+    router.replace("/settings");
+    // toast·router는 안정적인 참조다.
+  }, [searchParams, toast, router]);
 
   const currentPlan = usage?.plan ?? "free";
 
@@ -128,10 +132,14 @@ function SettingsInner() {
     setOcBusy(true);
     try {
       const r = await syncOpenCrab({ topicTags: ["IT·스타트업"], topK: 10 });
-      toast.success(
-        r.message ??
-          `${r.mode}: synced=${r.synced} inserted=${r.inserted} updated=${r.updated}`,
-      );
+      const text =
+        r.message ?? `${r.mode}: synced=${r.synced} inserted=${r.inserted} updated=${r.updated}`;
+      // ⚠️ 이 액션은 실패해도 **예외를 던지지 않는다** — `mode`로 결과를 알린다.
+      //    무조건 success로 띄우면 "동기화 실패: ETIMEDOUT"이 초록 체크와 함께 나가서
+      //    실패를 성공이라고 적극적으로 주장하게 된다(회색 텍스트보다 나쁘다).
+      if (r.mode === "error") toast.error(text);
+      else if (r.mode === "skipped") toast.info(text);
+      else toast.success(text);
     } catch (e) {
       toast.error(toUserMessage(e));
     } finally {
@@ -244,9 +252,10 @@ function SettingsInner() {
           <CardContent className="space-y-4 pt-6">
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="회사/브랜드명" required error={errors.companyName}>
-                {(id, describedBy) => (
+                {(id, describedBy, isRequired) => (
                   <Input
                     id={id}
+                    required={isRequired}
                     aria-invalid={!!errors.companyName || undefined}
                     aria-describedby={describedBy}
                     value={form.companyName}
@@ -271,10 +280,11 @@ function SettingsInner() {
               error={errors.contactEmail}
               description="기자 답장을 받을 주소입니다."
             >
-              {(id, describedBy) => (
+              {(id, describedBy, isRequired) => (
                 <Input
                   id={id}
                   type="email"
+                  required={isRequired}
                   aria-invalid={!!errors.contactEmail || undefined}
                   aria-describedby={describedBy}
                   value={form.contactEmail}
@@ -413,7 +423,8 @@ function SettingsInner() {
         <Card>
           <CardContent className="pt-6">
             {suppression === undefined ? (
-              <Skeleton className="h-16" />
+              // 억제된 기자 목록(텍스트 줄)이 들어올 자리다.
+              <SkeletonText lines={2} />
             ) : suppression.length === 0 ? (
               <p className="flex items-center gap-2 text-sm text-muted">
                 <Check className="h-4 w-4 text-success" /> 억제된 기자가 없습니다. 수신거부 회신 시

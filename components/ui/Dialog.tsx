@@ -28,6 +28,16 @@ type ConfirmFn = (options: ConfirmOptions) => Promise<boolean>;
 
 const ConfirmContext = createContext<ConfirmFn | null>(null);
 
+/**
+ * 접근 이름·설명 연결용 고정 id.
+ *
+ * `<dialog>`는 Provider당 하나만 존재하므로(top layer에 동시에 둘 필요가 없다) 고정 id가
+ * 충돌하지 않는다. `useId`를 쓰면 `aria-labelledby`와 `<h2 id>`가 같은 렌더에서 만들어지는지
+ * 보장하기 위해 배선이 늘어난다.
+ */
+const DIALOG_TITLE_ID = "crabpitch-confirm-title";
+const DIALOG_DESC_ID = "crabpitch-confirm-description";
+
 /** `<dialog>.showModal()`을 쓸 수 있는가. 파괴적 액션에서 무확인 진행은 금지다. */
 function supportsModalDialog(): boolean {
   return (
@@ -48,66 +58,99 @@ function confirmFallbackText(options: ConfirmOptions): string {
   return options.description ? `${options.title}\n\n${options.description}` : options.title;
 }
 
-interface Pending {
-  options: ConfirmOptions;
-  resolve: (ok: boolean) => void;
-}
-
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const [pending, setPending] = useState<Pending | null>(null);
+  const [options, setOptions] = useState<ConfirmOptions | null>(null);
+  /**
+   * 대기 중인 resolver.
+   *
+   * 상태가 아니라 ref에 든다 — 상태 업데이터 안에서 `resolve`를 호출하면 순수성 위반이고,
+   * 무엇보다 **이전 요청을 덮어쓸 때 그 Promise를 해소해 줘야** 한다. 덮어쓰고 버리면
+   * 이전 Promise가 영구 pending이 되고, 호출부의 `try/finally`가 실행되지 않아
+   * 발송 버튼이 "처리 중…"에 영구 고착된다(새로고침 외 회복 수단이 없다).
+   */
+  const resolverRef = useRef<((ok: boolean) => void) | null>(null);
   /** confirm 버튼으로 닫혔는지 — `close` 이벤트에서 취소와 구분하기 위한 플래그. */
   const confirmedRef = useRef(false);
 
-  const confirm = useCallback<ConfirmFn>(async (options) => {
-    // showModal이 없는 브라우저에서는 브라우저 기본 확인을 쓴다(무확인 진행 금지).
-    if (!supportsModalDialog()) {
-      return window.confirm(confirmFallbackText(options));
-    }
-    return new Promise<boolean>((resolve) => {
-      confirmedRef.current = false;
-      setPending({ options, resolve });
-    });
+  /** 대기 중인 요청을 해소한다. 두 번 불려도 안전하다(resolver를 즉시 비운다). */
+  const settle = useCallback((ok: boolean) => {
+    const resolve = resolverRef.current;
+    resolverRef.current = null;
+    setOptions(null);
+    resolve?.(ok);
   }, []);
 
-  // pending이 생기면 모달을 연다. 렌더 이후여야 ref가 채워져 있다.
+  const confirm = useCallback<ConfirmFn>(
+    async (next) => {
+      // showModal이 없는 브라우저에서는 브라우저 기본 확인을 쓴다(무확인 진행 금지).
+      if (!supportsModalDialog()) {
+        return window.confirm(confirmFallbackText(next));
+      }
+      // 이전 요청이 남아 있으면 취소로 해소한다 — 버리면 영구 pending이 된다.
+      if (resolverRef.current) settle(false);
+      return new Promise<boolean>((resolve) => {
+        confirmedRef.current = false;
+        resolverRef.current = resolve;
+        setOptions(next);
+      });
+    },
+    [settle],
+  );
+
+  // options가 생기면 모달을 연다. 렌더 이후여야 ref가 채워져 있다.
   useEffect(() => {
-    if (pending && dialogRef.current && !dialogRef.current.open) {
+    if (options && dialogRef.current && !dialogRef.current.open) {
       dialogRef.current.showModal();
     }
-  }, [pending]);
+  }, [options]);
 
-  const settle = useCallback((ok: boolean) => {
-    setPending((current) => {
-      current?.resolve(ok);
-      return null;
-    });
-  }, []);
+  // 언마운트 시 대기 중인 요청을 취소로 해소한다(호출부의 finally가 돌아야 한다).
+  useEffect(
+    () => () => {
+      const resolve = resolverRef.current;
+      resolverRef.current = null;
+      resolve?.(false);
+    },
+    [],
+  );
 
   return (
     <ConfirmContext.Provider value={confirm}>
       {children}
       <dialog
         ref={dialogRef}
-        // ESC·backdrop 등 어떤 경로로 닫혀도 취소로 확정한다(확인 버튼만 true).
+        // ESC 등 어떤 경로로 닫혀도 취소로 확정한다(확인 버튼만 true).
         onClose={() => settle(confirmedRef.current)}
         onCancel={() => {
           confirmedRef.current = false;
         }}
+        /*
+          ⚠️ 접근 이름·설명을 반드시 연결한다. `window.confirm`은 문구 전체를 **항상**
+             낭독했다. 초기 포커스가 취소 버튼이므로 이 연결이 없으면 스크린리더가
+             "취소"만 읽고, "되돌릴 수 없습니다 / 발신 주소" 같은 경고가 전달되지 않는다
+             — 문구를 유지해도 전달 경로에서 새면 의미가 없다.
+        */
+        aria-labelledby={DIALOG_TITLE_ID}
+        aria-describedby={options?.description ? DIALOG_DESC_ID : undefined}
         className="max-w-md rounded-lg border border-border bg-card p-0 text-foreground shadow-lg backdrop:bg-black/40"
       >
-        {pending && (
+        {options && (
           <div className="p-5">
-            <h2 className="text-base font-bold">{pending.options.title}</h2>
-            {pending.options.description && (
-              <p className="mt-2 whitespace-pre-line text-sm text-foreground-muted">
-                {pending.options.description}
+            <h2 id={DIALOG_TITLE_ID} className="text-base font-bold">
+              {options.title}
+            </h2>
+            {options.description && (
+              <p
+                id={DIALOG_DESC_ID}
+                className="mt-2 whitespace-pre-line text-sm text-foreground-muted"
+              >
+                {options.description}
               </p>
             )}
             <div className="mt-5 flex justify-end gap-2">
               {/*
                 기본 포커스는 **취소**다. 파괴적 액션에서 Enter 연타로 확정되면 안 된다.
-                autoFocus를 취소에 둔다.
               */}
               <Button
                 type="button"
@@ -119,18 +162,18 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                   dialogRef.current?.close();
                 }}
               >
-                {pending.options.cancelLabel ?? "취소"}
+                {options.cancelLabel ?? "취소"}
               </Button>
               <Button
                 type="button"
                 size="sm"
-                variant={pending.options.variant === "danger" ? "danger" : "brand"}
+                variant={options.variant === "danger" ? "danger" : "brand"}
                 onClick={() => {
                   confirmedRef.current = true;
                   dialogRef.current?.close();
                 }}
               >
-                {pending.options.confirmLabel ?? "확인"}
+                {options.confirmLabel ?? "확인"}
               </Button>
             </div>
           </div>

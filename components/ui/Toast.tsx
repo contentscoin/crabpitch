@@ -76,26 +76,42 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     setItems((prev) => prev.filter((i) => i.id !== id));
   }, []);
 
+  /**
+   * 현재 목록 스냅샷.
+   *
+   * 축출 대상을 **상태 업데이터 밖에서** 고르기 위해 둔다. 업데이터 안에서 `clearTimeout`
+   * 같은 부작용을 실행하면 순수성 위반이고, 업데이터가 다른 `prev`로 재실행될 때
+   * "타이머만 지워진 토스트가 목록에 남아 영구히 떠 있는" 상태가 만들어진다.
+   */
+  const itemsRef = useRef<ToastItem[]>([]);
+  itemsRef.current = items;
+
   const push = useCallback(
     (kind: ToastKind, message: string) => {
       const trimmed = message.trim();
       if (!trimmed) return;
       const id = nextId.current++;
 
-      setItems((prev) => {
-        const next = [...prev, { id, kind, message: trimmed }];
-        if (next.length <= MAX_STACK) return next;
-        // 상한 초과 — 가장 오래된 것을 밀어낸다. 단 에러는 축출하지 않는다(놓치면 안 되는 정보다).
-        // 축출할 대상이 없으면(전부 에러) 상한을 넘겨 유지한다.
-        const victim = next.find((i) => i.kind !== "error");
-        if (!victim) return next;
+      // ⚠️ 축출 대상은 **기존 목록에서만** 고른다. 새로 넣을 항목까지 포함한 배열에서
+      //    찾으면, 스택이 error로 찬 상태에서 온 success가 자기 자신을 축출해 한 프레임도
+      //    표시되지 않는다. 에러는 축출하지 않으므로(놓치면 안 되는 정보다) 뽑을 대상이
+      //    없으면 상한을 넘겨 유지한다.
+      const current = itemsRef.current;
+      const victim =
+        current.length + 1 > MAX_STACK ? current.find((i) => i.kind !== "error") : undefined;
+
+      if (victim) {
         const t = timers.current.get(victim.id);
         if (t) {
           clearTimeout(t);
           timers.current.delete(victim.id);
         }
-        return next.filter((i) => i.id !== victim.id);
-      });
+      }
+
+      setItems((prev) => [
+        ...(victim ? prev.filter((i) => i.id !== victim.id) : prev),
+        { id, kind, message: trimmed },
+      ]);
 
       timers.current.set(
         id,

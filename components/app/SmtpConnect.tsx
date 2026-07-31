@@ -35,7 +35,14 @@ export function SmtpConnectPanel() {
   const [host, setHost] = useState("");
   const [port, setPort] = useState("");
   const [username, setUsername] = useState("");
-  const [busy, setBusy] = useState(false);
+  /**
+   * 진행 중인 동작.
+   *
+   * 세 버튼(저장·연결 테스트·연결 해제)이 불린 하나를 공유하면, 어느 버튼을 눌러도
+   * 스피너가 **저장 버튼에서** 돈다. 실제로 누른 버튼은 회색이 되기만 한다.
+   */
+  const [busyAction, setBusyAction] = useState<"save" | "test" | "disconnect" | null>(null);
+  const busy = busyAction !== null;
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   /**
    * 이메일 형식 오류.
@@ -69,7 +76,7 @@ export function SmtpConnectPanel() {
       setEmailError("올바른 이메일 주소가 아닙니다.");
       return;
     }
-    setBusy(true);
+    setBusyAction("save");
     setMsg(null);
     try {
       await save({
@@ -94,20 +101,22 @@ export function SmtpConnectPanel() {
     } catch (e) {
       setMsg({ ok: false, text: toUserMessage(e) });
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   }
 
   async function onTest() {
-    setBusy(true);
+    setBusyAction("test");
     setMsg(null);
     try {
       const result = await test({});
       setMsg({ ok: result.ok, text: result.message });
     } catch (e) {
-      setMsg({ ok: false, text: e instanceof Error ? e.message : "연결하지 못했습니다." });
+      // onSave와 **같은 `msg` 싱크**다 — 한쪽만 껍데기를 벗기면 사용자가 같은 자리에서
+      // 벗겨진 문구와 안 벗겨진 문구를 번갈아 본다.
+      setMsg({ ok: false, text: toUserMessage(e) });
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   }
 
@@ -150,10 +159,11 @@ export function SmtpConnectPanel() {
 
         <div className="grid gap-3 sm:grid-cols-2">
           <FormField label="발신 이메일" required error={emailError}>
-            {(id, describedBy) => (
+            {(id, describedBy, isRequired) => (
               <Input
                 id={id}
                 type="email"
+                required={isRequired}
                 autoComplete="username"
                 placeholder="hong@company.co.kr"
                 aria-invalid={!!emailError || undefined}
@@ -261,12 +271,27 @@ export function SmtpConnectPanel() {
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="brand" icon={Server} loading={busy} disabled={!email.trim()} onClick={onSave}>
-            {busy ? "확인 중…" : connected ? "저장하고 다시 확인" : "저장하고 연결 확인"}
+          <Button
+            variant="brand"
+            icon={Server}
+            loading={busyAction === "save"}
+            disabled={busy || !email.trim()}
+            onClick={onSave}
+          >
+            {busyAction === "save"
+              ? "확인 중…"
+              : connected
+                ? "저장하고 다시 확인"
+                : "저장하고 연결 확인"}
           </Button>
           {connected && (
-            <Button variant="subtle" disabled={busy} onClick={onTest}>
-              연결 테스트
+            <Button
+              variant="subtle"
+              loading={busyAction === "test"}
+              disabled={busy}
+              onClick={onTest}
+            >
+              {busyAction === "test" ? "확인 중…" : "연결 테스트"}
             </Button>
           )}
           {!needsManualHost && (
@@ -277,15 +302,19 @@ export function SmtpConnectPanel() {
           {connected && (
             <Button
               variant="ghost"
+              loading={busyAction === "disconnect"}
               disabled={busy}
               onClick={async () => {
-                setBusy(true);
+                setBusyAction("disconnect");
                 try {
                   await disconnect({});
                   setPassword("");
                   setMsg({ ok: true, text: "메일 계정 연결을 해제했습니다." });
+                } catch (e) {
+                  // try/finally만 있어 실패가 조용히 사라지던 자리다.
+                  setMsg({ ok: false, text: toUserMessage(e) });
                 } finally {
-                  setBusy(false);
+                  setBusyAction(null);
                 }
               }}
             >

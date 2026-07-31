@@ -44,7 +44,7 @@ import { toUserMessage } from "@/lib/errorMessage";
 import { needsPilotApproval } from "@/convex/lib/pilotGate";
 import { REPLY_TEMPLATE_VARIANTS } from "@/convex/lib/replyClassifier";
 import type { ReplyType } from "@/convex/lib/replyClassifier";
-import { Skeleton } from "@/components/ui/Skeleton";
+import { SkeletonCard } from "@/components/ui/Skeleton";
 
 export default function CampaignDetailPage() {
   const params = useParams<{ id: string }>();
@@ -207,7 +207,7 @@ export default function CampaignDetailPage() {
   }
 
   if (data === undefined) {
-    return <Skeleton className="h-64" />;
+    return <SkeletonCard lines={5} />;
   }
   if (data === null || !data.campaign) {
     return <p className="text-foreground-muted">캠페인을 찾을 수 없습니다.</p>;
@@ -223,7 +223,8 @@ export default function CampaignDetailPage() {
     try {
       await fn();
     } catch (e) {
-      setSendError(e instanceof Error ? e.message : "오류가 발생했습니다.");
+      // 발송·예약·초안 생성 실패를 전부 받는 자리다 — 저장소에서 오류 노출도가 가장 높다.
+      setSendError(toUserMessage(e));
     } finally {
       setBusy(null);
     }

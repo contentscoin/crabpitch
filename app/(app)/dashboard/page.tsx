@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { PageHeader, StatCard, EmptyState, CampaignStatusBadge, REPLY_TYPES } from "@/components/app/bits";
 import { McpDashboardCard } from "@/components/app/McpGuide";
-import { Skeleton } from "@/components/ui/Skeleton";
+import { SkeletonRows } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import { toUserMessage } from "@/lib/errorMessage";
 
@@ -163,7 +163,7 @@ export default function DashboardPage() {
         </div>
 
         {campaigns === undefined ? (
-          <Skeleton className="h-40" />
+          <SkeletonRows rows={4} />
         ) : campaigns.length === 0 ? (
           <EmptyState
             icon={Sparkles}

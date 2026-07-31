@@ -6,7 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { Send } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { PageHeader, EmptyState, CampaignStatusBadge } from "@/components/app/bits";
-import { Skeleton } from "@/components/ui/Skeleton";
+import { SkeletonRows } from "@/components/ui/Skeleton";
 
 export default function CampaignsPage() {
   const campaigns = useQuery(api.campaigns.list);
@@ -26,7 +26,7 @@ export default function CampaignsPage() {
       />
 
       {campaigns === undefined ? (
-        <Skeleton className="h-40" />
+        <SkeletonRows rows={4} />
       ) : campaigns.length === 0 ? (
         <EmptyState
           icon={Send}

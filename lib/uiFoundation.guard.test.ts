@@ -78,14 +78,17 @@ describe("Button 프리미티브", () => {
   });
 
   it("스피너를 손으로 넣은 곳이 남아 있지 않다", () => {
-    // 프리미티브가 없어서 4곳이 각자 Loader2를 넣고 있었다.
-    for (const f of [
-      "components/app/AiProviderKeys.tsx",
-      "app/(app)/settings/page.tsx",
-    ]) {
+    // 프리미티브가 없어서 각 호출부가 자기 Loader2를 넣고 있었다.
+    //
+    // ⚠️ `animate-spin` 전면 금지는 쓰지 않는다 — 스피너와 무관한 정당한 회전 아이콘
+    //    (예: "동기화 중"을 표현하는 RefreshCw)까지 영구 금지하게 된다.
+    //    진행 표시를 `Button.loading`으로 통일했는지만 본다.
+    for (const f of ["components/app/AiProviderKeys.tsx", "app/(app)/settings/page.tsx"]) {
       expect(read(f), f).not.toMatch(/Loader2/);
-      expect(read(f), f).not.toMatch(/animate-spin/);
+      expect(read(f), f).toMatch(/loading=\{/);
     }
+    // 스피너 컴포넌트를 아는 곳은 프리미티브 하나여야 한다.
+    expect(read("components/ui/Button.tsx")).toContain("Loader2");
   });
 });
 
@@ -121,6 +124,28 @@ describe("Skeleton 프리미티브", () => {
     }
     // 로딩 자리표시자는 보조 기술에 읽히면 의미 없는 반복이 된다.
     expect(src).toMatch(/aria-hidden/);
+  });
+
+  /**
+   * ⚠️ export 존재만 검사하면 **dead code를 불변식으로 고정**한다.
+   *    기획 §3.4의 요구는 "만든다"가 아니라 "콘텐츠 형태에 맞게 **쓴다**"였다.
+   *    실제로 카드·표 자리에 쓰이는지 호출부에서 확인한다.
+   */
+  it("변형이 실제로 쓰인다 — 전부 같은 회색 블록이면 만든 의미가 없다", () => {
+    const callSites = [
+      "app/(app)/campaigns/page.tsx",
+      "app/(app)/journalists/page.tsx",
+      "app/(app)/replies/page.tsx",
+      "app/(app)/dashboard/page.tsx",
+      "app/(app)/media-kit/page.tsx",
+      "app/(app)/campaigns/[id]/page.tsx",
+      "app/(app)/settings/page.tsx",
+    ]
+      .map(read)
+      .join("\n");
+    for (const name of ["SkeletonText", "SkeletonCard", "SkeletonRows"]) {
+      expect(callSites, name).toMatch(new RegExp(`<${name}[ />]`));
+    }
   });
 
   it("손으로 만든 animate-pulse 블록이 남아 있지 않다", () => {
@@ -163,6 +188,24 @@ describe("성공·실패 피드백", () => {
     }
   }
 
+  /**
+   * 예외를 던지지 않고 `mode`로 결과를 알리는 액션을 무조건 success로 띄우면,
+   * 실패가 초록 체크와 함께 나가 **실패를 성공이라고 적극적으로 주장**한다.
+   * 회색 텍스트로 구분이 안 되던 것보다 나쁘다 — 이 PR의 목적이 정확히 뒤집힌다.
+   */
+  it("mode로 결과를 알리는 액션은 mode를 보고 분기한다", () => {
+    const src = read("app/(app)/settings/page.tsx");
+    const start = src.indexOf("async function testOpenCrab");
+    expect(start).toBeGreaterThan(-1);
+    const block = src.slice(start, start + 900);
+    expect(block).toMatch(/r\.mode === "error"/);
+    expect(block).toContain("toast.error");
+  });
+
+  it("OAuth 콜백 쿼리를 지운다 — 재마운트마다 같은 토스트가 다시 뜬다", () => {
+    expect(read("app/(app)/settings/page.tsx")).toMatch(/router\.replace\("\/settings"\)/);
+  });
+
   it("전환된 화면이 toast를 쓴다", () => {
     for (const f of [
       "app/(app)/settings/page.tsx",
@@ -197,13 +240,53 @@ describe("성공·실패 피드백", () => {
   });
 });
 
+describe("오류 문구 정규화", () => {
+  /**
+   * 정본은 설치된 패키지다 — `convex/dist/esm/browser/logging.js`의
+   * `createHybridErrorStacktrace`가 `[CONVEX ${prefix}(${udfPath})] …`를 만든다.
+   * 초기 버전은 `[Request ID: …]`를 가정했는데 그 문자열은 이 클라이언트에 **존재하지 않아**
+   * 테스트는 초록인데 실제 오류는 하나도 벗겨지지 않았다.
+   */
+  it("실제 Convex 접두 형태를 다룬다", () => {
+    const src = read("lib/errorMessage.ts");
+    expect(src).toMatch(/\\\[CONVEX/);
+    expect(src).toMatch(/Called by client/);
+  });
+
+  it("가정으로 만든 형태를 정규식으로 두지 않는다", () => {
+    // `[Request ID: …]`는 이 클라이언트가 만들지 않는 형태다. 다시 추가하려면 먼저
+    // node_modules/convex에서 생성 지점을 확인해야 한다.
+    //
+    // ⚠️ 산문 언급(왜 지웠는지 남긴 주석)은 잡지 않는다 — **정규식 리터럴**만 본다.
+    //    문서를 금지하면 같은 실수를 반복하지 않게 해 주는 기록이 사라진다.
+    expect(read("lib/errorMessage.ts")).not.toMatch(/\\\[Request ID/);
+  });
+
+  it("오류 노출도가 가장 높은 경로들이 정규화를 거친다", () => {
+    // 발송·예약·초안 생성 실패를 전부 받는 자리 + 같은 싱크를 공유하는 SMTP 두 catch.
+    expect(read("app/(app)/campaigns/[id]/page.tsx")).toContain("setSendError(toUserMessage(e))");
+    const smtp = read("components/app/SmtpConnect.tsx");
+    expect(smtp.match(/toUserMessage\(e\)/g) ?? []).toHaveLength(3);
+  });
+});
+
 describe("폼 검증", () => {
   it("FormField가 aria 연결을 담당한다", () => {
     const src = read("components/ui/FormField.tsx");
     // children을 함수로 받는다 — Input/Textarea/native select가 섞여 있어
     // cloneElement로 주입하면 타입이 깨진다.
-    expect(src).toMatch(/children: \(id: string, describedBy: string \| undefined\)/);
+    expect(src).toMatch(/children: \(\s*id: string,/);
+    expect(src).toMatch(/describedBy: string \| undefined/);
     expect(src).toMatch(/role="alert"/);
+  });
+
+  it("required가 시각 표시에서 멈추지 않고 컨트롤까지 전달된다", () => {
+    // 라벨의 별표는 aria-hidden이라 보조 기술에 전달되지 않는다.
+    // 컨트롤에 required가 붙어야 "필수 입력"으로 낭독된다.
+    expect(read("components/ui/FormField.tsx")).toMatch(/children\(id, describedBy, required/);
+    for (const f of ["app/(app)/settings/page.tsx", "components/app/SmtpConnect.tsx"]) {
+      expect(read(f), f).toMatch(/required=\{isRequired\}/);
+    }
   });
 
   it("검증 규칙이 순수 함수로 분리돼 화면과 테스트가 공유한다", () => {

@@ -28,8 +28,17 @@ export function FormField({
   description?: string;
   required?: boolean;
   className?: string;
-  /** `(id, describedBy)` — 컨트롤에 그대로 전달한다. */
-  children: (id: string, describedBy: string | undefined) => React.ReactNode;
+  /**
+   * `(id, describedBy, required)` — 컨트롤에 그대로 전달한다.
+   *
+   * `required`를 함께 넘기는 이유: 라벨의 별표는 `aria-hidden`이라 보조 기술에 전달되지
+   * 않는다. 컨트롤에 `required`가 붙어야 "필수 입력"으로 낭독된다.
+   */
+  children: (
+    id: string,
+    describedBy: string | undefined,
+    required: boolean,
+  ) => React.ReactNode;
 }) {
   const id = useId();
   const errorId = `${id}-error`;
@@ -48,7 +57,7 @@ export function FormField({
           </span>
         )}
       </Label>
-      {children(id, describedBy)}
+      {children(id, describedBy, required === true)}
       {error ? (
         // 제출 시점에 나타나는 오류이므로 라이브 영역으로 알린다.
         <p id={errorId} role="alert" className="mt-1 text-xs text-danger">

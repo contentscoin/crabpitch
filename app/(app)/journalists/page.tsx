@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ConfidenceBadge } from "@/components/ui/Badge";
 import { PageHeader, EmptyState } from "@/components/app/bits";
-import { Skeleton } from "@/components/ui/Skeleton";
+import { SkeletonRows } from "@/components/ui/Skeleton";
 
 export default function JournalistsPage() {
   const [search, setSearch] = useState("");
@@ -40,7 +40,7 @@ export default function JournalistsPage() {
       </div>
 
       {journalists === undefined ? (
-        <Skeleton className="h-40" />
+        <SkeletonRows rows={5} />
       ) : journalists.length === 0 ? (
         <EmptyState
           icon={Users}

@@ -108,8 +108,11 @@ Phase는 서로 독립이 아니다(§5는 §3.1의 Toast에 의존, §6은 §5�
 toast.success(msg) / toast.error(msg) / toast.info(msg)
 ```
 
-**Provider 위치: `ConvexClientProvider` 내부으로 확정한다.** 근거: 유일한 클라이언트 경계이고
-랜딩·signin이 같은 트리를 쓴다. signin 실패 문구를 토스트로 옮기는 것이 이번 범위다.
+**Provider 위치: `ConvexClientProvider` 내부으로 확정한다.** 근거: **앱의 유일한 클라이언트
+경계**이고 랜딩·signin이 같은 트리를 쓴다. (v1은 근거로 "signin 실패 문구를 토스트로 옮기는
+것이 범위"라고 적었으나 **signin은 전환하지 않는다** — 폼 제출 실패는 화면에 남는 편이 낫고,
+§2가 이미 "화면에 남아야 하는 정보는 인라인 유지"를 예외로 두었다. Provider 위치는 단일
+클라이언트 경계라는 근거만으로 성립한다.)
 **v1의 "번들 +5kB면 AppShell로 내린다" 조항은 폐기한다** — 그 롤백은 signin 사용을 불가능하게 만들어
 자기 근거를 무너뜨린다. 번들 영향은 수용한다(컴포넌트 의존성 0).
 
@@ -196,8 +199,13 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 ### 3.4 `Skeleton`
 
 `components/ui/Skeleton.tsx` — `<Skeleton className>` + `<SkeletonText lines>` + `<SkeletonCard>` +
-`<SkeletonRows rows cols>`. **24곳을 콘텐츠 형태에 맞게** 교체한다(표 자리는 행, 카드 자리는 카드).
+`<SkeletonRows rows>`. **24곳을 콘텐츠 형태에 맞게** 교체한다(표 자리는 행, 카드 자리는 카드).
 전부 같은 회색 블록이면 지금과 다를 게 없다.
+  - 원본이 `border border-border bg-card` 카드 프레임을 갖고 있던 **7곳이 우선 대상**이다:
+    `campaigns`·`journalists`·`replies`·`dashboard`·`media-kit`의 목록 자리 → `SkeletonRows`,
+    `campaigns/[id]`·`media-kit` 상세 → `SkeletonCard`, `settings` 억제 리스트 → `SkeletonText`.
+  - `SkeletonRows`에 `cols`는 두지 않는다 — 쓰는 곳이 없어 dead API가 된다.
+  - 가드는 export 존재가 아니라 **호출부 사용**을 검사한다(dead code를 불변식으로 고정하지 않게).
 
 ### 3.5 `FormField`
 
@@ -223,7 +231,10 @@ children을 함수로 받는 이유: `Input`/`Textarea`/네이티브 `select`가
 |---|---|---|---|
 | `settings` 발신 아이덴티티 | `companyName` | trim 1~50자 | 회사명을 입력해 주세요. |
 | | `contactEmail` | 비어 있지 않고 `/^[^\s@]+@[^\s@]+\.[^\s@]+$/` | 올바른 이메일 주소가 아닙니다. |
-| | `boilerplate` | trim 10~300자 | 회사 소개를 한 줄 이상 적어 주세요. |
+| | `boilerplate` | **선택 항목.** 비어 있으면 통과, 값이 있으면 trim 10~300자 | 회사 소개를 10자 이상 적어 주세요. |
+
+`boilerplate`를 필수로 두지 않는 이유: 보도자료 하단 소개를 쓰지 않는 기존 사용자가 설정을
+저장할 수 없게 된다. (v1은 필수로 적었으나 구현에서 선택으로 바꿨고 이쪽이 맞다.)
 | `SmtpConnect` | 이메일 | 위와 같은 정규식(서버 `normalizeEmail`과 일치) | 올바른 이메일 주소가 아닙니다. |
 
 `settings`의 `saveProfile`에 **`try/catch`를 추가**한다 — 현재 `update(form)` 후 바로 `setSaved(true)`라

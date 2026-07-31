@@ -15,8 +15,19 @@ import { useConfirm } from "@/components/ui/Dialog";
 import { useToast } from "@/components/ui/Toast";
 import { toUserMessage } from "@/lib/errorMessage";
 
-async function copyText(text: string) {
-  await navigator.clipboard.writeText(text);
+/**
+ * 클립보드 복사.
+ *
+ * 실패를 삼키면 안 된다 — 이 패널이 복사시키는 값(API 키·MCP URL)은 **지금만 볼 수 있다**.
+ * 복사됐다고 믿고 화면을 떠나면 키를 잃는다. 권한 거부·비보안 컨텍스트에서 실패한다.
+ */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function UserMcpKeysPanel() {
@@ -175,8 +186,8 @@ export function UserMcpKeysPanel() {
                 type="button"
                 size="sm"
                 onClick={async () => {
-                  await copyText(created.mcpUrl);
-                  await markCopied("url");
+                  if (await copyText(created.mcpUrl)) await markCopied("url");
+                  else toast.error("클립보드에 복사하지 못했습니다. 값을 직접 선택해 복사해 주세요.");
                 }}
               >
                 {copied === "url" ? (
@@ -198,8 +209,8 @@ export function UserMcpKeysPanel() {
                 size="sm"
                 variant="subtle"
                 onClick={async () => {
-                  await copyText(created.mcpSnippet);
-                  await markCopied("snippet");
+                  if (await copyText(created.mcpSnippet)) await markCopied("snippet");
+                  else toast.error("클립보드에 복사하지 못했습니다. 값을 직접 선택해 복사해 주세요.");
                 }}
               >
                 {copied === "snippet" ? (
@@ -229,8 +240,8 @@ export function UserMcpKeysPanel() {
                     size="sm"
                     variant="subtle"
                     onClick={async () => {
-                      await copyText(created.apiKey);
-                      await markCopied("key");
+                      if (await copyText(created.apiKey)) await markCopied("key");
+                      else toast.error("클립보드에 복사하지 못했습니다. 값을 직접 선택해 복사해 주세요.");
                     }}
                   >
                     {copied === "key" ? (
