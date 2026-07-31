@@ -79,6 +79,24 @@ export default defineSchema({
     ),
     /** 플랫폼 운영자 (에이전시 admin과 별개) */
     isPlatformAdmin: v.optional(v.boolean()),
+    /**
+     * 사용자가 발신 아이덴티티를 **직접 저장한** 시각 — 온보딩 ①단계 판정 기준.
+     *
+     * 왜 별도 필드가 필요한가:
+     *  - `companyName`·`senderName`·`contactEmail`은 `ensureProfile`가 자동으로 채운다
+     *    (`user.name` 또는 리터럴 `"내 회사"`). 게다가 `AppShell`이 마운트마다 호출하므로
+     *    로그인만 해도 행이 생긴다 → **필드 존재로는 "작성했는가"를 판정할 수 없다.**
+     *  - `boilerplate`도 게이트로 쓸 수 없다. `ensureProfile`가 채우지 않는 건 맞지만
+     *    **제품 어디에서도 읽히지 않는 필드**다(보도자료는 `mediaKits.boilerplate`를 쓴다).
+     *    아무 효과 없는 값을 채워야 배너가 사라지는 게이트는 사용자를 납득시킬 수 없다.
+     *
+     * ⚠️ `updateProfile`만 이 값을 찍는다. `ensureProfile`는 절대 쓰지 않는다
+     *    (가드 테스트가 고정한다) — 자동 완료가 되면 판정이 무의미해진다.
+     *
+     * 기존 사용자는 미완료로 보인다. 설정을 한 번 저장하면 닫히고, 그 행위 자체가
+     * 온보딩이 요구하는 것이므로 백필하지 않는다.
+     */
+    profileConfirmedAt: v.optional(v.number()),
   }).index("by_user", ["userId"]),
 
   // OpenCrab 기자 온톨로지 캐시 (mailing_status: candidate)

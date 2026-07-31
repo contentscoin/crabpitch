@@ -21,6 +21,7 @@ import { McpDashboardCard } from "@/components/app/McpGuide";
 import { SkeletonRows } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import { toUserMessage } from "@/lib/errorMessage";
+import { OnboardingChecklist } from "@/components/app/OnboardingChecklist";
 
 export default function DashboardPage() {
   const usage = useQuery(api.usage.getMyUsage);
@@ -32,6 +33,8 @@ export default function DashboardPage() {
   const [seeding, setSeeding] = useState(false);
 
   const companyName = profile?.profile?.companyName ?? profile?.user?.name ?? "";
+  // 에이전시 클라이언트 컨텍스트인가. `campaigns.list`가 `by_client`로 전환되는 조건과 같다.
+  const isClientScoped = profile?.profile?.activeClientId !== undefined;
 
   async function runSeed() {
     setSeeding(true);
@@ -109,6 +112,13 @@ export default function DashboardPage() {
         />
       </div>
 
+      {/*
+        숫자(위)를 보여 준 다음 "그래서 뭘 해야 하나"(아래)를 말한다.
+        `campaigns`를 넘기는 이유: 이 화면이 이미 `campaigns.list`를 구독한다 —
+        체크리스트가 따로 구독하면 같은 데이터에 쿼리가 둘로 늘어난다.
+      */}
+      <OnboardingChecklist campaigns={campaigns} />
+
       <div className="mt-6">
         <h2 className="mb-3 text-lg font-bold">내 AI</h2>
         <McpDashboardCard />
@@ -168,16 +178,28 @@ export default function DashboardPage() {
           <EmptyState
             icon={Sparkles}
             title="아직 캠페인이 없습니다"
-            description="데모 데이터로 매칭·초안 흐름을 바로 체험하거나, 새 보도자료로 시작하세요."
+            description={
+              isClientScoped
+                ? "이 클라이언트로 만든 캠페인이 없습니다. 위 시작하기에서 첫 보도자료를 작성하세요."
+                : "매칭·초안 흐름을 먼저 체험하고 싶으면 데모 데이터를 만들어 보세요."
+            }
             action={
-              <div className="flex flex-wrap justify-center gap-2">
+              /*
+                "새 보도자료 작성" CTA를 없앴다 — 상단 시작하기 체크리스트가 그 역할을 한다.
+                `campaigns.length === 0`이면 체크리스트의 "첫 캠페인 만들기"가 반드시 미완료라
+                체크리스트가 **항상** 함께 렌더된다. 두 곳에서 같은 데로 보내면 어느 쪽이
+                다음 걸음인지 흐려진다.
+
+                에이전시 클라이언트 컨텍스트에서는 데모 버튼도 숨긴다:
+                `seed.seedDemoForMe`는 `agencyClientId`를 넣지 않는데 `campaigns.list`는
+                `activeClientId`가 있으면 `by_client`로 조회한다 → 만들어도 이 목록에
+                나타나지 않는다. 성공 토스트만 뜨고 화면은 그대로인 버튼은 고장으로 보인다.
+              */
+              isClientScoped ? undefined : (
                 <Button onClick={runSeed} icon={Sparkles} loading={seeding} variant="brand">
                   {seeding ? "생성 중…" : "데모 데이터 생성"}
                 </Button>
-                <Link href="/campaigns/new">
-                  <Button variant="subtle">새 보도자료 작성</Button>
-                </Link>
-              </div>
+              )
             }
           />
         ) : (

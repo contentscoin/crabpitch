@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import { Sidebar, MobileNav } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { SenderBanner } from "./SenderBanner";
 
 function EnsureProfile() {
   const ensure = useMutation(api.profiles.ensureProfile);
@@ -44,6 +45,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Sidebar />
           <div className="md:pl-64">
             <Topbar />
+            {/*
+              Topbar 바로 아래 · MobileNav 위. 발송이 불가능하다는 사실은 어느 화면에서든
+              보여야 하므로 셸에 둔다(대시보드·설정 화면은 배너 쪽에서 제외한다).
+            */}
+            <SenderBanner />
             <MobileNav />
             <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">{children}</main>
           </div>

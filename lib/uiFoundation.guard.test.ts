@@ -19,6 +19,20 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf-8");
 
 /**
+ * 주석을 제거한 소스 — "이 식별자를 쓰지 않는다"류 가드에 쓴다.
+ *
+ * 왜 필요한가: 주석은 **왜 그것을 쓰지 않았는지**를 설명하려고 금지된 식별자를 언급한다
+ * (예: "`getAnalytics`는 `activeClientId`를 무시하므로 쓰지 않는다"). 산문 언급까지 잡으면
+ * 가드를 통과시키려고 같은 실수를 막아 주는 기록을 지워야 한다 — 가드가 문서를 해친다.
+ * `lib/errorMessage.ts` 가드에서 이미 같은 판단을 했다(정규식 리터럴만 검사).
+ */
+const readCode = (p: string) =>
+  read(p)
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    // 앞에 공백이나 줄 시작이 오는 경우만 — `https://`의 `//`를 건드리지 않는다.
+    .replace(/(^|\s)\/\/.*$/gm, "$1");
+
+/**
  * 파괴적 액션 호출부 — `window.confirm`이 남아 있으면 안 된다.
  *
  * 저장소 전체를 검사하면 안 된다: `components/ui/Dialog.tsx`는 `showModal()` 미지원
@@ -298,5 +312,210 @@ describe("폼 검증", () => {
   it("SMTP 이메일 검증이 프로필 폼과 같은 정규식을 쓴다", () => {
     // 두 벌로 두면 한쪽만 고쳐져 서버 normalizeEmail과 어긋난다.
     expect(read("components/app/SmtpConnect.tsx")).toContain("EMAIL_PATTERN");
+  });
+});
+
+
+describe("온보딩 체크리스트", () => {
+  /**
+   * ①단계는 "사용자가 직접 저장했다"는 **행위**로 판정한다.
+   *
+   * 필드 존재로 판정하면 반드시 틀린다: `ensureProfile`가 `companyName`(`user.name` 또는
+   * 리터럴 `"내 회사"`)·`senderName`·`contactEmail`을 자동으로 채우고, `AppShell`이
+   * 마운트마다 이 mutation을 호출한다 → 로그인만 해도 "작성 완료"가 된다.
+   */
+  it("ensureProfile은 profileConfirmedAt을 찍지 않는다", () => {
+    const src = read("convex/profiles.ts");
+    const block = src.slice(
+      src.indexOf("export const ensureProfile"),
+      src.indexOf("export const updateProfile"),
+    );
+    expect(block).not.toContain("profileConfirmedAt");
+  });
+
+  it("updateProfile은 profileConfirmedAt을 찍는다", () => {
+    const src = read("convex/profiles.ts");
+    const block = src.slice(src.indexOf("export const updateProfile"));
+    expect(block).toMatch(/profileConfirmedAt: Date\.now\(\)/);
+  });
+
+  /**
+   * `boilerplate`를 게이트로 쓰지 않는다 — `ensureProfile`가 채우지 않는 건 맞지만
+   * **제품 어디에서도 읽히지 않는 필드**다(보도자료는 `mediaKits.boilerplate`를 쓴다).
+   * 아무 효과 없는 값을 채워야 배너가 사라지는 게이트는 정당화할 수 없다.
+   */
+  it("판정에 boilerplate를 쓰지 않는다", () => {
+    expect(readCode("convex/onboarding.ts")).not.toContain("boilerplate");
+    expect(readCode("lib/onboarding.ts")).not.toContain("boilerplate");
+  });
+
+  /**
+   * `journalists`에는 `userId`가 없다 — 전역 테이블이고 인덱스도 `by_email`/`by_beat`뿐이다.
+   * "기자 리스트 확보"류의 사용자별 단계를 여기서 판정하려 하면 축이 맞지 않는다.
+   */
+  it("journalists 테이블로 사용자별 진행을 판정하지 않는다", () => {
+    expect(readCode("convex/onboarding.ts")).not.toContain("journalists");
+  });
+
+  /**
+   * 캠페인·매칭·발송은 `campaigns.list`(클라이언트 축을 존중)로 계산한다.
+   * `usage.getAnalytics`는 `activeClientId`를 무시하고 항상 `by_user`로 조회하므로,
+   * 온보딩이 거기 얹히면 에이전시 모드에서 축 불일치를 상속한다.
+   */
+  it("getMyChecklist는 캠페인 집계를 하지 않는다 — 대시보드의 campaigns.list를 쓴다", () => {
+    const src = readCode("convex/onboarding.ts");
+    expect(src).not.toContain("getAnalytics");
+    expect(src).not.toMatch(/query\("campaigns"\)/);
+    // 체크리스트는 이미 구독 중인 데이터를 prop으로 받는다.
+    expect(read("components/app/OnboardingChecklist.tsx")).toMatch(/campaigns,/);
+  });
+
+  it("발신 수단은 사용자 축으로만 조회한다", () => {
+    // `gmailAccounts`·`smtpAccounts`에 `agencyClientId`가 없다 → 클라이언트별로 다를 수 없다.
+    const src = readCode("convex/onboarding.ts");
+    expect(src).toMatch(/withIndex\("by_user"/);
+    expect(src).not.toContain("agencyClientId");
+  });
+
+  /**
+   * 판정 규칙은 순수 함수가 정본이다. 이 저장소에는 렌더 테스트 하네스가 없으므로
+   * (`environment: "node"`, jsdom 미설치) 컴포넌트 안의 규칙은 검증할 방법이 없다.
+   */
+  it("판정 규칙이 컴포넌트가 아니라 lib/onboarding.ts에 있다", () => {
+    const lib = read("lib/onboarding.ts");
+    for (const fn of [
+      "buildOnboardingChecklist",
+      "toCampaignState",
+      "shouldShowSenderBanner",
+      "parseSnoozedUntil",
+    ]) {
+      expect(lib, fn).toContain(`export function ${fn}`);
+    }
+    const cmp = read("components/app/OnboardingChecklist.tsx");
+    expect(cmp).toContain("buildOnboardingChecklist");
+    expect(cmp).toContain("toCampaignState");
+  });
+
+  it("대시보드가 체크리스트를 렌더한다", () => {
+    const src = read("app/(app)/dashboard/page.tsx");
+    expect(src).toMatch(/<OnboardingChecklist campaigns=\{campaigns\} \/>/);
+  });
+
+  /**
+   * 다 끝났으면 렌더하지 않는다. "5/5 완료" 카드로 남기면 영구히 자리를 먹는다.
+   */
+  it("완료 후에는 렌더하지 않는다", () => {
+    expect(read("components/app/OnboardingChecklist.tsx")).toMatch(
+      /if \(checklist\.allDone\) return null/,
+    );
+  });
+
+  /**
+   * 진행률을 막대(색)로만 전달하면 안 된다. `Progress`에는 아직 `role="progressbar"`가
+   * 없고, 지금 붙이면 기존 사용처 3곳(사용량 미터·미디어킷 완성도·보도자료 점수)이
+   * **이름 없는 progressbar**가 되어 새 위반을 만든다 → 접근성 작업은 PR#3에서 한다.
+   * 그때까지 막대는 장식이고, 보이는 "n/m" 텍스트가 의미를 전달해야 한다.
+   */
+  it("진행률이 보이는 텍스트로 전달된다 — 막대는 장식이다", () => {
+    const src = read("components/app/OnboardingChecklist.tsx");
+    expect(src).toMatch(/\{doneCount\}\/\{totalCount\}/);
+    expect(src).toMatch(/aria-hidden="true"[\s\S]{0,120}<Progress/);
+  });
+
+  it("완료 여부를 색·아이콘만으로 전달하지 않는다", () => {
+    expect(read("components/app/OnboardingChecklist.tsx")).toMatch(/sr-only/);
+  });
+});
+
+describe("에이전시 클라이언트 축", () => {
+  /**
+   * ①② 는 사용자 축(`profiles`/`gmailAccounts`/`smtpAccounts`에 `agencyClientId` 없음),
+   * ③④⑤ 는 클라이언트 축(`campaigns.list`가 `activeClientId` 존중)이다.
+   * 한 진행률에 섞으면 클라이언트를 전환할 때 숫자의 의미가 붕괴한다.
+   */
+  it("클라이언트 컨텍스트에서 계정 공통 단계를 진행률에서 뺀다", () => {
+    const src = read("lib/onboarding.ts");
+    expect(src).toMatch(/accountScoped/);
+    expect(src).toMatch(/counted = steps\.filter\(\(s\) => !s\.accountScoped\)/);
+  });
+
+  it("진행률에서 빠진 단계도 '다음 할 일'에서는 사라지지 않는다", () => {
+    // nextStep을 counted에서 찾으면 계정 공통 미완료가 영구히 숨는다.
+    expect(read("lib/onboarding.ts")).toMatch(/nextStep: steps\.find/);
+  });
+
+  /**
+   * `seed.seedDemoForMe`는 `agencyClientId`를 넣지 않는다. `campaigns.list`는
+   * `activeClientId`가 있으면 `by_client`로 조회하므로 시드 결과가 목록에 나타나지 않는다
+   * → 성공 토스트만 뜨고 화면은 그대로인 버튼은 고장으로 보인다.
+   */
+  it("클라이언트 컨텍스트에서는 데모 시드 버튼을 숨긴다", () => {
+    const src = read("app/(app)/dashboard/page.tsx");
+    expect(src).toMatch(/const isClientScoped = /);
+    expect(src).toMatch(/isClientScoped \? undefined :/);
+  });
+
+  it("시드가 클라이언트 축을 채우게 되면 이 가드를 다시 본다", () => {
+    // 가드의 근거가 코드에 남아 있는지 확인한다. seedDemoForMe가 agencyClientId를
+    // 넣기 시작하면 위 숨김은 불필요해지므로 함께 지워야 한다.
+    expect(readCode("convex/seed.ts")).not.toContain("agencyClientId");
+  });
+});
+
+describe("발신 수단 미연결 배너", () => {
+  /**
+   * 없던 동안의 실패 경로: 초안을 다 만들고 발송을 누른 뒤에야 막혔다.
+   * 들인 노력이 가장 큰 지점에서 처음 알려 주는 셈이었다.
+   */
+  it("앱 셸에 배선돼 어느 화면에서든 보인다", () => {
+    const src = read("components/app/AppShell.tsx");
+    expect(src).toContain("<SenderBanner />");
+    // Topbar 아래에 와야 한다 — 상단 내비게이션을 밀어내지 않는다.
+    expect(src.indexOf("<Topbar />")).toBeLessThan(src.indexOf("<SenderBanner />"));
+  });
+
+  it("표시 조건이 순수 함수로 분리돼 있다", () => {
+    expect(read("components/app/SenderBanner.tsx")).toContain("shouldShowSenderBanner");
+  });
+
+  /**
+   * 서버 렌더에서는 `localStorage`를 읽을 수 없다. 마운트 전에 스누즈 상태를 모른 채
+   * 렌더하면 하이드레이션 불일치가 나고, 닫아 둔 배너가 매 새로고침마다 깜빡인다.
+   */
+  it("마운트 후에만 렌더한다 — localStorage를 서버에서 읽을 수 없다", () => {
+    const src = read("components/app/SenderBanner.tsx");
+    expect(src).toMatch(/setMounted\(true\)/);
+    expect(read("lib/onboarding.ts")).toMatch(/if \(!mounted\) return false/);
+  });
+
+  it("localStorage 접근을 try로 감싼다", () => {
+    // 사파리 프라이빗 모드 등에서 getItem/setItem이 던진다 → 앱 전체가 죽는다.
+    const src = read("components/app/SenderBanner.tsx");
+    expect(src.match(/try \{/g) ?? []).toHaveLength(2);
+  });
+
+  /**
+   * 대시보드에서는 띄우지 않는다 — `senderKind === "none"`이면 체크리스트 ②가 반드시
+   * 미완료이므로 체크리스트가 항상 렌더된다 → 같은 말을 두 곳에서 하게 된다.
+   * 설정 화면에서도 띄우지 않는다 — 이미 고칠 수 있는 화면이다.
+   */
+  it("체크리스트와 중복되는 화면에서는 띄우지 않는다", () => {
+    const src = read("lib/onboarding.ts");
+    expect(src).toMatch(/pathname\.startsWith\("\/settings"\)/);
+    expect(src).toMatch(/pathname === "\/dashboard"/);
+  });
+
+  it("닫기는 영구 숨김이 아니라 24시간 스누즈다", () => {
+    const lib = read("lib/onboarding.ts");
+    expect(lib).toMatch(/SENDER_BANNER_SNOOZE_MS = 24 \* 60 \* 60 \* 1000/);
+    // 영구 숨김이면 발송이 안 되는 이유를 영구히 모른 채 쓰게 된다.
+    expect(read("components/app/SenderBanner.tsx")).toMatch(
+      /Date\.now\(\) \+ SENDER_BANNER_SNOOZE_MS/,
+    );
+  });
+
+  it("닫기 버튼에 접근 가능한 이름이 있다", () => {
+    // 아이콘만 있는 버튼은 낭독할 이름이 없다.
+    expect(read("components/app/SenderBanner.tsx")).toMatch(/aria-label="24시간 동안 숨기기"/);
   });
 });

@@ -62,6 +62,7 @@ import type * as mcpHttp from "../mcpHttp.js";
 import type * as mcpInternal from "../mcpInternal.js";
 import type * as mediaKits from "../mediaKits.js";
 import type * as model from "../model.js";
+import type * as onboarding from "../onboarding.js";
 import type * as opencrab from "../opencrab.js";
 import type * as opencrabActions from "../opencrabActions.js";
 import type * as pressReleases from "../pressReleases.js";
@@ -135,6 +136,7 @@ declare const fullApi: ApiFromModules<{
   mcpInternal: typeof mcpInternal;
   mediaKits: typeof mediaKits;
   model: typeof model;
+  onboarding: typeof onboarding;
   opencrab: typeof opencrab;
   opencrabActions: typeof opencrabActions;
   pressReleases: typeof pressReleases;

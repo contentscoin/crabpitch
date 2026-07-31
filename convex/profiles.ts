@@ -61,6 +61,10 @@ export const updateProfile = mutation({
     await ctx.db.patch(profile._id, {
       ...rest,
       ...(plan ? { plan } : {}),
+      // 온보딩 ①단계는 "사용자가 직접 저장했다"는 **행위**로 판정한다.
+      // 필드 존재로는 판정할 수 없다 — ensureProfile이 companyName·senderName·
+      // contactEmail을 자동으로 채우기 때문이다(schema 주석 참고).
+      profileConfirmedAt: Date.now(),
     });
     return profile._id;
   },
