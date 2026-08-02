@@ -32,6 +32,13 @@ function NavLinks({
           <Link
             key={item.href}
             href={item.href}
+            /*
+              현재 위치를 색으로만 알리면 보조 기술 사용자는 어디 있는지 알 수 없다.
+              `aria-current="page"`가 "현재 페이지"로 낭독된다.
+              false가 아니라 `undefined`를 줘야 한다 — `aria-current="false"`는
+              속성이 남아 있는 상태고, React가 지우지 않는다.
+            */
+            aria-current={active ? "page" : undefined}
             className={cn(
               mobile
                 ? "flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold"
@@ -63,7 +70,7 @@ export function Sidebar() {
       >
         <span className="text-xl">🦀</span> 크랩피치
       </Link>
-      <nav className="flex-1 space-y-1 p-4">
+      <nav aria-label="주요 메뉴" className="flex-1 space-y-1 p-4">
         <NavLinks items={items} pathname={pathname} />
       </nav>
       <div className="border-t border-border p-4 text-xs text-muted">
@@ -74,13 +81,33 @@ export function Sidebar() {
   );
 }
 
-/** 모바일 상단 가로 네비게이션 */
+/**
+ * 모바일 상단 가로 네비게이션.
+ *
+ * 탭이 8개(관리자 9개)라 좁은 화면에서는 반드시 잘린다. 잘린 자리가 그냥 끝난 것처럼
+ * 보이면 남은 탭을 찾지 못하므로, 우측에 fade 마스크로 "더 있다"를 알린다.
+ *
+ * ⚠️ 데스크톱 사이드바와 동시에 렌더되지 않는다(`md:hidden` / `hidden md:flex`).
+ *    `display: none`은 접근성 트리에서도 빠지므로 같은 `aria-label`을 써도 landmark가
+ *    중복되지 않는다.
+ */
 export function MobileNav() {
   const pathname = usePathname();
   const items = useNavItems();
   return (
-    <nav className="flex gap-1 overflow-x-auto border-b border-border bg-card px-4 py-2 md:hidden">
-      <NavLinks items={items} pathname={pathname} mobile />
-    </nav>
+    // 테두리를 래퍼로 올린다 — 마스크가 nav 위에 겹치므로 nav에 두면 테두리를 덮는다.
+    <div className="relative border-b border-border bg-card md:hidden">
+      <nav aria-label="주요 메뉴" className="flex gap-1 overflow-x-auto px-4 py-2">
+        <NavLinks items={items} pathname={pathname} mobile />
+      </nav>
+      {/*
+        스크롤 가능 힌트. 장식이므로 접근성 트리에서 빼고, 아래 탭을 누를 수 있게
+        포인터 이벤트를 통과시킨다.
+      */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-card to-transparent"
+      />
+    </div>
   );
 }

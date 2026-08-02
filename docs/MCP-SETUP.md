@@ -2,7 +2,7 @@
 
 CrabPitch는 **유저별 MCP 키**(`cp_mcp_…`)를 발급합니다.
 Claude Desktop · Cursor · ChatGPT 커스텀 커넥터 · Gemini 등에서 플러그인으로 등록해
-보도자료 작성·기자 매칭·이메일 템플릿·회신 분류 도구를 호출할 수 있습니다.
+보도자료 작성부터 기자 매칭·초안 생성·승인·**실제 발송**까지 채팅에서 진행할 수 있습니다.
 
 > **키는 Free 플랜도 발급받습니다.** 다만 채팅에 노출되는 **도구가 플랜마다 다릅니다** — §3 참조.
 > 잠긴 도구는 목록에 보이지도 않고, 직접 호출해도 막힙니다.
@@ -58,6 +58,15 @@ Authorization: Bearer cp_mcp_…
 | `crabpitch_match_journalists` | 주제 태그 매칭 (응답: `기자 #XXXX` 코드만, 실명·이메일 없음) | — | ✅ |
 | `crabpitch_email_template` | 피치 메일 제목/본문 템플릿 | — | ✅ |
 | `crabpitch_classify` | 회신 텍스트 7유형 분류 | — | ✅ |
+| `crabpitch_campaign_list` | 내 캠페인 목록·진행 상태 | ✅ | ✅ |
+| `crabpitch_campaign_create` | 보도자료 저장 + 캠페인 생성 | ✅ | ✅ |
+| `crabpitch_campaign_status` | 캠페인 상세 — 초안 목록·승인 여부·표현 규정 판정 | ✅ | ✅ |
+| `crabpitch_campaign_match` | 캠페인에 기자 매칭 (수신거부·재접근 거부 자동 제외) | — | ✅ |
+| `crabpitch_drafts_generate` | 기자별 개인화 초안 생성 | — | ✅ |
+| `crabpitch_drafts_approve` | 초안 승인 (draftId를 하나씩 지정) | — | ✅ |
+| `crabpitch_campaign_send` | **실제 발송** — `confirm=true` 없으면 미리보기만 | — | ✅ |
+| `crabpitch_journalist_note` | 기자 메모 남기기 | — | ✅ |
+| `crabpitch_replies` | 회신 목록·분류 결과 | — | ✅ |
 
 무료 플랜에서 잠긴 도구는 `tools/list`에 **아예 나오지 않습니다.** 목록을 건너뛰고 직접 호출해도
 막히며, 어떤 도구가 잠겼는지는 `crabpitch_status`의 `lockedSkills`로 확인할 수 있습니다.
@@ -73,11 +82,38 @@ Authorization: Bearer cp_mcp_…
 > 기록에 남고, 그곳은 우리 DB보다 통제가 약합니다. 도구는 제공자별 절차와 설정 화면 주소만
 > 돌려주고, 실제 입력은 사용자가 웹에서 직접 합니다.
 
-실제 메일 발송·실명 주입은 **CrabPitch 웹앱**에서만 합니다. 발송 경로는 두 가지이고
-(Gmail 초안 생성 · SMTP 직접 발송) **둘 다 같은 승인·수신거부·쿨다운·표현 규정·한도 게이트**를
-통과합니다.
+## 4. MCP에서 발송까지 — 확인 없이는 나가지 않습니다
 
-## 4. OpenCrab MCP와의 차이
+```
+crabpitch_campaign_create → _match → _drafts_generate
+  → _campaign_status  (초안을 사용자에게 보여 준다)
+  → _drafts_approve   (사용자가 확인한 draftId만)
+  → _campaign_send    (confirm=true)
+```
+
+> **`crabpitch_campaign_send`는 `confirm`을 생략하면 발송하지 않습니다.** 대상 수와 제외
+> 사유만 돌려줍니다. 발송은 되돌릴 수 없고, 에이전트가 대화 흐름상 "다음 단계"로 판단해
+> 눌러 버리기 쉬운 자리이기 때문입니다. `confirm`은 **사용자가 직접 동의했을 때만** 넣으세요.
+> 문자열 `"true"`는 동의로 치지 않습니다(엄격 비교).
+
+`crabpitch_drafts_approve`에는 **일괄 승인이 없습니다.** `draftId`를 하나씩 받습니다 —
+승인은 사용자가 내용을 확인했다는 표시이고, 한 건도 안 읽고 전부 승인하는 것이 파일럿
+게이트가 막으려던 바로 그 상황입니다.
+
+**게이트는 웹앱과 하나입니다.** MCP 발송도 `drafts.selectForExternalSend` →
+`confirmExternalSent`를 그대로 지나갑니다(파일럿 승인·수신거부 재대조·7일 쿨다운·표현
+규정·캠페인당 상한·월 한도). MCP 전용 발송 경로는 만들지 않았습니다 — 만들면 게이트가
+하나 더 생기고, 그중 하나가 반드시 샙니다(#13에서 실제로 그랬습니다).
+
+캠페인 생성·매칭·초안 생성도 마찬가지로 **웹앱과 같은 구현**(`*ForUser` 헬퍼)을 부릅니다.
+경로마다 사본을 두면 월 한도·억제 리스트 같은 규칙이 한쪽에서만 걸립니다.
+
+기자 실명·이메일은 **어떤 도구 응답에도 들어가지 않습니다.** 초안 목록도 익명 코드
+(`기자 #XXXX`)로만 나가고, 실명은 발송 시점에 수신자 헤더로만 주입됩니다.
+
+발송 수단은 SMTP(전 플랜)이며, Gmail 연동은 Agency 전용입니다.
+
+## 5. OpenCrab MCP와의 차이
 
 | | CrabPitch MCP | OpenCrab MCP |
 |---|---|---|
@@ -87,7 +123,7 @@ Authorization: Bearer cp_mcp_…
 
 둘 다 등록해도 됩니다. 스킬 팩과 함께 쓰는 기본 경로는 **CrabPitch MCP**입니다.
 
-## 5. 연결이 안 될 때 (트러블슈팅)
+## 6. 연결이 안 될 때 (트러블슈팅)
 
 ### ① 먼저 브라우저로 확인 — 30초 진단
 MCP URL을 **브라우저 주소창에 그대로 붙여넣습니다**(엔드포인트는 GET도 지원).
@@ -119,7 +155,7 @@ Cursor·Claude Desktop은 위 §2의 `mcp.json` 스니펫을 사용합니다.
 > 서버 응답 계약(JSON-RPC `initialize`·`tools/list`·`tools/call`, 401 분기, CORS)은
 > `convex/mcpHttp.test.ts`가 회귀 테스트로 고정합니다.
 
-## 6. 보안
+## 7. 보안
 
 - 키를 채팅·이슈·커밋에 붙이지 마세요.
 - 유출 시 앱에서 즉시 **폐기** 후 재발급하세요.

@@ -9,9 +9,13 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Input, Label } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { useToast } from "@/components/ui/Toast";
+import { toUserMessage } from "@/lib/errorMessage";
 import { PageHeader } from "@/components/app/bits";
 
 export default function AgencyPage() {
+  const toast = useToast();
   const context = useQuery(api.agency.getActiveContext);
   const agencies = useQuery(api.agency.listMine);
   const createAgency = useMutation(api.agency.create);
@@ -41,7 +45,6 @@ export default function AgencyPage() {
   const [memberEmail, setMemberEmail] = useState("");
   const [keyName, setKeyName] = useState("default");
   const [newKey, setNewKey] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const isAgencyPlan = context?.plan === "agency";
@@ -51,14 +54,19 @@ export default function AgencyPage() {
     return row?.role ?? null;
   }, [agencies, activeAgencyId]);
 
+  /**
+   * 공통 실행 래퍼.
+   *
+   * 기존에는 성공 문구와 실패 문구를 같은 `msg` 상태에 담아 회색 텍스트로 렌더했다 —
+   * 사용자가 색으로 성공·실패를 구분할 수 없었다. 토스트로 분리한다.
+   */
   async function run(label: string, fn: () => Promise<void>) {
     setBusy(true);
-    setMsg(null);
     try {
       await fn();
-      setMsg(label);
+      toast.success(label);
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "실패했습니다.");
+      toast.error(toUserMessage(e));
     } finally {
       setBusy(false);
     }
@@ -70,8 +78,6 @@ export default function AgencyPage() {
         title="에이전시"
         description="멀티 클라이언트 워크스페이스와 REST API 키를 관리합니다. Agency 플랜 전용."
       />
-
-      {msg && <p className="text-sm text-foreground-muted">{msg}</p>}
 
       {!isAgencyPlan && (
         <Card>
@@ -89,7 +95,7 @@ export default function AgencyPage() {
         <Card>
           <CardContent className="space-y-4 pt-6">
             {agencies === undefined ? (
-              <div className="h-16 animate-pulse rounded-md bg-surface" />
+              <Skeleton className="h-16" />
             ) : agencies.length === 0 ? (
               <p className="text-sm text-muted">아직 에이전시가 없습니다.</p>
             ) : (
@@ -164,7 +170,7 @@ export default function AgencyPage() {
             <Card>
               <CardContent className="space-y-4 pt-6">
                 {clients === undefined ? (
-                  <div className="h-16 animate-pulse rounded-md bg-surface" />
+                  <Skeleton className="h-16" />
                 ) : clients.length === 0 ? (
                   <p className="text-sm text-muted">클라이언트를 추가하세요.</p>
                 ) : (
@@ -258,7 +264,7 @@ export default function AgencyPage() {
             <Card>
               <CardContent className="space-y-4 pt-6">
                 {members === undefined ? (
-                  <div className="h-12 animate-pulse rounded-md bg-surface" />
+                  <Skeleton className="h-12" />
                 ) : (
                   <ul className="divide-y divide-border">
                     {members.map((m) => (
@@ -326,17 +332,24 @@ export default function AgencyPage() {
                         size="sm"
                         variant="subtle"
                         className="mt-2"
+                        icon={Copy}
                         onClick={async () => {
-                          await navigator.clipboard.writeText(newKey);
-                          setMsg("클립보드에 복사했습니다.");
+                          try {
+                            await navigator.clipboard.writeText(newKey);
+                            toast.success("클립보드에 복사했습니다.");
+                          } catch (e) {
+                            // 권한 거부·비보안 컨텍스트에서 실패한다 — 조용히 넘기면
+                            // 사용자는 복사됐다고 믿고 키를 잃는다(지금만 볼 수 있는 값이다).
+                            toast.error(toUserMessage(e));
+                          }
                         }}
                       >
-                        <Copy className="h-4 w-4" /> 복사
+                        복사
                       </Button>
                     </div>
                   )}
                   {apiKeys === undefined ? (
-                    <div className="h-12 animate-pulse rounded-md bg-surface" />
+                    <Skeleton className="h-12" />
                   ) : apiKeys.length === 0 ? (
                     <p className="text-sm text-muted">발급된 키가 없습니다.</p>
                   ) : (

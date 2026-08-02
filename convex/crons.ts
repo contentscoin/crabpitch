@@ -3,7 +3,11 @@ import { internal } from "./_generated/api";
 
 /**
  * 예약 발송 백업 크론 — scheduler.runAt 누락/재시작 대비.
- * 매분 due queued 캠페인을 확정한다.
+ *
+ * 매분 기한이 지난 예약 캠페인을 찾아 **수단별 발송 액션을 디스패치**한다(확정하지
+ * 않는다). `processDueSends`는 internalMutation이라 메일을 직접 보낼 수 없고, 예전에
+ * 여기서 바로 확정했기 때문에 발신 수단과 무관하게 "메일 0통 + sent 기록"이 됐다.
+ * 중복 디스패치는 캠페인의 `dispatchedAt` 클레임으로 막는다.
  */
 const crons = cronJobs();
 

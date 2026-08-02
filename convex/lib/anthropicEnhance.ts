@@ -13,7 +13,8 @@ import {
   PRESS_STRUCTURE,
   WRITING_RULES,
 } from "./pressGuide";
-import { EMAIL_BODY_CHAR_MAX, EMAIL_BODY_CHAR_MIN } from "./emailCompliance";
+import { EMAIL_BODY_CHAR_MAX } from "./emailCompliance";
+import type { EmailTemplateKind } from "./emailTemplate";
 import type { OutletCategory } from "./packSync";
 
 export interface EnhanceEmailInput {
@@ -91,24 +92,123 @@ export const SUBHEAD_MAX = Number(SUBHEAD_HINT.match(/(\d+)\s*개/)?.[1]) || 2;
 const FAQ_DEFENSIVE_MAX = 12;
 
 /**
- * 메일 개인화 시스템 프롬프트 — 7규칙.
+ * 골격별 보존 지시.
+ *
+ * 이 문장이 없으면 모델은 모든 초안을 표준 7블록으로 수렴시킨다 — 사용자가 '데이터 중심'
+ * ·'스토리형'·'초간결'을 고른 의미가 개인화 단계에서 사라진다.
+ */
+const KIND_STRUCTURE_RULE: Record<EmailTemplateKind, string> = {
+  standard: "이 메일은 표준 7블록(호칭→후킹→핵심→인용→자료→행동요청→수신거부)이다. 블록 순서를 유지한다.",
+  data: "이 메일은 팩트시트형이다. '· 무엇/· 수치/· 배경/· 의미' 같은 불릿 골격을 반드시 그대로 유지하고, 산문으로 풀어쓰지 않는다.",
+  story: "이 메일은 문제→해결 서사형이다. 문제 제시가 먼저 오고 해결이 뒤에 오는 순서를 유지한다.",
+  brief: "이 메일은 초간결형이다. 짧은 것이 의도다. 문장을 더 깎기만 하고 절대 늘리지 않는다. 불필요한 배경 설명을 추가하지 않는다.",
+  custom: "이 메일은 사용자가 직접 설계한 템플릿으로 만들어졌다. 문단 구성과 순서를 바꾸지 말고 문장 표현만 다듬는다.",
+  followup:
+    "이 메일은 무회신 건에 대한 재접촉(팔로업)이다. 지난 메일을 언급하고 **새 소식만** 전하는 구조를 유지한다. 원래 보도자료 내용을 다시 설명하지 않고, 재촉하는 어투를 쓰지 않으며, 짧게 유지한다.",
+};
+
+/**
+ * 골격별 허용 분량 변화폭 — **원본 본문 대비 배수**(공백 제외 기준).
+ *
+ * ⚠️ 절대 글자수 표를 쓰지 않는 이유: 템플릿 출력 길이는 골격이 아니라 입력 길이가
+ *    결정한다. 실측 152~708자로 4.6배 벌어지고 골격 간 차이는 50~80자뿐이다.
+ *    절대값으로 잡으면 갓 생성된 초안이 자기 목표를 위반하고 다듬기가 항상 폐기된다.
+ *
+ * 원본은 결정적 템플릿이 만든 "이미 완성된" 메일이다. 다듬기의 일은 **문장을 자연스럽게
+ * 고치는 것**이지 분량을 바꾸는 것이 아니다. 그래서 기준선은 원본이고, 개인화 문장이
+ * 1~2개 붙는 정도의 여유만 준다.
+ */
+export const EMAIL_BODY_SCALE: Record<EmailTemplateKind, { min: number; max: number }> = {
+  standard: { min: 0.7, max: 1.6 },
+  data: { min: 0.7, max: 1.5 },
+  story: { min: 0.7, max: 1.6 },
+  // 초간결은 짧은 것이 의도다 — 늘리는 것을 거의 허용하지 않는다.
+  brief: { min: 0.6, max: 1.15 },
+  // 사용자가 문단 구성을 직접 설계했다 — 구조를 유지한 문장 다듬기만 허용한다.
+  custom: { min: 0.7, max: 1.3 },
+  // 팔로업은 짧아야 설득력이 있다. 늘리면 재촉하는 메일이 된다.
+  followup: { min: 0.7, max: 1.2 },
+};
+
+/** 공백 제외 글자수 — 분량 판정의 단일 기준(프롬프트·롤백이 같은 척도를 써야 한다). */
+function bodyChars(body: string): number {
+  return body.replace(/\s/g, "").length;
+}
+
+/**
+ * 배수 판정을 적용할 최소 원본 길이(공백 제외).
+ *
+ * 원본이 이보다 짧으면 비교 기준이 못 된다 — 예컨대 원본 1자에 배수를 곱하면 허용 범위가
+ * 0~2자가 되어 정상적인 다듬기까지 전부 폐기된다. 실제 템플릿 출력은 최소 입력에서도
+ * 150자를 넘으므로, 이 아래는 테스트 픽스처나 손상된 데이터로 본다.
+ */
+export const ENHANCE_BAND_MIN_BASE = 80;
+
+/** 원본 길이와 골격으로 허용 범위를 만든다. 절대 상한(게이트 안전망)을 넘지 않는다. */
+export function enhanceLengthBand(
+  kind: EmailTemplateKind,
+  baseBody: string,
+): { min: number; max: number } {
+  const base = bodyChars(baseBody);
+  const scale = EMAIL_BODY_SCALE[kind];
+  return {
+    min: Math.round(base * scale.min),
+    max: Math.min(Math.round(base * scale.max), EMAIL_BODY_CHAR_MAX),
+  };
+}
+
+/** 골격별 few-shot 대조 — 규칙 나열보다 예시 1쌍이 위반을 더 잘 막는다. */
+const ENHANCE_FEWSHOT = [
+  "예시 — 나쁜 결과(이렇게 하지 말 것):",
+  '{"subject":"[큐레잇] 혁신적인 정산 솔루션으로 업계 최초 100% 자동화 달성",',
+  ' "body":"안녕하세요, 보도자료를 보내드립니다.\\n\\n큐레잇은 혁신적인 기술로 시장을 선도하는 기업입니다. 국내 정산 시장은 약 12조 원 규모로 추정되며 연 30% 성장하고 있습니다.\\n\\n인터뷰도 가능하고 자료도 보내드릴 수 있습니다.\\n\\n──\\n(수신거부 문구 삭제됨)"}',
+  "→ 문제: 개인화 없는 도입부 / 과장 형용사 / '업계 최초·100%' / 입력에 없던 시장 규모·성장률 날조 / CTA 2개 / 수신거부 삭제 / 원래 없던 분량 부풀리기.",
+  "",
+  "예시 — 좋은 결과:",
+  '{"subject":"[큐레잇] 정산 4시간→20분, 시드 10억 유치",',
+  ' "body":"기자님, 안녕하세요. 박서준입니다.\\n\\n지난 7월 15일 \'소상공인 정산 지연\' 기사 잘 보았습니다. 관련해 먼저 전해드릴 소식이 있습니다.\\n\\n큐레잇은 시드 10억 원을 유치했습니다. 도입 매장 기준 정산 처리 시간이 4시간에서 20분으로 줄었습니다(자사 집계, 2026년 6월).\\n\\n기술 구조와 실측 데이터를 정리해 보내드리겠습니다. 필요하시면 회신 주세요.\\n\\n박서준 드림\\n\\n──\\n본 메일 수신을 원치 않으시면 회신으로 \'수신거부\'라 남겨주세요. 즉시 명단에서 제외하겠습니다."}',
+  "→ 입력에 있던 사실만 쓰고, 수치에 집계 기준을 붙이고, 첫 문단에서 그 기자의 기사를 짚고, 요청은 1개, 수신거부는 그대로.",
+].join("\n");
+
+/**
+ * 메일 개인화 시스템 프롬프트.
+ *
  * 규칙은 발송 게이트(`emailCompliance`)가 실제로 검사하는 항목과 일치시킨다.
  * 프롬프트와 게이트가 어긋나면 모델이 매번 차단당하는 초안을 만든다.
+ *
+ * ⚠️ 분량 지시는 **원본 본문 길이에서 계산**한다(`enhanceLengthBand`). 프롬프트에 고정
+ *    숫자를 적으면 입력 길이와 무관해져서 모델이 분량을 맞추려고 내용을 지어낸다.
+ *    (이전 버전은 골격 무관하게 600~800자를 요구했고, 템플릿 출력은 152~708자였다.)
+ *
+ * @param kind 초안 골격. 생략하면 표준 7블록으로 취급한다.
+ * @param baseBody 다듬기 전 본문. 주면 이 길이를 기준으로 허용 범위를 계산해 지시한다.
  */
-export function emailEnhanceSystemPrompt(): string {
+export function emailEnhanceSystemPrompt(
+  kind: EmailTemplateKind = "standard",
+  baseBody?: string,
+): string {
+  const band = baseBody !== undefined ? enhanceLengthBand(kind, baseBody) : undefined;
+  const lengthRule = band
+    ? `5) 본문은 공백 제외 ${band.min}~${band.max}자로 유지한다(현재 ${bodyChars(baseBody!)}자). 분량을 채우기 위해 내용을 덧붙이지 않는다 — 문장을 다듬는 것이 일이고, 분량을 바꾸는 것이 아니다.`
+    : `5) 본문 분량을 원본과 비슷하게 유지한다. 공백 제외 ${EMAIL_BODY_CHAR_MAX}자를 넘기지 않는다.`;
   return [
     "당신은 한국 스타트업 언론 홍보 카피라이터다.",
     "기자 배포용 메일을 더 자연스럽고 개인화되게 다듬는다.",
+    "입력 초안은 이미 규정을 통과한 상태다. 새로 쓰지 말고 **다듬기만** 한다.",
+    `골격: ${KIND_STRUCTURE_RULE[kind]}`,
     "규칙:",
     "1) 수신자 호칭은 '기자님'만 쓰고, 본문은 반드시 '기자님,'으로 시작한다. 실명·이메일을 넣지 않는다.",
     "2) 본문 마지막 블록의 수신거부 안내를 반드시 그대로 유지한다.",
     "3) 개인화 없는 도입부(‘안녕하세요, 보도자료를 보냅니다’류)를 쓰지 않는다. 첫 문단에서 해당 기자의 관심사를 짚는다.",
     "4) 행동 요청(CTA)은 정확히 1개만 남긴다. 인터뷰와 자료 송부를 동시에 요청하지 않는다.",
-    `5) 본문은 공백 제외 ${EMAIL_BODY_CHAR_MIN}~${EMAIL_BODY_CHAR_MAX}자로 유지한다.`,
+    lengthRule,
     "6) 과장 형용사(혁신적·최고의·완벽한)를 쓰지 않고, 없는 수치를 지어내지 않는다. 수치를 쓰면 출처를 함께 적는다.",
     "7) 근거 없는 '업계 최초·세계 최초', '100%', '절대 보장' 표현은 쓰지 않는다.",
     "8) 매체 유형에 맞는 어투를 쓰되 기자마다 문구를 다르게 한다(동일 문안 복제 금지).",
-    '9) JSON만 출력: {"subject":"...","body":"..."}',
+    "9) 입력에 없는 사실·수치·시장 규모·고유명사를 새로 만들지 않는다.",
+    '10) JSON만 출력: {"subject":"...","body":"..."}',
+    "",
+    ENHANCE_FEWSHOT,
   ].join("\n");
 }
 
@@ -233,6 +333,7 @@ export function parseJsonObject(raw: string): Record<string, unknown> | null {
 export function parseEnhanceEmailResult(
   raw: string,
   fallback: EnhanceEmailResult,
+  kind: EmailTemplateKind = "standard",
 ): EnhanceEmailResult {
   const obj = parseJsonObject(raw);
   if (!obj) return fallback;
@@ -257,6 +358,16 @@ export function parseEnhanceEmailResult(
   // 다듬기 때문에 초안이 발송 불가가 되는 편보다, 다듬지 않은 안전한 초안이 낫다.
   const check = checkEmailCompliance(trimmedSubject, safeBody);
   if (check.status === "fail") return fallback;
+
+  // 컴플라이언스 ④: 분량이 원본에서 크게 벗어나면 되돌린다.
+  // 부풀린 본문은 거의 예외 없이 입력에 없던 사실을 채워 넣은 결과이고(규정 검사는
+  // '지어낸 사실'을 잡지 못한다), 반대로 크게 줄어든 본문은 수치·근거를 잘라낸 결과다.
+  // 원본이 비교 기준이 못 될 만큼 짧으면 이 검사를 건너뛴다(범위가 무의미해진다).
+  if (bodyChars(fallback.body) >= ENHANCE_BAND_MIN_BASE) {
+    const band = enhanceLengthBand(kind, fallback.body);
+    const len = bodyChars(safeBody);
+    if (len > band.max || len < band.min) return fallback;
+  }
 
   return { subject: trimmedSubject, body: safeBody };
 }

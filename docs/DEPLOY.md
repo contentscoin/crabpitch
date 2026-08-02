@@ -125,8 +125,11 @@ npx convex env set SITE_URL https://crabpitch.vercel.app --prod
 |---|---|
 | `OPENCRAB_API_URL` / `OPENCRAB_API_KEY` | 기자 온톨로지 + **기자단 팩 동기화**. MCP는 `URL=https://opencrab.sh/api/mcp` + `KEY=ocm_…`. HTTP는 기존 POST+Bearer. 팩 동기화는 MCP 키에서만 동작 |
 | `ANTHROPIC_API_KEY` | (선택) 보도자료·메일 AI 개인화. 없으면 템플릿 유지 |
-| `GMAIL_OAUTH_CLIENT_ID` / `GMAIL_OAUTH_CLIENT_SECRET` | (선택) Gmail BYO. **없으면 `AUTH_GOOGLE_*` 폴백**. 콜백: `https://<deployment>.convex.site/gmail/callback` |
-| `SMTP_ENCRYPTION_KEY` | **SMTP 발송을 쓰려면 필수.** 사용자 메일 비밀번호 봉인용 마스터 키. base64 32바이트만 허용 — 만드는 방법은 아래 |
+| `GMAIL_OAUTH_CLIENT_ID` / `GMAIL_OAUTH_CLIENT_SECRET` | (선택) Gmail BYO — **Agency 플랜 전용 기능**. 없으면 `AUTH_GOOGLE_*` 폴백. 콜백: `https://<deployment>.convex.site/gmail/callback` |
+| `SMTP_ENCRYPTION_KEY` | **SMTP 발송 또는 「내 AI」 BYOK 키 등록을 쓰려면 필수.** 사용자 메일 비밀번호 **와 LLM API 키** 봉인용 마스터 키. base64 32바이트만 허용 — 만드는 방법은 아래 |
+
+> 이 키가 없으면 `/ai`에서 GPT·Claude·Gemini API 키 등록도 실패합니다(평문으로 대체 저장하지 않습니다).
+> 이미 평문으로 저장된 기존 키는 계속 동작하고, 사용자가 키를 다시 저장하는 시점에 봉인 컬럼으로 옮겨집니다.
 
 #### `SMTP_ENCRYPTION_KEY` 만들기
 

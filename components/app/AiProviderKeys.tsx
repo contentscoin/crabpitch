@@ -3,11 +3,13 @@
 import { useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { Check, KeyRound, Loader2, Plug2, Trash2, Zap } from "lucide-react";
+import { Check, KeyRound, Plug2, Trash2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { toUserMessage } from "@/lib/errorMessage";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Input, Label } from "@/components/ui/Input";
+import { Skeleton } from "@/components/ui/Skeleton";
 
 type LlmProvider = "anthropic" | "openai" | "gemini";
 
@@ -17,6 +19,8 @@ type LlmProvider = "anthropic" | "openai" | "gemini";
  */
 export function AiProviderKeysPanel() {
   const status = useQuery(api.aiKeys.status);
+  // 키는 봉인해서 저장한다 — 마스터 키가 없으면 저장 자체가 실패하므로 미리 알린다.
+  const integrations = useQuery(api.integrations.getStatus);
   const save = useMutation(api.aiKeys.save);
   const remove = useMutation(api.aiKeys.remove);
   const setPreferred = useMutation(api.aiKeys.setPreferredProvider);
@@ -29,7 +33,7 @@ export function AiProviderKeysPanel() {
   const [notes, setNotes] = useState<Record<string, { ok: boolean; text: string }>>({});
 
   if (status === undefined) {
-    return <div className="h-48 animate-pulse rounded-lg bg-surface" />;
+    return <Skeleton className="h-48" />;
   }
 
   function note(provider: LlmProvider, ok: boolean, text: string) {
@@ -53,7 +57,7 @@ export function AiProviderKeysPanel() {
         note(provider, true, "키를 저장했습니다. 「연결 테스트」로 확인해 보세요.");
       }
     } catch (e) {
-      note(provider, false, e instanceof Error ? e.message : "저장에 실패했습니다.");
+      note(provider, false, toUserMessage(e, "저장에 실패했습니다."));
     } finally {
       setBusy(null);
     }
@@ -65,7 +69,7 @@ export function AiProviderKeysPanel() {
       const res = await test({ provider });
       note(provider, res.ok, res.message);
     } catch (e) {
-      note(provider, false, e instanceof Error ? e.message : "테스트에 실패했습니다.");
+      note(provider, false, toUserMessage(e, "테스트에 실패했습니다."));
     } finally {
       setBusy(null);
     }
@@ -86,9 +90,21 @@ export function AiProviderKeysPanel() {
   }
 
   const anyConnected = status.activeProvider !== null;
+  const sealingUnavailable = integrations !== undefined && !integrations.smtpEncryptionKeySet;
 
   return (
     <div className="space-y-4">
+      {sealingUnavailable && (
+        <div className="rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
+          <p className="font-semibold text-warning">지금은 키를 저장할 수 없습니다.</p>
+          <p className="mt-1 text-foreground-muted">
+            API 키는 암호화해서 보관합니다. 서버에 봉인용 마스터 키(
+            <code className="text-xs">SMTP_ENCRYPTION_KEY</code>)가 설정되어 있지 않아 저장이
+            실패합니다. 평문으로 대신 저장하지는 않습니다.
+          </p>
+        </div>
+      )}
+
       <div className="flex items-start gap-3 rounded-lg border border-border bg-card p-4 text-sm">
         <Zap className="mt-0.5 h-5 w-5 shrink-0 text-brand" />
         <div className="text-foreground-muted">
@@ -170,15 +186,12 @@ export function AiProviderKeysPanel() {
                       <Button
                         type="button"
                         size="sm"
-                        disabled={busy === `save:${p.provider}` || !keyInput.trim()}
+                        icon={Check}
+                        loading={busy === `save:${p.provider}`}
+                        disabled={!keyInput.trim()}
                         onClick={() => onSave(p.provider)}
                       >
-                        {busy === `save:${p.provider}` ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Check className="h-4 w-4" />
-                        )}
-                        저장
+                        {busy === `save:${p.provider}` ? "저장 중…" : "저장"}
                       </Button>
                       <Button
                         type="button"
@@ -199,6 +212,7 @@ export function AiProviderKeysPanel() {
                     <Button
                       type="button"
                       size="sm"
+                      icon={KeyRound}
                       variant={p.hasUserKey ? "subtle" : "brand"}
                       onClick={() => {
                         setEditing(p.provider);
@@ -206,7 +220,6 @@ export function AiProviderKeysPanel() {
                         setModelInput(p.model ?? "");
                       }}
                     >
-                      <KeyRound className="h-4 w-4" />
                       {p.hasUserKey ? "키 바꾸기" : "키 등록"}
                     </Button>
                     {p.hasUserKey && (
@@ -214,15 +227,11 @@ export function AiProviderKeysPanel() {
                         type="button"
                         size="sm"
                         variant="subtle"
-                        disabled={busy === `test:${p.provider}`}
+                        icon={Plug2}
+                        loading={busy === `test:${p.provider}`}
                         onClick={() => onTest(p.provider)}
                       >
-                        {busy === `test:${p.provider}` ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Plug2 className="h-4 w-4" />
-                        )}
-                        연결 테스트
+                        {busy === `test:${p.provider}` ? "확인 중…" : "연결 테스트"}
                       </Button>
                     )}
                     {p.hasUserKey && !isPreferred && (
@@ -241,10 +250,11 @@ export function AiProviderKeysPanel() {
                         type="button"
                         size="sm"
                         variant="ghost"
-                        disabled={busy === `remove:${p.provider}`}
+                        icon={Trash2}
+                        loading={busy === `remove:${p.provider}`}
                         onClick={() => onRemove(p.provider)}
                       >
-                        <Trash2 className="h-4 w-4" /> 삭제
+                        {busy === `remove:${p.provider}` ? "삭제 중…" : "삭제"}
                       </Button>
                     )}
                   </div>

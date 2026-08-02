@@ -66,6 +66,73 @@ describe("buildLlmRequest", () => {
     const req = buildLlmRequest("anthropic", "k", { ...input, model: "claude-sonnet-5" });
     expect(JSON.parse(req.body).model).toBe("claude-sonnet-5");
   });
+
+  /**
+   * 샘플링 파라미터는 **절대** 실려서는 안 된다.
+   * 기본 모델이 둘 다 추론 모델이라 기본값이 아닌 temperature를 보내면 HTTP 400이 된다.
+   *  - Anthropic: temperature/top_p/top_k는 Claude 4.7 이상 미지원
+   *  - OpenAI: GPT-5 계열은 reasoning_effort="none"일 때만 허용
+   */
+  it("temperature·top_p를 절대 보내지 않는다(추론 모델은 400을 반환한다)", () => {
+    for (const p of LLM_PROVIDERS) {
+      const body = JSON.parse(buildLlmRequest(p, "k", { ...input, jsonOutput: true }).body);
+      expect(body.temperature).toBeUndefined();
+      expect(body.top_p).toBeUndefined();
+      expect(body.generationConfig?.temperature).toBeUndefined();
+    }
+  });
+});
+
+describe("buildLlmRequest — JSON 출력 강제", () => {
+  const jsonInput = { system: "JSON만 출력하라", user: "입력", maxTokens: 500 };
+
+  it("openai: response_format json_object", () => {
+    const body = JSON.parse(
+      buildLlmRequest("openai", "k", { ...jsonInput, jsonOutput: true }).body,
+    );
+    expect(body.response_format).toEqual({ type: "json_object" });
+  });
+
+  it("gemini: responseMimeType application/json", () => {
+    const body = JSON.parse(
+      buildLlmRequest("gemini", "k", { ...jsonInput, jsonOutput: true }).body,
+    );
+    expect(body.generationConfig.responseMimeType).toBe("application/json");
+  });
+
+  it("anthropic: 필드를 넣지 않는다 — 기본 모델의 구조화 출력 지원이 확인되지 않았다", () => {
+    const body = JSON.parse(
+      buildLlmRequest("anthropic", "k", { ...jsonInput, jsonOutput: true }).body,
+    );
+    expect(body.response_format).toBeUndefined();
+    expect(body.output_format).toBeUndefined();
+  });
+
+  it("jsonOutput을 주지 않으면 아무 필드도 붙지 않는다", () => {
+    expect(JSON.parse(buildLlmRequest("openai", "k", jsonInput).body).response_format).toBeUndefined();
+    expect(
+      JSON.parse(buildLlmRequest("gemini", "k", jsonInput).body).generationConfig.responseMimeType,
+    ).toBeUndefined();
+  });
+
+  /**
+   * OpenAI의 json_object 모드는 프롬프트에 "json"이라는 단어가 없으면 400을 반환한다.
+   * 프롬프트를 고치다 단어가 사라져도 전 기능이 죽지 않아야 한다.
+   */
+  it("프롬프트에 'json'이 없으면 강제하지 않는다(400 방어)", () => {
+    const noJson = { system: "OK만 답하라", user: "연결 테스트", jsonOutput: true };
+    expect(JSON.parse(buildLlmRequest("openai", "k", noJson).body).response_format).toBeUndefined();
+    expect(
+      JSON.parse(buildLlmRequest("gemini", "k", noJson).body).generationConfig.responseMimeType,
+    ).toBeUndefined();
+  });
+
+  it("대소문자·user 프롬프트 쪽 언급도 인정한다", () => {
+    const inUser = { system: "지시", user: "Json 객체로 답하라", jsonOutput: true };
+    expect(JSON.parse(buildLlmRequest("openai", "k", inUser).body).response_format).toEqual({
+      type: "json_object",
+    });
+  });
 });
 
 describe("parseLlmResponse", () => {

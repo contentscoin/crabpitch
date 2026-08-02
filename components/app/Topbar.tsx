@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { LogOut, Plus } from "lucide-react";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UsageMeter } from "./UsageMeter";
 import { ClientSwitcher } from "./ClientSwitcher";
@@ -21,10 +21,8 @@ export function Topbar() {
       <div className="flex items-center gap-2 sm:gap-3">
         <ClientSwitcher />
         <UsageMeter />
-        <Link href="/campaigns/new">
-          <Button size="sm">
-            <Plus className="h-4 w-4" /> 새 캠페인
-          </Button>
+        <Link href="/campaigns/new" className={buttonClasses({ size: "sm" })}>
+          <Plus className="h-4 w-4" aria-hidden="true" /> 새 캠페인
         </Link>
         <ThemeToggle />
         <Button

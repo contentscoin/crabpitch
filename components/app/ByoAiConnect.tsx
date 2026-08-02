@@ -7,6 +7,7 @@ import { Bot, Check, Copy, ExternalLink, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { Skeleton } from "@/components/ui/Skeleton";
 
 type ProviderId = "claude" | "chatgpt" | "gemini";
 type SkillId =
@@ -94,7 +95,7 @@ export function ByoAiConnectPanel({
   }
 
   if (hub === undefined) {
-    return <div className="h-40 animate-pulse rounded-lg bg-surface" />;
+    return <Skeleton className="h-40" />;
   }
 
   return (

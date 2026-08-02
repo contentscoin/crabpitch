@@ -15,6 +15,19 @@ import {
   pickProvider,
   type LlmProvider,
 } from "./lib/llm";
+import { importMasterKey, openSecret, sealSecret } from "./lib/secretBox";
+
+/**
+ * API 키 봉인에 쓸 마스터 키.
+ *
+ * SMTP 비밀번호와 **같은 환경변수**를 쓴다(`smtpAccounts.ts`·`smtpActions.ts`와 동일).
+ * 다른 이름의 별칭을 추가하면 안 된다 — 한쪽만 새 이름을 읽는 순간 "둘 중 아무거나
+ * 설정하면 된다"고 믿은 배포에서 다른 쪽이 조용히 전부 실패한다. 이름을 바꾸려면
+ * 세 파일을 **동시에** 바꿔야 하고, `aiPipeline.guard.test.ts`가 그것을 강제한다.
+ */
+async function masterKey() {
+  return importMasterKey(process.env.SMTP_ENCRYPTION_KEY ?? "");
+}
 
 export const llmProviderValidator = v.union(
   v.literal("anthropic"),
@@ -69,7 +82,9 @@ export const status = query({
         keyConsoleUrl: meta.keyConsoleUrl,
         keyPrefixHint: meta.keyPrefixHint,
         hasUserKey: !!row,
-        maskedKey: row ? maskApiKey(row.apiKey) : null,
+        // 봉인된 키는 복호화하지 않는다 — 저장 시 만들어 둔 마스킹을 쓴다.
+        // 레거시 평문 행만 즉석 마스킹으로 폴백한다.
+        maskedKey: row ? (row.keyMasked ?? (row.apiKey ? maskApiKey(row.apiKey) : null)) : null,
         model: row?.model ?? null,
         lastUsedAt: row?.lastUsedAt ?? null,
         lastStatus: row?.lastStatus ?? null,
@@ -107,10 +122,17 @@ export const save = mutation({
       )
       .unique();
 
+    // 봉인에 실패하면 저장하지 않는다 — 평문으로 흘려보내지 않는다.
+    // (마스터 키 미설정이면 importMasterKey가 설정 방법을 담은 오류를 던진다.)
+    const sealed = await sealSecret(key, await masterKey());
+
     const doc = {
       userId,
       provider,
-      apiKey: key,
+      // 레거시 평문 컬럼은 비워 둔다 — 재저장이 곧 마이그레이션이다.
+      apiKey: undefined,
+      apiKeySealed: sealed,
+      keyMasked: maskApiKey(key),
       model: model?.trim() || undefined,
       createdAt: existing?.createdAt ?? Date.now(),
       lastUsedAt: undefined,
@@ -196,11 +218,25 @@ export const resolveForUser = internalQuery({
 
     const row = rows.find((r) => r.provider === picked);
     if (!row) return null;
-    return {
-      provider: picked,
-      apiKey: row.apiKey,
-      model: row.model ?? null,
-    };
+
+    // 봉인 컬럼이 정본. 레거시 평문 행은 사용자가 키를 다시 저장할 때까지 그대로 쓴다.
+    let apiKey: string;
+    if (row.apiKeySealed) {
+      try {
+        apiKey = await openSecret(row.apiKeySealed, await masterKey());
+      } catch {
+        // openSecret의 문구는 SMTP 계정용이다. 여기서는 무엇을 다시 해야 하는지 바꿔 말한다.
+        // (마스터 키 교체·DB 손상 — 어느 쪽이든 재입력이 답이다.)
+        throw new Error(
+          "저장된 AI API 키를 복호화하지 못했습니다. 「내 AI」에서 키를 다시 등록해 주세요.",
+        );
+      }
+    } else if (row.apiKey) {
+      apiKey = row.apiKey;
+    } else {
+      return null;
+    }
+    return { provider: picked, apiKey, model: row.model ?? null };
   },
 });
 

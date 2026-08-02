@@ -7,6 +7,7 @@ import { Inbox, Check, CalendarClock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { PageHeader, EmptyState, ReplyTypeBadge, REPLY_TYPES } from "@/components/app/bits";
+import { SkeletonRows } from "@/components/ui/Skeleton";
 
 export default function RepliesPage() {
   const inbox = useQuery(api.replies.inbox);
@@ -22,10 +23,11 @@ export default function RepliesPage() {
       />
 
       {inbox === undefined ? (
-        <div className="h-40 animate-pulse rounded-lg border border-border bg-card" />
+        <SkeletonRows rows={3} />
       ) : inbox.length === 0 ? (
         <EmptyState
           icon={Inbox}
+          as="h2"
           title="받은 회신이 없습니다"
           description="캠페인 상세에서 기자 회신을 입력하면 여기에 분류되어 모입니다."
         />

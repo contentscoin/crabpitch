@@ -41,6 +41,20 @@ export const campaignStatusValidator = v.union(
   v.literal("done"),
 );
 
+/**
+ * 발송 수단 — 예약 실행 시점에 "무엇을 할지"를 결정한다.
+ *
+ * `record_only`는 메일을 한 통도 보내지 않고 초안만 sent로 기록한다. 크랩피치 밖에서
+ * 직접 보낸 사용자를 위한 경로이며, 명시적으로 선택해야만 쓸 수 있다.
+ * `gmail_drafts`는 발송이 아니라 Gmail 초안 생성이다(사용자가 Gmail에서 최종 발송).
+ * 기자 메일함으로 실제 메일이 나가는 것은 `smtp`뿐이다.
+ */
+export const sendModeValidator = v.union(
+  v.literal("smtp"),
+  v.literal("gmail_drafts"),
+  v.literal("record_only"),
+);
+
 export default defineSchema({
   ...authTables,
 
@@ -65,6 +79,24 @@ export default defineSchema({
     ),
     /** 플랫폼 운영자 (에이전시 admin과 별개) */
     isPlatformAdmin: v.optional(v.boolean()),
+    /**
+     * 사용자가 발신 아이덴티티를 **직접 저장한** 시각 — 온보딩 ①단계 판정 기준.
+     *
+     * 왜 별도 필드가 필요한가:
+     *  - `companyName`·`senderName`·`contactEmail`은 `ensureProfile`가 자동으로 채운다
+     *    (`user.name` 또는 리터럴 `"내 회사"`). 게다가 `AppShell`이 마운트마다 호출하므로
+     *    로그인만 해도 행이 생긴다 → **필드 존재로는 "작성했는가"를 판정할 수 없다.**
+     *  - `boilerplate`도 게이트로 쓸 수 없다. `ensureProfile`가 채우지 않는 건 맞지만
+     *    **제품 어디에서도 읽히지 않는 필드**다(보도자료는 `mediaKits.boilerplate`를 쓴다).
+     *    아무 효과 없는 값을 채워야 배너가 사라지는 게이트는 사용자를 납득시킬 수 없다.
+     *
+     * ⚠️ `updateProfile`만 이 값을 찍는다. `ensureProfile`는 절대 쓰지 않는다
+     *    (가드 테스트가 고정한다) — 자동 완료가 되면 판정이 무의미해진다.
+     *
+     * 기존 사용자는 미완료로 보인다. 설정을 한 번 저장하면 닫히고, 그 행위 자체가
+     * 온보딩이 요구하는 것이므로 백필하지 않는다.
+     */
+    profileConfirmedAt: v.optional(v.number()),
   }).index("by_user", ["userId"]),
 
   // OpenCrab 기자 온톨로지 캐시 (mailing_status: candidate)
@@ -120,6 +152,14 @@ export default defineSchema({
     packSyncedAt: v.optional(v.number()),
     /** 팩 목록에서 마지막으로 확인된 시각 — stale(이직·퇴사 추정) 판정 기준 */
     lastSeenInPackAt: v.optional(v.number()),
+
+    /**
+     * 사용자 메모 — 회신 내용·게재 이력·관계 맥락을 사람이 적어 두는 자리.
+     *
+     * ⚠️ 팩 동기화가 덮어쓰지 않는다(`opencrab.upsert`는 이 필드를 건드리지 않는다).
+     *    날짜 도장을 찍어 줄바꿈으로 덧붙인다 — 덮어쓰면 이전 맥락이 사라진다.
+     */
+    notes: v.optional(v.string()),
   })
     .index("by_email", ["email"])
     .index("by_beat", ["beatPrimary"]),
@@ -195,6 +235,15 @@ export default defineSchema({
     faq: v.optional(v.array(v.object({ q: v.string(), a: v.string() }))),
     /** 부제 2개(각 40자 이내) */
     subheads: v.optional(v.array(v.string())),
+    /**
+     * 인용문 화자 — 「이름 + 직함」 순서로 조립된다("홍길동 대표는 …").
+     *
+     * 이 두 필드가 없으면 메일 초안의 인용문이 화자 없이 「대표는 "…"라고 밝혔습니다」로
+     * 나간다. `EmailContext`에는 원래 있던 필드인데 폼·스키마에 입력 경로가 없어
+     * 한 번도 채워지지 않았다.
+     */
+    spokesName: v.optional(v.string()),
+    spokesTitle: v.optional(v.string()),
   }).index("by_user", ["userId"]).index("by_client", ["agencyClientId"]),
 
   // 배포 캠페인
@@ -205,6 +254,42 @@ export default defineSchema({
     status: campaignStatusValidator,
     scheduledSendAt: v.optional(v.number()), // 예약 발송 시각(ms)
     agencyClientId: v.optional(v.id("agencyClients")),
+    /**
+     * 예약 시각에 **무엇을 할지**.
+     *
+     * 이 필드가 없던 동안 예약 발송은 발신 수단과 무관하게 초안 상태만 sent로 바꿨다
+     * (실행 함수가 internalMutation이라 외부 I/O가 구조적으로 불가능했다). SMTP를
+     * 연결해 두고 예약해도 기자에게 메일이 한 통도 나가지 않았다.
+     * 예약 시점에 수단을 확정해 저장하고, 실행 시점에는 그 수단의 액션을 디스패치한다.
+     *
+     * 레거시 예약(undefined)은 "record_only"로 취급한다 — 이미 그 동작을 전제로
+     * 예약된 건을 실행 시점에 실발송으로 바꾸면 사용자가 동의하지 않은 발송이 된다.
+     */
+    sendMode: v.optional(sendModeValidator),
+    /**
+     * 예약 실행 디스패치 클레임 시각.
+     *
+     * 실발송은 액션이라 확정까지 시간이 걸린다. 그 사이 캠페인은 여전히
+     * `status:"sending"` + 과거 `scheduledSendAt`이므로 매분 크론이 **같은 캠페인을
+     * 다시 디스패치해 중복 발송**한다. 디스패치 직전에 이 값을 찍어 창을 닫는다.
+     * 오래된 클레임(액션이 죽은 경우)은 `DISPATCH_STALE_MS` 뒤 재시도를 허용한다.
+     */
+    dispatchedAt: v.optional(v.number()),
+    /**
+     * 예약 실행 실패 사유.
+     *
+     * 예약 실행 시점에는 사용자가 화면에 없다 — 액션이 throw하면 아무도 모른다.
+     * 실패를 여기 남겨 캠페인 화면에서 보이게 한다.
+     */
+    lastSendError: v.optional(v.string()),
+    /**
+     * 예약 실행 실패 횟수.
+     *
+     * 실패할 때마다 크론이 재시도하는데, 원인이 고쳐지지 않으면(예: 메일 비밀번호 변경)
+     * **영구히 재시도**한다. 매 시도가 실제 SMTP 접속이므로 계정이 잠길 수도 있다.
+     * 상한에 닿으면 예약을 해제하고 사용자가 개입하게 한다.
+     */
+    sendAttempts: v.optional(v.number()),
   })
     .index("by_user", ["userId"])
     .index("by_scheduled", ["scheduledSendAt"])
@@ -243,6 +328,24 @@ export default defineSchema({
     ),
     sentAt: v.optional(v.number()),
     scheduledSendAt: v.optional(v.number()),
+    /**
+     * 이 초안을 만든 골격 — 프리셋 4종 또는 "custom".
+     *
+     * AI 개인화 단계가 이 값을 읽어 골격별 분량·구조 지시를 만든다. 없으면 모든 초안이
+     * 표준 7블록 규칙으로 다듬어져 '데이터 중심'·'초간결' 선택이 무의미해진다.
+     * 레거시 초안은 undefined — 읽는 쪽이 "standard"로 폴백한다.
+     */
+    templateKind: v.optional(
+      v.union(
+        v.literal("standard"),
+        v.literal("data"),
+        v.literal("story"),
+        v.literal("brief"),
+        v.literal("custom"),
+        // 팔로업은 프리셋과 다른 별도 골격이다(원본 프리셋을 상속하지 않는다).
+        v.literal("followup"),
+      ),
+    ),
     /** 메일 컴플라이언스 게이트 판정: "pass" | "warn" | "fail" */
     complianceLevel: v.optional(v.string()),
     /** 위반 요약(사용자 노출용 한글 문구) + 발송 제외 사유 */
@@ -465,7 +568,28 @@ export default defineSchema({
       v.literal("openai"),
       v.literal("gemini"),
     ),
-    apiKey: v.string(),
+    /**
+     * ⚠️ 레거시 평문 컬럼 — 신규 저장은 `apiKeySealed`에만 쓴다.
+     *
+     * 남겨 두는 이유는 이미 저장된 키로 계속 호출이 되어야 하기 때문이다(읽기 폴백).
+     * 사용자가 키를 다시 저장하면 봉인 컬럼으로 옮겨지고 이 값은 지워진다.
+     */
+    apiKey: v.optional(v.string()),
+    /**
+     * AES-256-GCM으로 봉인한 API 키(`secretBox`).
+     *
+     * 해시가 아니라 봉인인 이유: 호출 시점에 **원문을 프로바이더로 보내야** 한다.
+     * SMTP 비밀번호(`smtpAccounts.passwordSealed`)와 같은 등급의 비밀인데 한쪽만
+     * 평문이던 정책 비대칭을 없앤다.
+     */
+    apiKeySealed: v.optional(v.string()),
+    /**
+     * 화면 표시용 마스킹 문자열(비밀 아님).
+     *
+     * 저장 시점에 만들어 둔다 — 그러지 않으면 목록을 그릴 때마다 키를 복호화해야 하고,
+     * 원문을 다루는 지점이 불필요하게 늘어난다.
+     */
+    keyMasked: v.optional(v.string()),
     model: v.optional(v.string()), // 미설정 시 프로바이더 기본 모델
     createdAt: v.number(),
     lastUsedAt: v.optional(v.number()),

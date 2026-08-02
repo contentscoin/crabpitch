@@ -62,18 +62,27 @@ export function EmptyState({
   title,
   description,
   action,
+  as: Heading = "h3",
 }: {
   icon: LucideIcon;
   title: string;
   description?: string;
   action?: React.ReactNode;
+  /**
+   * 제목의 heading 레벨.
+   *
+   * 기본값 `h3`은 섹션 heading(`h2`) 안에 놓일 때만 맞다. `PageHeader`(h1) 바로 아래에
+   * 두면 h2를 건너뛰어 heading 순서가 깨지고, 스크린리더 사용자가 heading으로 훑을 때
+   * 구조를 잘못 읽는다. 호출부가 자기 위치를 알고 지정한다.
+   */
+  as?: "h2" | "h3" | "h4";
 }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-card px-6 py-16 text-center">
       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface text-muted">
-        <Icon className="h-6 w-6" />
+        <Icon className="h-6 w-6" aria-hidden="true" />
       </div>
-      <h3 className="mt-4 text-lg font-bold">{title}</h3>
+      <Heading className="mt-4 text-lg font-bold">{title}</Heading>
       {description && <p className="mt-1 max-w-sm text-sm text-foreground-muted">{description}</p>}
       {action && <div className="mt-5">{action}</div>}
     </div>

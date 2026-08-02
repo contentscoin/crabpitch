@@ -1,7 +1,9 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { getProfile, requireUser } from "./model";
-import { canAccessClientScoped, getMembership } from "./lib/agencyAuth";
+import { canAccessClientScoped, resolveActiveClientScope } from "./lib/agencyAuth";
 import { campaignStatusValidator } from "./schema";
 
 export const list = query({
@@ -9,31 +11,20 @@ export const list = query({
   handler: async (ctx) => {
     const userId = await requireUser(ctx);
     const profile = await getProfile(ctx, userId);
-    let campaigns;
-    if (profile?.activeClientId) {
-      const client = await ctx.db.get(profile.activeClientId);
-      const member =
-        client && (await getMembership(ctx, client.agencyId, userId));
-      campaigns = member
-        ? await ctx.db
-            .query("campaigns")
-            .withIndex("by_client", (q) =>
-              q.eq("agencyClientId", profile.activeClientId!),
-            )
-            .order("desc")
-            .collect()
-        : await ctx.db
-            .query("campaigns")
-            .withIndex("by_user", (q) => q.eq("userId", userId))
-            .order("desc")
-            .collect();
-    } else {
-      campaigns = await ctx.db
-        .query("campaigns")
-        .withIndex("by_user", (q) => q.eq("userId", userId))
-        .order("desc")
-        .collect();
-    }
+    // 축 판정은 `resolveActiveClientScope` 하나로 모았다 — 온보딩 체크리스트가 같은
+    // 판정을 써야 진행률 라벨("이 클라이언트")과 집계 대상이 어긋나지 않는다.
+    const clientId = await resolveActiveClientScope(ctx, userId, profile);
+    const campaigns = clientId
+      ? await ctx.db
+          .query("campaigns")
+          .withIndex("by_client", (q) => q.eq("agencyClientId", clientId))
+          .order("desc")
+          .collect()
+      : await ctx.db
+          .query("campaigns")
+          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .order("desc")
+          .collect();
     // 각 캠페인의 요약 카운트 부착
     return Promise.all(
       campaigns.map(async (c) => {
@@ -77,25 +68,34 @@ export const get = query({
   },
 });
 
+/**
+ * 캠페인 생성 — **웹앱과 MCP가 공유하는 단일 구현.**
+ * `userId`를 인자로 받는다: MCP에는 로그인 세션이 없고 키로 사용자를 찾는다.
+ */
+export async function createCampaignForUser(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  { pressReleaseId, name }: { pressReleaseId: Id<"pressReleases">; name?: string },
+): Promise<Id<"campaigns">> {
+  const pr = await ctx.db.get(pressReleaseId);
+  if (!pr || !(await canAccessClientScoped(ctx, userId, pr.userId, pr.agencyClientId))) {
+    throw new Error("보도자료를 찾을 수 없습니다.");
+  }
+  const profile = await getProfile(ctx, userId);
+  return ctx.db.insert("campaigns", {
+    userId: pr.userId,
+    pressReleaseId,
+    name: name ?? pr.title,
+    status: "draft",
+    agencyClientId: profile?.activeClientId ?? pr.agencyClientId,
+  });
+}
+
 export const create = mutation({
   args: { pressReleaseId: v.id("pressReleases"), name: v.optional(v.string()) },
-  handler: async (ctx, { pressReleaseId, name }) => {
+  handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
-    const pr = await ctx.db.get(pressReleaseId);
-    if (
-      !pr ||
-      !(await canAccessClientScoped(ctx, userId, pr.userId, pr.agencyClientId))
-    ) {
-      throw new Error("보도자료를 찾을 수 없습니다.");
-    }
-    const profile = await getProfile(ctx, userId);
-    return ctx.db.insert("campaigns", {
-      userId: pr.userId,
-      pressReleaseId,
-      name: name ?? pr.title,
-      status: "draft",
-      agencyClientId: profile?.activeClientId ?? pr.agencyClientId,
-    });
+    return createCampaignForUser(ctx, userId, args);
   },
 });
 

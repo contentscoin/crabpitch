@@ -15,11 +15,12 @@ import {
 import { GEO_TARGETS } from "@/convex/lib/pressGuide";
 import { FileText, ListChecks, Plus, Sparkles, Trash2, Wand2 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Input, Label, Textarea } from "@/components/ui/Input";
 import { PageHeader } from "@/components/app/bits";
 import { ByoAiConnectPanel } from "@/components/app/ByoAiConnect";
+import { toUserMessage } from "@/lib/errorMessage";
 
 /**
  * severity → 배지. 1차 정책은 warn-only라 색만 나누고 표현은 "확인" 계열로 통일한다.
@@ -58,6 +59,8 @@ export default function NewCampaignPage() {
     body: "",
     numbers: "",
     quote: "",
+    spokesName: "",
+    spokesTitle: "",
     topicTags: "",
     links: "",
     boilerplate: "",
@@ -102,6 +105,13 @@ export default function NewCampaignPage() {
     setError(null);
     setPolishing(true);
     setNote(null);
+    /*
+      ⚠️ `lint`도 반드시 초기화한다. 라이브 리전은 **DOM 변경**으로 발화하므로, 같은 문구가
+         다시 세팅되면 React가 텍스트 노드를 건드리지 않아 아무것도 낭독되지 않는다.
+         AI 미연결 상태로 두 번 점검하면 위반 건수가 같아 요약 문구가 문자 그대로 동일해지고,
+         사용자 입장에서는 버튼을 눌렀는데 반응이 없는 것이 된다.
+    */
+    setLint(null);
     try {
       const tags = form.topicTags
         .split(/[,\s]+/)
@@ -146,7 +156,9 @@ export default function NewCampaignPage() {
           : (result.message ?? null),
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "AI 다듬기에 실패했습니다.");
+      // `err.message`를 그대로 쓰면 `[CONVEX A(aiActions:…)] Uncaught Error: …`가 노출된다.
+      // 이제 이 문구가 라이브 리전으로 **낭독**되므로 접두를 벗기지 않을 수 없다.
+      setError(toUserMessage(err, "AI 다듬기에 실패했습니다."));
     } finally {
       setPolishing(false);
     }
@@ -182,6 +194,8 @@ export default function NewCampaignPage() {
         who: form.who || undefined,
         numbers: form.numbers || undefined,
         quote: form.quote || undefined,
+        spokesName: form.spokesName.trim() || undefined,
+        spokesTitle: form.spokesTitle.trim() || undefined,
         links: links.length ? links : undefined,
         keyTakeaways: keyTakeaways.length ? keyTakeaways : undefined,
         subheads: subheads.length ? subheads : undefined,
@@ -190,7 +204,7 @@ export default function NewCampaignPage() {
       const campaignId = await createCampaign({ pressReleaseId: prId });
       router.push(`/campaigns/${campaignId}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "생성에 실패했습니다.");
+      setError(toUserMessage(err, "생성에 실패했습니다."));
       setLoading(false);
     }
   }
@@ -313,6 +327,35 @@ export default function NewCampaignPage() {
                 onChange={(e) => set("quote", e.target.value)}
                 placeholder="바로 인용 가능한 구체적 코멘트"
               />
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <Input
+                  aria-label="인용문 화자 이름"
+                  value={form.spokesName}
+                  onChange={(e) => set("spokesName", e.target.value)}
+                  placeholder="화자 이름 (예: 홍길동)"
+                />
+                <Input
+                  aria-label="인용문 화자 직함"
+                  value={form.spokesTitle}
+                  onChange={(e) => set("spokesTitle", e.target.value)}
+                  placeholder="직함 (예: 대표, CTO)"
+                />
+              </div>
+              <p className="mt-1 text-xs text-muted">
+                {form.quote ? (
+                  <>
+                    메일 초안에 이렇게 실립니다 —{" "}
+                    <b className="text-foreground">
+                      {`${form.spokesName.trim() ? `${form.spokesName.trim()} ` : ""}${
+                        form.spokesTitle.trim() || "대표"
+                      }는 "${form.quote}"라고 밝혔습니다.`}
+                    </b>
+                    {!form.spokesName.trim() && " 이름을 비우면 화자 없이 나갑니다."}
+                  </>
+                ) : (
+                  "화자 이름·직함을 적으면 메일 초안이 「홍길동 대표는 …라고 밝혔습니다」 형태로 조립됩니다."
+                )}
+              </p>
             </div>
 
             <div>
@@ -407,7 +450,15 @@ export default function NewCampaignPage() {
               <p className="mt-1 text-xs text-muted">
                 보도자료 하단 회사 소개입니다. AI 다듬기에 함께 전달돼 미디어킷과 같은 문장을 유지합니다.
               </p>
-              {kitNote && <p className="mt-1 text-xs text-muted">{kitNote}</p>}
+              {/* 사용자 동작의 결과 문구다 — 같은 화면의 note·error와 같게 낭독되어야 한다. */}
+              <p role="status" className="sr-only">
+                {kitNote ?? ""}
+              </p>
+              {kitNote && (
+                <p aria-hidden="true" className="mt-1 text-xs text-muted">
+                  {kitNote}
+                </p>
+              )}
             </div>
 
             <div>
@@ -421,11 +472,56 @@ export default function NewCampaignPage() {
               />
             </div>
 
-            {note && <p className="text-xs text-muted">{note}</p>}
+            {/*
+              ⚠️ 라이브 리전 3원칙 — 셋 다 지켜야 실제로 낭독된다.
+              ① **항상 마운트**한다. 내용과 함께 컨테이너가 삽입되면 스크린리더가 변화를
+                 감지하지 못한다(`Toast`가 politeness별 컨테이너를 항상 두는 것과 같은 이유).
+              ② `display:none`으로 감추지 않는다. 숨겨진 라이브 리전에 들어온 내용은
+                 낭독되지 않는다 — `empty:hidden`을 쓸 수 없는 이유다.
+              ③ 그래서 `sr-only`를 쓴다. `position:absolute`라 부모의 `space-y-5`에
+                 빈 항목이 여백을 만드는 문제도 없다.
+
+              시각 메시지는 아래에 그대로 두고 `aria-hidden`으로 중복 낭독만 막는다.
+              sr-only 사본이 같은 DOM 위치에 있으므로 순차 낭독에서도 빠지지 않는다.
+            */}
+            <p role="status" className="sr-only">
+              {note ?? ""}
+            </p>
+            {note && (
+              <p aria-hidden="true" className="text-xs text-muted">
+                {note}
+              </p>
+            )}
+
+            {/*
+              점검 결과는 요약만 낭독한다 — 위반 목록 전체를 읽히면 길어서 오히려
+              무엇이 걸렸는지 놓친다. 자세한 내용은 아래 패널을 훑으면 된다.
+            */}
+            <p role="status" className="sr-only">
+              {lint
+                ? lint.violations.length === 0
+                  ? "문구 점검 완료 — 걸린 항목이 없습니다."
+                  : `문구 점검 완료 — 먼저 확인 ${lint.summary.critical}건, 확인 권장 ${lint.summary.high}건, 참고 ${lint.summary.medium}건.`
+                : ""}
+            </p>
 
             {lint && <LintPanel lint={lint} stale={lintStale} />}
 
-            {error && <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}
+            {/*
+              실패는 `role="alert"`(assertive) — 방금 누른 동작이 실패했다는 사실은
+              다른 낭독을 끊고 알려야 한다.
+            */}
+            <p role="alert" className="sr-only">
+              {error ?? ""}
+            </p>
+            {error && (
+              <p
+                aria-hidden="true"
+                className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger"
+              >
+                {error}
+              </p>
+            )}
 
             <div className="flex flex-wrap justify-end gap-2 pt-2">
               <Button type="button" variant="subtle" onClick={() => router.back()}>
@@ -454,14 +550,12 @@ export default function NewCampaignPage() {
                     <ListChecks className="h-4 w-4" />
                     {polishing ? "점검 중…" : "문구 점검"}
                   </Button>
-                  <Link href="/ai">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      title="내 AI에서 GPT·Claude·Gemini API 키를 등록하면 웹에서 바로 다듬을 수 있습니다."
-                    >
-                      <Wand2 className="h-4 w-4" /> AI 연결하고 다듬기
-                    </Button>
+                  <Link
+                    href="/ai"
+                    className={buttonClasses({ variant: "ghost" })}
+                    title="내 AI에서 GPT·Claude·Gemini API 키를 등록하면 웹에서 바로 다듬을 수 있습니다."
+                  >
+                    <Wand2 className="h-4 w-4" aria-hidden="true" /> AI 연결하고 다듬기
                   </Link>
                 </>
               )}

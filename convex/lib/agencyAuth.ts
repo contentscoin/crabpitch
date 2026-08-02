@@ -95,3 +95,27 @@ export async function canAccessClientScoped(
   const membership = await getMembership(ctx, client.agencyId, userId);
   return membership !== null;
 }
+
+
+/**
+ * 캠페인 조회 축을 확정한다 — 클라이언트 축이면 그 id, 사용자 축이면 null.
+ *
+ * `profiles.activeClientId`가 **있어도** 클라이언트 축이라고 단정할 수 없다. 클라이언트
+ * 문서가 삭제되거나 멤버십이 박탈되면(둘 다 `activeClientId`를 지우지 않는다) 조회는
+ * 사용자 축으로 떨어진다.
+ *
+ * ⚠️ `campaigns.list`와 `onboarding.getMyChecklist`가 **반드시 같은 판정**을 써야 한다.
+ *    각자 구현하면 "(이 클라이언트) n/3"이라고 적힌 진행률 아래에서 계정 전체 캠페인이
+ *    계산된다 — 숫자가 틀리는 게 아니라 **무엇을 센 것인지가 라벨과 달라진다**.
+ */
+export async function resolveActiveClientScope(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  profile: Doc<"profiles"> | null,
+): Promise<Id<"agencyClients"> | null> {
+  if (!profile?.activeClientId) return null;
+  const client = await ctx.db.get(profile.activeClientId);
+  if (!client) return null;
+  const membership = await getMembership(ctx, client.agencyId, userId);
+  return membership ? profile.activeClientId : null;
+}

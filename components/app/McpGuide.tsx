@@ -5,9 +5,10 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Check, Copy, Plug, Shield } from "lucide-react";
 import Link from "next/link";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { Skeleton } from "@/components/ui/Skeleton";
 import {
   MCP_PLATFORMS,
   MCP_PRIVACY_RULES,
@@ -164,7 +165,7 @@ export function McpDashboardCard() {
   const keys = useQuery(api.userMcpKeys.list);
 
   if (access === undefined) {
-    return <div className="h-28 animate-pulse rounded-lg bg-surface" />;
+    return <Skeleton className="h-28" />;
   }
 
   const activeCount = keys?.filter((k) => !k.revoked).length ?? 0;
@@ -184,10 +185,8 @@ export function McpDashboardCard() {
                   : "보도자료 작성만"}
             </Badge>
           </div>
-          <Link href="/ai">
-            <Button type="button" size="sm" variant="subtle">
-              {access.allowed ? "연결 관리" : "자세히 보기"}
-            </Button>
+          <Link href="/ai" className={buttonClasses({ size: "sm", variant: "subtle" })}>
+            {access.allowed ? "연결 관리" : "자세히 보기"}
           </Link>
         </div>
         <p className="text-sm text-foreground-muted">
