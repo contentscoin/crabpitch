@@ -366,6 +366,97 @@ export const listMatches = query({
   },
 });
 
+/**
+ * 매칭 포함/제외 일괄 지정 — **웹의 체크박스에 해당하는 것을 MCP에서도 할 수 있게 한다.**
+ *
+ * 이게 없으면 MCP 파이프라인은 "매칭한 전원에게 보낸다"밖에 못 한다. 대상을 고르는 수단이
+ * 없으면 테스트 한 통을 보내려다 실제 기자 열댓 명에게 나간다.
+ *
+ * `keepOnly`가 핵심이다 — "이 사람들만"은 포함 지정과 나머지 제외를 **한 번에** 해야 한다.
+ * 두 번에 나누면 그 사이에 발송이 끼어들 수 있고, 애초에 사용자가 표현하려는 것도 하나다.
+ */
+export async function setMatchInclusionForUser(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  {
+    campaignId,
+    keepOnly,
+    include,
+    exclude,
+  }: {
+    campaignId: Id<"campaigns">;
+    keepOnly?: Array<Id<"matches">>;
+    include?: Array<Id<"matches">>;
+    exclude?: Array<Id<"matches">>;
+  },
+) {
+  const campaign = await ctx.db.get(campaignId);
+  if (!campaign || campaign.userId !== userId) throw new Error("캠페인을 찾을 수 없습니다.");
+
+  const matches = await ctx.db
+    .query("matches")
+    .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
+    .collect();
+  const byId = new Map(matches.map((m) => [String(m._id), m]));
+
+  /** 이 캠페인에 없는 id는 조용히 무시하지 않는다 — 오타를 성공으로 돌려주면 안 된다. */
+  const unknown: string[] = [];
+  const known = (ids?: Array<Id<"matches">>) =>
+    (ids ?? []).filter((id) => {
+      if (byId.has(String(id))) return true;
+      unknown.push(String(id));
+      return false;
+    });
+
+  if (keepOnly !== undefined) {
+    const keep = new Set(known(keepOnly).map(String));
+    // 빈 배열은 "전원 제외"가 된다. 의도한 것일 수 있지만 사고일 확률이 훨씬 높아 막는다.
+    if (keep.size === 0) {
+      throw new Error(
+        "keepOnly에 유효한 matchId가 하나도 없습니다. 전원을 제외하려면 exclude를 쓰세요.",
+      );
+    }
+    for (const m of matches) {
+      const want = keep.has(String(m._id));
+      if (m.included !== want) await ctx.db.patch(m._id, { included: want });
+    }
+  } else {
+    for (const id of known(include)) {
+      if (!byId.get(String(id))!.included) await ctx.db.patch(id, { included: true });
+    }
+    for (const id of known(exclude)) {
+      if (byId.get(String(id))!.included) await ctx.db.patch(id, { included: false });
+    }
+  }
+
+  const after = await ctx.db
+    .query("matches")
+    .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
+    .collect();
+  after.sort((a, b) => b.score - a.score);
+
+  const rows = [];
+  for (const m of after) {
+    const j = await ctx.db.get(m.journalistId);
+    rows.push({
+      matchId: m._id,
+      // ⚠️ 실명·이메일은 나가지 않는다. 사람을 특정하는 데는 코드+매체로 충분하다.
+      journalist: journalistCode(String(m.journalistId)),
+      outlet: j?.outlet ?? "(삭제됨)",
+      beat: j?.beatPrimary ?? "",
+      score: m.score,
+      included: m.included,
+    });
+  }
+  return {
+    campaignId,
+    total: rows.length,
+    includedCount: rows.filter((r) => r.included).length,
+    unknownMatchIds: unknown,
+    matches: rows,
+  };
+}
+
 export const toggleInclude = mutation({
   args: { matchId: v.id("matches") },
   handler: async (ctx, { matchId }) => {

@@ -62,6 +62,7 @@ Authorization: Bearer cp_mcp_…
 | `crabpitch_campaign_create` | 보도자료 저장 + 캠페인 생성 | ✅ | ✅ |
 | `crabpitch_campaign_status` | 캠페인 상세 — 초안 목록·승인 여부·표현 규정 판정 | ✅ | ✅ |
 | `crabpitch_campaign_match` | 캠페인에 기자 매칭 (수신거부·재접근 거부 자동 제외) | — | ✅ |
+| `crabpitch_match_select` | **발송 대상 선별** — 매칭 목록 조회 + `keepOnly`로 특정 기자만 남기기 | — | ✅ |
 | `crabpitch_drafts_generate` | 기자별 개인화 초안 생성 | — | ✅ |
 | `crabpitch_drafts_approve` | 초안 승인 (draftId를 하나씩 지정) | — | ✅ |
 | `crabpitch_campaign_send` | **실제 발송** — `confirm=true` 없으면 미리보기만 | — | ✅ |
@@ -85,11 +86,18 @@ Authorization: Bearer cp_mcp_…
 ## 4. MCP에서 발송까지 — 확인 없이는 나가지 않습니다
 
 ```
-crabpitch_campaign_create → _match → _drafts_generate
+crabpitch_campaign_create → _match
+  → _match_select     (대상 확인 · 필요하면 keepOnly로 좁힌다)
+  → _drafts_generate
   → _campaign_status  (초안을 사용자에게 보여 준다)
   → _drafts_approve   (사용자가 확인한 draftId만)
   → _campaign_send    (confirm=true)
 ```
+
+> **`crabpitch_match_select`를 건너뛰지 마세요.** `_match`는 주제 점수 상위 N명을 잡고,
+> `_drafts_generate`는 그 **전원**에게 초안을 만들며, `_campaign_send`는 게이트를 통과한
+> **전부**를 보냅니다. 특정 한 명에게만 보내려면 `keepOnly`로 먼저 좁혀야 합니다 —
+> 시험 발송이 실제 기자 열댓 명에게 나가는 사고가 여기서 갈립니다.
 
 > **`crabpitch_campaign_send`는 `confirm`을 생략하면 발송하지 않습니다.** 대상 수와 제외
 > 사유만 돌려줍니다. 발송은 되돌릴 수 없고, 에이전트가 대화 흐름상 "다음 단계"로 판단해

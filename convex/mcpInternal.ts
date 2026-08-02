@@ -19,7 +19,7 @@ import { buildEmailDraft, isEmailTemplatePresetId } from "./lib/emailTemplate";
 import { needsPilotApproval } from "./lib/pilotGate";
 import { createPressReleaseForUser } from "./pressReleases";
 import { createCampaignForUser } from "./campaigns";
-import { matchForCampaignForUser } from "./journalists";
+import { matchForCampaignForUser, setMatchInclusionForUser } from "./journalists";
 import { generateDraftsForUser } from "./drafts";
 
 const MCP_OPT_OUT =
@@ -366,6 +366,24 @@ export const matchCampaign = internalMutation({
     const matched = await matchForCampaignForUser(ctx, userId, { campaignId, topK });
     return { matched };
   },
+});
+
+/**
+ * 매칭 포함/제외 — 웹의 체크박스에 해당한다.
+ *
+ * 이 도구가 없으면 MCP는 "매칭한 전원에게 보낸다"밖에 못 한다. 한 명에게 시험 발송하려다
+ * 실제 기자 전원에게 나가는 상황이 실제로 가능했다.
+ */
+export const matchSelect = internalMutation({
+  args: {
+    userId: v.id("users"),
+    campaignId: v.id("campaigns"),
+    keepOnly: v.optional(v.array(v.id("matches"))),
+    include: v.optional(v.array(v.id("matches"))),
+    exclude: v.optional(v.array(v.id("matches"))),
+  },
+  handler: async (ctx, { userId, ...args }) =>
+    setMatchInclusionForUser(ctx, userId, args),
 });
 
 export const generateDrafts = internalMutation({

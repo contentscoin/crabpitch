@@ -213,6 +213,35 @@ const TOOLS = [
     },
   },
   {
+    name: "crabpitch_match_select",
+    description:
+      "캠페인의 발송 대상을 고릅니다. 인자 없이 부르면 현재 매칭 목록(matchId·기자 코드·매체·적합도·포함 여부)만 돌려줍니다. keepOnly로 특정 기자만 남길 수 있습니다 — 초안 생성·발송은 '포함'된 기자에게만 이뤄집니다. 시험 발송처럼 대상을 좁혀야 할 때 반드시 먼저 쓰세요.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string", description: "캠페인 ID" },
+        keepOnly: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "여기 적힌 matchId만 포함하고 **나머지는 전부 제외**합니다. '이 사람들에게만 보낸다'는 뜻입니다.",
+        },
+        include: {
+          type: "array",
+          items: { type: "string" },
+          description: "지정한 matchId를 포함으로 되돌립니다(나머지는 건드리지 않음).",
+        },
+        exclude: {
+          type: "array",
+          items: { type: "string" },
+          description: "지정한 matchId를 제외합니다(나머지는 건드리지 않음).",
+        },
+      },
+      required: ["campaignId"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "crabpitch_drafts_generate",
     description: "매칭된 기자별로 개인화 메일 초안을 만듭니다. 초안 본문에 기자 실명은 들어가지 않습니다(발송 시점 주입).",
     inputSchema: {
@@ -557,7 +586,34 @@ async function callTool(
             {
               matched,
               sendingGuidance: sendingGuidance(topK),
-              next: "crabpitch_drafts_generate 로 초안을 만드세요.",
+              next:
+                "crabpitch_match_select 로 대상을 확인하고(필요하면 keepOnly로 좁힌 뒤) " +
+                "crabpitch_drafts_generate 로 초안을 만드세요.",
+            },
+            null,
+            2,
+          ),
+        );
+      }
+      case "crabpitch_match_select": {
+        const campaignId = campaignIdArg(args.campaignId);
+        const ids = (v: unknown) =>
+          Array.isArray(v) ? (strArray(v) as Array<Id<"matches">>) : undefined;
+        const result = await ctx.runMutation(internal.mcpInternal.matchSelect, {
+          userId,
+          campaignId,
+          keepOnly: ids(args.keepOnly),
+          include: ids(args.include),
+          exclude: ids(args.exclude),
+        });
+        return textResult(
+          JSON.stringify(
+            {
+              ...result,
+              next:
+                result.includedCount === 0
+                  ? "포함된 기자가 없습니다. 이 상태로 초안을 만들면 0건이 됩니다."
+                  : `포함 ${result.includedCount}명. crabpitch_drafts_generate로 초안을 만드세요.`,
             },
             null,
             2,

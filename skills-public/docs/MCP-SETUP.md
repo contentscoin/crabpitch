@@ -16,7 +16,7 @@
 | `crabpitch_email_template` (피치 메일 템플릿) | — | ✅ |
 | `crabpitch_classify` (회신 분류) | — | ✅ |
 | `crabpitch_campaign_list` · `_create` · `_status` (캠페인 관리) | ✅ | ✅ |
-| `crabpitch_campaign_match` · `_drafts_generate` · `_drafts_approve` (매칭·초안·승인) | — | ✅ |
+| `crabpitch_campaign_match` · `_match_select` · `_drafts_generate` · `_drafts_approve` (매칭·대상 선별·초안·승인) | — | ✅ |
 | `crabpitch_campaign_send` (**실제 발송**) | — | ✅ |
 | `crabpitch_journalist_note` · `crabpitch_replies` (기자 메모·회신) | — | ✅ |
 
@@ -78,11 +78,16 @@
 ## 발송까지 채팅에서 — 다만 확인은 사용자가
 
 ```
-crabpitch_campaign_create → _match → _drafts_generate
+crabpitch_campaign_create → _match
+  → _match_select    (대상 확인 · keepOnly로 좁히기)
+  → _drafts_generate
   → _campaign_status (초안을 사용자에게 보여 준다)
-  → _drafts_approve (사용자가 확인한 draftId만)
-  → _campaign_send (confirm=true)
+  → _drafts_approve  (사용자가 확인한 draftId만)
+  → _campaign_send   (confirm=true)
 ```
+
+**`_match_select`를 건너뛰지 마라.** `_match`는 상위 N명을 잡고 `_drafts_generate`는 그
+전원에게 초안을 만든다. 특정 기자에게만 보내려면 `keepOnly`로 먼저 좁혀야 한다.
 
 **`crabpitch_campaign_send`는 `confirm` 없이는 보내지 않는다.** 대상 수와 제외 사유만
 돌려준다. 발송은 되돌릴 수 없다 — 사용자에게 누구에게 몇 통이 나가는지 보여 주고

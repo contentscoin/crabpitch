@@ -124,6 +124,7 @@ describe("MCP HTTP 엔드포인트", () => {
       "crabpitch_campaign_list",
       "crabpitch_campaign_create",
       "crabpitch_campaign_match",
+      "crabpitch_match_select",
       "crabpitch_drafts_generate",
       "crabpitch_campaign_status",
       "crabpitch_drafts_approve",
@@ -231,6 +232,7 @@ describe("MCP HTTP 엔드포인트", () => {
     const names = (body.result.tools as Array<{ name: string }>).map((t) => t.name);
     for (const locked of [
       "crabpitch_campaign_match",
+      "crabpitch_match_select",
       "crabpitch_drafts_generate",
       "crabpitch_drafts_approve",
       "crabpitch_campaign_send",
@@ -247,7 +249,7 @@ describe("MCP HTTP 엔드포인트", () => {
       post(VALID_KEY, { jsonrpc: "2.0", id: 7, method: "tools/list" }),
     );
     const body = await res.json();
-    expect((body.result.tools as unknown[]).length).toBe(15);
+    expect((body.result.tools as unknown[]).length).toBe(16);
   });
 
   it("confirm 없이 crabpitch_campaign_send를 부르면 보내지 않는다", async () => {
@@ -331,6 +333,59 @@ describe("MCP HTTP 엔드포인트", () => {
     const body = await res.json();
     expect(body.result.isError).toBe(true);
     expect(calls).not.toContain("smtpActions:sendCampaignForMcp");
+  });
+
+  it("crabpitch_match_select — keepOnly로 대상을 좁힌다", async () => {
+    // 이게 없으면 MCP는 "매칭한 전원에게 보낸다"밖에 못 한다. 한 명에게 시험 발송하려다
+    // 실제 기자 전원에게 나가는 상황이 실제로 가능했다.
+    const { ctx } = makeCtx({
+      "mcpInternal:matchSelect": (args) => ({
+        campaignId: args.campaignId,
+        total: 3,
+        includedCount: (args.keepOnly as string[] | undefined)?.length ?? 3,
+        unknownMatchIds: [],
+        matches: [],
+      }),
+    });
+    const res = await handleMcpRequest(
+      ctx,
+      post(VALID_KEY, {
+        jsonrpc: "2.0",
+        id: 29,
+        method: "tools/call",
+        params: {
+          name: "crabpitch_match_select",
+          arguments: { campaignId: "c1", keepOnly: ["m1"] },
+        },
+      }),
+    );
+    const out = JSON.parse((await res.json()).result.content[0].text);
+    expect(out.includedCount).toBe(1);
+    expect(out.next).toMatch(/포함 1명/);
+  });
+
+  it("포함이 0명이면 초안이 0건이 된다고 알린다", async () => {
+    // 조용히 넘어가면 사용자는 "왜 초안이 안 생기지"를 되묻게 된다.
+    const { ctx } = makeCtx({
+      "mcpInternal:matchSelect": () => ({
+        campaignId: "c1",
+        total: 3,
+        includedCount: 0,
+        unknownMatchIds: [],
+        matches: [],
+      }),
+    });
+    const res = await handleMcpRequest(
+      ctx,
+      post(VALID_KEY, {
+        jsonrpc: "2.0",
+        id: 30,
+        method: "tools/call",
+        params: { name: "crabpitch_match_select", arguments: { campaignId: "c1" } },
+      }),
+    );
+    const out = JSON.parse((await res.json()).result.content[0].text);
+    expect(out.next).toMatch(/0건/);
   });
 
   it("무료 키도 crabpitch_mail_setup을 호출할 수 있다", async () => {
