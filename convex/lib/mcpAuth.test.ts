@@ -75,6 +75,7 @@ describe("MCP 스킬 권한", () => {
     // 무료로 열어 두면 남용 비용이 곧바로 커진다.
     for (const tool of [
       "crabpitch_campaign_match",
+      "crabpitch_match_select",
       "crabpitch_drafts_generate",
       "crabpitch_drafts_approve",
       "crabpitch_campaign_send",

@@ -138,6 +138,7 @@ export const MCP_TOOL_SKILL: Record<string, SkillId> = {
   crabpitch_campaign_list: "press-release-writer",
   crabpitch_campaign_status: "press-release-writer",
   crabpitch_campaign_match: "journalist-outreach",
+  crabpitch_match_select: "journalist-outreach",
   crabpitch_drafts_generate: "journalist-outreach",
   crabpitch_drafts_approve: "journalist-outreach",
   crabpitch_campaign_send: "journalist-outreach",
