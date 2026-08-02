@@ -56,7 +56,7 @@ export default function AdminLogsPage() {
   );
 
   return (
-    <div className="space-y-5">
+    <div className="max-w-5xl space-y-6">
       <PageHeader
         title="동기화 로그"
         description="오픈크랩 팩 동기화 실행 이력. 최근 1,000건까지 봅니다."

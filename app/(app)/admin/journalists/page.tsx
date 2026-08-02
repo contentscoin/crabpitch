@@ -58,7 +58,7 @@ export default function AdminJournalistsPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="max-w-5xl space-y-6">
       <PageHeader
         title="기자 디렉터리"
         description="반입된 기자 레코드 전체. 실명·이메일은 표시하지 않습니다."

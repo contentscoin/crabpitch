@@ -237,7 +237,7 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="max-w-5xl space-y-8">
+    <div className="max-w-5xl space-y-6">
       <PageHeader
         title="관리자"
         description="사용자·요금제·MCP 키·연동 상태를 운영합니다. 에이전시 admin과 별개의 플랫폼 권한입니다."
@@ -334,7 +334,7 @@ export default function AdminPage() {
         </section>
       )}
 
-      <section className="space-y-4">
+      <section className="space-y-3">
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <div>
             <h2 className="flex items-center gap-2 text-lg font-bold">
@@ -379,13 +379,9 @@ export default function AdminPage() {
           </p>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            label="기자 총원"
-            value={jStats ? `${jStats.total}` : "…"}
-            hint={jStats ? `소스 ${Object.keys(jStats.bySource).length}종` : undefined}
-            icon={Users}
-          />
+        {/* 이 줄은 **팩 데이터의 건강 상태**만 다룬다. 기자 총원은 화면 위 요약과
+            기자 디렉터리에 이미 있어서 여기 두면 같은 숫자가 한 화면에 세 번 나온다. */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <StatCard
             label="데이터 기준일"
             value={jStats ? fmtDate(jStats.latestArticleAt) : "…"}
@@ -950,8 +946,7 @@ export default function AdminPage() {
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                 <span className="font-semibold tabular-nums">{jStats.total}명</span>
                 <span className="text-xs text-foreground-muted tabular-nums">
-                  팩 {jStats.fromPacks} · stale {jStats.staleCount} · 매체 분류 미상{" "}
-                  {jStats.missingCategory}
+                  팩 유래 {jStats.fromPacks} · 시드·수동 {jStats.total - jStats.fromPacks}
                 </span>
               </div>
             )}
