@@ -364,58 +364,93 @@ function SettingsInner() {
       </section>
 
       <section>
-        <h2 className="mb-3 text-lg font-bold">Gmail 연동 (BYO-Email)</h2>
-        <Card>
-          <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-surface">
-                <Mail className="h-5 w-5 text-muted" />
-              </div>
-              <div>
-                <div className="font-semibold">
-                  {gmail?.connected ? `연결됨 · ${gmail.email}` : "Google 계정 연결"}
-                </div>
-                <div className="text-xs text-muted">
-                  발송·초안은 사용자 본인 Gmail로 나가며, 모든 배포·회신은 Gmail{" "}
-                  <b>&lsquo;언론홍보&rsquo;</b> 라벨 안에서 관리됩니다.
-                </div>
-              </div>
-            </div>
-            {gmail?.connected ? (
-              <Button
-                variant="subtle"
-                loading={gmailBusy}
-                onClick={async () => {
-                  setGmailBusy(true);
-                  try {
-                    await disconnectGmail({});
-                    toast.success("Gmail 연결을 해제했습니다.");
-                  } catch (e) {
-                    // 기존에는 try/finally만 있어 실패가 조용히 사라졌다.
-                    toast.error(toUserMessage(e));
-                  } finally {
-                    setGmailBusy(false);
-                  }
-                }}
-              >
-                {gmailBusy ? "해제 중…" : "연결 해제"}
-              </Button>
-            ) : (
-              <Button variant="brand" icon={Mail} loading={gmailBusy} onClick={connectGmail}>
-                {gmailBusy ? "이동 중…" : "Gmail 연결"}
-              </Button>
-            )}
-          </CardContent>
-        </Card>
+        <h2 className="mb-3 text-lg font-bold">발신 메일 (SMTP)</h2>
+        <p className="mb-3 text-sm text-muted">
+          기본 발송 경로입니다. Gmail·네이버·다음·아웃룩·회사 메일 — 제공자를 가리지 않습니다.
+        </p>
+        <SmtpConnectPanel />
       </section>
 
       <section>
-        <h2 className="mb-3 text-lg font-bold">발신 메일 (SMTP)</h2>
+        <h2 className="mb-3 flex flex-wrap items-center gap-2 text-lg font-bold">
+          Gmail 연동 (BYO-Email)
+          <Badge variant="deep">{gmail?.requiredPlanLabel ?? "Agency"} 전용</Badge>
+        </h2>
         <p className="mb-3 text-sm text-muted">
-          Gmail 연결이 어렵거나 회사 메일로 보내야 한다면 이쪽을 씁니다. 두 방식 모두 파일럿
-          승인·수신거부·쿨다운·표현 규정·발송 한도를 <b>똑같이</b> 통과합니다.
+          Gmail <b>&lsquo;언론홍보&rsquo;</b> 라벨에 초안을 만들어 두는 방식입니다. 발송 전에
+          Gmail에서 한 번 더 검토할 수 있습니다. 어느 경로든 파일럿 승인·수신거부·쿨다운·표현
+          규정·발송 한도는 <b>똑같이</b> 통과합니다.
         </p>
-        <SmtpConnectPanel />
+        <Card>
+          <CardContent className="space-y-3 pt-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-surface">
+                  <Mail className="h-5 w-5 text-muted" />
+                </div>
+                <div>
+                  <div className="font-semibold">
+                    {gmail?.connected ? `연결됨 · ${gmail.email}` : "Google 계정 연결"}
+                  </div>
+                  <div className="text-xs text-muted">
+                    발송·초안은 사용자 본인 Gmail로 나가며, 모든 배포·회신은 Gmail{" "}
+                    <b>&lsquo;언론홍보&rsquo;</b> 라벨 안에서 관리됩니다.
+                  </div>
+                </div>
+              </div>
+              {gmail?.connected ? (
+                <Button
+                  variant="subtle"
+                  loading={gmailBusy}
+                  onClick={async () => {
+                    setGmailBusy(true);
+                    try {
+                      await disconnectGmail({});
+                      toast.success("Gmail 연결을 해제했습니다.");
+                    } catch (e) {
+                      // 기존에는 try/finally만 있어 실패가 조용히 사라졌다.
+                      toast.error(toUserMessage(e));
+                    } finally {
+                      setGmailBusy(false);
+                    }
+                  }}
+                >
+                  {gmailBusy ? "해제 중…" : "연결 해제"}
+                </Button>
+              ) : (
+                <Button
+                  variant="brand"
+                  icon={Mail}
+                  loading={gmailBusy}
+                  disabled={gmail?.allowed === false}
+                  onClick={connectGmail}
+                >
+                  {gmailBusy ? "이동 중…" : "Gmail 연결"}
+                </Button>
+              )}
+            </div>
+
+            {/* 잠긴 이유와 함께 **대안**을 준다 — 발송이 막힌 게 아니라 수단 하나가 잠긴 것이다. */}
+            {gmail?.allowed === false && (
+              <p className="rounded-md bg-surface px-3 py-2 text-xs text-foreground-muted">
+                {gmail.connected ? (
+                  <>
+                    <b>이 연결은 더 이상 사용되지 않습니다.</b> Gmail 연동은{" "}
+                    {gmail.requiredPlanLabel} 플랜 전용이라, 지금 플랜에서는 이 계정으로 초안이
+                    생성되지 않습니다. 위 <b>발신 메일 (SMTP)</b> 로 계속 발송할 수 있습니다.
+                  </>
+                ) : (
+                  <>
+                    Gmail 연동은 <b>{gmail.requiredPlanLabel} 플랜 전용</b>입니다. 다른 플랜에서는
+                    위 <b>발신 메일 (SMTP)</b> 로 Gmail·네이버·다음·회사 메일 어디서든 발송할 수
+                    있습니다 — 승인·수신거부·쿨다운·표현 규정·발송 한도는 두 경로가 똑같이
+                    적용됩니다.
+                  </>
+                )}
+              </p>
+            )}
+          </CardContent>
+        </Card>
       </section>
 
       <section>

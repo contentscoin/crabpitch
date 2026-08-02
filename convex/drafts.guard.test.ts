@@ -297,6 +297,62 @@ describe("외부 전송 수단 경로", () => {
 });
 
 /**
+ * Gmail 연동 플랜 가드.
+ *
+ * Gmail 연동은 Agency 전용이다. **연결 시점만 막으면 샌다** — Agency에서 내려온 사용자의
+ * 계정 문서는 그대로 남아 있어서 발송이 계속된다. 그래서 진입점 셋(연결 URL 발급 · OAuth
+ * 콜백 · 발송)이 모두 같은 확인을 통과하는지 소스 수준에서 고정한다.
+ */
+describe("Gmail 연동 플랜 가드", () => {
+  const GMAIL_HTTP_SOURCE = readFileSync(join(HERE, "gmailHttp.ts"), "utf-8");
+
+  for (const [label, source] of [
+    ["연결 URL 발급·발송(gmailActions)", GMAIL_SOURCE],
+    ["OAuth 콜백(gmailHttp)", GMAIL_HTTP_SOURCE],
+  ] as const) {
+    it(`${label}는 플랜을 확인한다`, () => {
+      expect(source).toContain("internal.gmailAccounts.checkOAuthAccess");
+    });
+  }
+
+  /** `gmailActions.ts`에서 마커로 시작하는 최상위 블록을 잘라낸다. */
+  function gmailBlock(marker: string): string {
+    const start = GMAIL_SOURCE.indexOf(marker);
+    expect(start, `${marker} 를 찾지 못했습니다`).toBeGreaterThan(-1);
+    const rest = GMAIL_SOURCE.slice(start + marker.length);
+    const boundary = [rest.indexOf("\nasync function "), rest.indexOf("\nexport const ")].filter(
+      (i) => i !== -1,
+    );
+    return boundary.length ? rest.slice(0, Math.min(...boundary)) : rest;
+  }
+
+  it("발송 경로도 확인한다 — 연결 시점 한 번으로 끝내지 않는다", () => {
+    // 연결 발급(`getConnectUrl`)과 발송 본문(`pushCampaignForUser`), 둘이다.
+    expect(GMAIL_SOURCE.match(/checkOAuthAccess/g) ?? []).toHaveLength(2);
+  });
+
+  it("발송 확인은 진입점이 아니라 공유 본문에 있다 — 예약분이 새지 않게", () => {
+    // 발송 진입점은 둘이다: `pushCampaignToGmail`(화면에서 즉시)과
+    // `pushCampaignInternal`(스케줄러가 예약 시각에). 둘 다 `pushCampaignForUser`를 부른다.
+    //
+    // 확인을 진입점 한쪽으로 되돌리면 **위 개수 테스트는 그대로 통과하면서** 예약분만
+    // 게이트를 건너뛴다. 플랜이 Agency에서 내려간 뒤에도 예약해 둔 캠페인은 나간다.
+    expect(gmailBlock("async function pushCampaignForUser")).toContain("checkOAuthAccess");
+    for (const entry of ["pushCampaignToGmail", "pushCampaignInternal"] as const) {
+      expect(gmailBlock(`export const ${entry} =`)).toContain("pushCampaignForUser(");
+    }
+  });
+
+  it("판정 임계값을 복제하지 않는다", () => {
+    // 플랜 이름을 경로마다 다시 적으면 하나가 반드시 어긋난다.
+    for (const source of [GMAIL_SOURCE, GMAIL_HTTP_SOURCE, GMAIL_ACCOUNTS_SOURCE]) {
+      expect(source).not.toMatch(/===\s*"agency"/);
+    }
+    expect(GMAIL_ACCOUNTS_SOURCE).toContain("planAllowsGmailOAuth(");
+  });
+});
+
+/**
  * SMTP 자격증명 가드.
  *
  * Gmail 앱 비밀번호는 IMAP까지 열려 있어 DB 유출만으로 과거 메일이 통째로 읽힌다.

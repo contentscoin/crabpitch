@@ -128,6 +128,22 @@ export const MCP_TOOL_SKILL: Record<string, SkillId> = {
   crabpitch_match_journalists: "journalist-outreach",
   crabpitch_email_template: "journalist-outreach",
   crabpitch_classify: "reply-handler",
+
+  /* 캠페인 파이프라인 — 기존 정책을 그대로 따른다.
+   *
+   * 보도자료를 쓰고 자기 캠페인 현황을 보는 것까지는 무료다(기자 데이터도, 발송
+   * 인프라도 건드리지 않는다). 매칭·초안·승인·발송은 그 둘을 모두 쓰므로 유료다.
+   * ⚠️ 웹앱은 무료도 전부 쓸 수 있다 — 좁은 건 자동화 창구뿐이다. */
+  crabpitch_campaign_create: "press-release-writer",
+  crabpitch_campaign_list: "press-release-writer",
+  crabpitch_campaign_status: "press-release-writer",
+  crabpitch_campaign_match: "journalist-outreach",
+  crabpitch_drafts_generate: "journalist-outreach",
+  crabpitch_drafts_approve: "journalist-outreach",
+  crabpitch_campaign_send: "journalist-outreach",
+  crabpitch_journalist_note: "journalist-outreach",
+  crabpitch_replies: "reply-handler",
+
   // crabpitch_status는 게이트 대상이 아니다 — 무엇이 잠겼는지 알려 주는 도구다.
   // crabpitch_mail_setup도 게이트하지 않는다 — 무료 사용자도 웹앱에서 발송할 수 있고,
   // 그러려면 메일 계정을 연결해야 한다. 설정을 막으면 잠긴 건 발송이 아니라 온보딩이다.
@@ -145,6 +161,38 @@ export function upgradeRequiredMessage(skill: SkillId): string {
     "reply-handler": "회신 분류",
   };
   return `${label[skill]}은(는) MCP에서 유료 플랜 전용입니다. 무료 플랜은 MCP에서 보도자료 작성(crabpitch_press_guide)만 쓸 수 있습니다. 이 기능은 CrabPitch 웹앱에서는 무료로도 이용할 수 있고, Solo 이상으로 업그레이드하면 MCP에서도 열립니다.`;
+}
+
+/**
+ * Gmail 연동(BYO-Email)은 **Agency 전용**이다.
+ *
+ * 발송 자체가 유료 기능이라는 뜻이 아니다 — 다른 플랜은 SMTP로 **똑같이** 보낸다.
+ * 게이트(파일럿 승인·수신거부·쿨다운·표현 규정·상한·월 한도)도 두 경로가 공유한다.
+ * 잠기는 것은 전송 수단 하나이지 발송 기능이 아니다.
+ *
+ * Gmail 경로만 따로 떼는 이유는 비용 구조가 다르기 때문이다. Gmail API는 제한 스코프라
+ * 우리가 Google 검수를 받고 유지해야 하고, 미검수 상태에서는 연결 사용자 수에 상한이
+ * 걸린다. 검수 대상 사용자를 좁히지 않으면 상한을 무엇에 쓸지 우리가 못 고른다.
+ * SMTP는 그런 제약이 없어 모든 플랜에 열어 둔다.
+ */
+export const GMAIL_OAUTH_PLAN: Plan = "agency";
+
+/**
+ * ⚠️ 연결 시점만 보지 말고 **쓰는 시점마다** 다시 물어야 한다.
+ *    Agency에서 내려온 사용자의 계정 문서는 그대로 남아 있어서, 연결 시점 검사만으로는
+ *    다운그레이드 후에도 계속 발송된다.
+ */
+export function planAllowsGmailOAuth(plan: Plan | string | undefined): boolean {
+  return normalizePlan(plan) === GMAIL_OAUTH_PLAN;
+}
+
+/** 막을 때는 대안을 함께 준다 — 발송이 막힌 게 아니라 수단 하나가 잠긴 것이다. */
+export function gmailOAuthUpgradeMessage(): string {
+  return (
+    `Gmail 연동(BYO-Email)은 ${PLAN_LIMITS[GMAIL_OAUTH_PLAN].label} 플랜 전용입니다. ` +
+    "다른 플랜에서는 설정 → 발신 메일(SMTP)로 Gmail·네이버·다음·회사 메일 어디서든 발송할 수 있고, " +
+    "승인·수신거부·쿨다운·표현 규정·발송 한도는 두 경로가 똑같이 적용됩니다."
+  );
 }
 
 export function planAllowsMcp(plan: Plan | string | undefined): boolean {

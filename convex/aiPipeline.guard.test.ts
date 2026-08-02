@@ -38,16 +38,40 @@ function exportBlock(source: string, name: string): string {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
+/**
+ * `async function <name>` 부터 다음 최상위 선언 직전까지.
+ *
+ * 웹앱과 MCP가 같은 구현을 쓰도록 본문이 공유 헬퍼로 빠져 있다. 공개 mutation만 보면
+ * 위임 한 줄뿐이라 아무 불변식도 확인할 수 없다.
+ */
+function fnBlock(source: string, name: string): string {
+  const start = source.indexOf(`async function ${name}`);
+  expect(start, `${name} 를 찾지 못했습니다`).toBeGreaterThan(-1);
+  const rest = source.slice(start + 1);
+  const boundary = [rest.indexOf("\nasync function "), rest.indexOf("\nexport const ")].filter(
+    (i) => i !== -1,
+  );
+  return boundary.length ? rest.slice(0, Math.min(...boundary)) : rest;
+}
+
 describe("골격(templateKind)이 생성 → 저장 → AI까지 이어진다", () => {
   it("초안 스키마에 골격 컬럼이 있다", () => {
     expect(SCHEMA).toContain("templateKind");
   });
 
   it("초안 생성이 골격을 레코드에 남긴다", () => {
-    const block = exportBlock(DRAFTS, "generateForCampaign");
+    // 본문은 웹앱·MCP 공유 헬퍼에 있다. 공개 mutation은 위임 한 줄이라 여기서 볼 게 없다.
+    const block = fnBlock(DRAFTS, "generateDraftsForUser");
     expect(block).toContain("templateKind");
     // 커스텀 템플릿과 프리셋은 규범이 다르므로 구분해서 남겨야 한다.
     expect(block).toMatch(/custom \? "custom" : presetId/);
+  });
+
+  it("공개 mutation은 그 헬퍼로 위임한다 — 사본을 만들지 않는다", () => {
+    // 경로마다 초안 생성을 따로 두면 골격 기록이 한쪽에서만 빠져도 타입은 통과한다.
+    // ①번 사고가 정확히 그렇게 났다.
+    expect(exportBlock(DRAFTS, "generateForCampaign")).toContain("generateDraftsForUser(");
+    expect(DRAFTS.match(/async function generateDraftsForUser/g) ?? []).toHaveLength(1);
   });
 
   it("AI 개인화용 조회가 골격을 함께 돌려준다", () => {

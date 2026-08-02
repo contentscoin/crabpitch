@@ -152,6 +152,14 @@ export default defineSchema({
     packSyncedAt: v.optional(v.number()),
     /** 팩 목록에서 마지막으로 확인된 시각 — stale(이직·퇴사 추정) 판정 기준 */
     lastSeenInPackAt: v.optional(v.number()),
+
+    /**
+     * 사용자 메모 — 회신 내용·게재 이력·관계 맥락을 사람이 적어 두는 자리.
+     *
+     * ⚠️ 팩 동기화가 덮어쓰지 않는다(`opencrab.upsert`는 이 필드를 건드리지 않는다).
+     *    날짜 도장을 찍어 줄바꿈으로 덧붙인다 — 덮어쓰면 이전 맥락이 사라진다.
+     */
+    notes: v.optional(v.string()),
   })
     .index("by_email", ["email"])
     .index("by_beat", ["beatPrimary"]),

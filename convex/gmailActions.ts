@@ -11,6 +11,7 @@ import { pilotGateMessage } from "./lib/pilotGate";
 import { requireGoogleOAuthClient } from "./lib/googleOAuthEnv";
 // 제외 사유 문구는 SMTP 경로와 공유한다 — 게이트가 같은데 설명이 다르면 안 된다.
 import { excludedSummary } from "./lib/sendOutcome";
+import { gmailOAuthUpgradeMessage } from "./lib/plans";
 
 function requireGmailOAuthEnv() {
   return requireGoogleOAuthClient();
@@ -43,13 +44,20 @@ type ActionRunner = {
   ) => Promise<null>;
 };
 
-/** 설정 화면: Gmail 연결 OAuth URL 발급. */
+/**
+ * 설정 화면: Gmail 연결 OAuth URL 발급.
+ *
+ * ⚠️ Agency 전용이다. 화면에서 감추는 것과 별개로 여기서도 막는다 — 액션을 직접
+ *    부르는 경로가 있고, 화면 조건은 클라이언트가 바꿀 수 있다.
+ */
 export const getConnectUrl = action({
   args: {},
   returns: v.object({ url: v.string() }),
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("로그인이 필요합니다.");
+    const access = await ctx.runQuery(internal.gmailAccounts.checkOAuthAccess, { userId });
+    if (!access.allowed) throw new Error(gmailOAuthUpgradeMessage());
     const { clientId } = requireGmailOAuthEnv();
     const state = crypto.randomUUID();
     await ctx.runMutation(internal.gmailAccounts.createOauthState, { userId, state });
@@ -226,6 +234,15 @@ async function pushCampaignForUser(
   userId: Id<"users">,
 ): Promise<{ sent: number; mode: "gmail_drafts"; message?: string }> {
   {
+    // ⚠️ 연결 시점이 아니라 **발송 시점**에 다시 묻는다. Agency에서 내려온 사용자의
+    //    계정 문서는 그대로 남아 있어서, 연결 시점 검사만으로는 계속 발송된다.
+    //
+    // 이 확인이 `pushCampaignToGmail`이 아니라 **공유 본문**에 있는 이유: 예약 발송이
+    // `pushCampaignInternal`로 같은 본문에 들어온다. 진입점 한쪽에만 두면 예약해 둔
+    // 캠페인은 플랜이 내려간 뒤에도 그대로 나간다.
+    const access = await ctx.runQuery(internal.gmailAccounts.checkOAuthAccess, { userId });
+    if (!access.allowed) throw new Error(gmailOAuthUpgradeMessage());
+
     const { clientId, clientSecret } = requireGmailOAuthEnv();
     const account = await ctx.runQuery(internal.gmailAccounts.getAccountInternal, { userId });
     if (!account) {

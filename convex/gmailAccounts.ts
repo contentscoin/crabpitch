@@ -1,24 +1,57 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { requireUser, getProfile } from "./model";
+import { GMAIL_OAUTH_PLAN, PLAN_LIMITS, planAllowsGmailOAuth } from "./lib/plans";
 
+/**
+ * Gmail 연동은 Agency 전용이다(`lib/plans.GMAIL_OAUTH_PLAN`).
+ *
+ * `allowed`를 `connected`와 **따로** 돌려준다. 둘은 같은 값이 아니다 —
+ * Agency에서 내려온 사용자는 계정이 남아 있어 `connected: true`이지만 쓸 수는 없다.
+ * 그 상태에서 화면이 할 일은 "연결 해제"를 보여 주는 것이지 발송 버튼을 주는 게 아니다.
+ */
 export const getConnection = query({
   args: {},
   returns: v.union(
     v.object({
       connected: v.literal(true),
       email: v.string(),
+      allowed: v.boolean(),
+      requiredPlanLabel: v.string(),
     }),
-    v.object({ connected: v.literal(false) }),
+    v.object({
+      connected: v.literal(false),
+      allowed: v.boolean(),
+      requiredPlanLabel: v.string(),
+    }),
   ),
   handler: async (ctx) => {
     const userId = await requireUser(ctx);
+    const profile = await getProfile(ctx, userId);
+    const allowed = planAllowsGmailOAuth(profile?.plan);
+    const requiredPlanLabel = PLAN_LIMITS[GMAIL_OAUTH_PLAN].label;
     const account = await ctx.db
       .query("gmailAccounts")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .unique();
-    if (!account) return { connected: false as const };
-    return { connected: true as const, email: account.email };
+    if (!account) return { connected: false as const, allowed, requiredPlanLabel };
+    return { connected: true as const, email: account.email, allowed, requiredPlanLabel };
+  },
+});
+
+/**
+ * 액션·HTTP 콜백용 플랜 확인.
+ *
+ * 연결·발송 **양쪽**에서 부른다. 연결 시점에만 보면 다운그레이드한 사용자가 계속
+ * 발송하게 된다 — 권한은 쓰는 시점마다 다시 물어야 한다.
+ */
+export const checkOAuthAccess = internalQuery({
+  args: { userId: v.id("users") },
+  returns: v.object({ allowed: v.boolean(), plan: v.string() }),
+  handler: async (ctx, { userId }) => {
+    const profile = await getProfile(ctx, userId);
+    const plan = profile?.plan ?? "free";
+    return { allowed: planAllowsGmailOAuth(plan), plan };
   },
 });
 

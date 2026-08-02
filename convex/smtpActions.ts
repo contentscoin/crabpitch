@@ -24,6 +24,13 @@ import { excludedSummary, fromHeader } from "./lib/sendOutcome";
  *    사용자가 Gmail에서 최종 발송하지만, 여기서는 즉시 상대 메일함으로 나간다.
  */
 
+type SmtpSendResult = {
+  sent: number;
+  failed: number;
+  mode: "smtp";
+  message?: string;
+};
+
 type SmtpAccount = {
   _id: Id<"smtpAccounts">;
   email: string;
@@ -125,10 +132,7 @@ export const testConnection = action({
  */
 export const sendCampaign = action({
   args: { campaignId: v.id("campaigns") },
-  handler: async (
-    ctx,
-    { campaignId },
-  ): Promise<{ sent: number; failed: number; mode: "smtp"; message?: string }> => {
+  handler: async (ctx, { campaignId }): Promise<SmtpSendResult> => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("로그인이 필요합니다.");
     return await sendCampaignForUser(ctx, campaignId, userId);
@@ -140,10 +144,15 @@ export const sendCampaign = action({
  *
  * 스케줄러 실행 시점에는 `getAuthUserId`가 쓸 수 없으므로 public action을 그대로
  * 예약할 수 없다. 발송 로직을 복제하면 게이트가 한쪽에서만 갱신되므로,
- * 본문은 `sendCampaignForUser` 하나만 두고 진입점만 둘로 나눈다.
+ * 본문은 `sendCampaignForUser` 하나만 두고 진입점만 셋으로 나눈다
+ * (화면 즉시 발송 · 예약 실행 · MCP).
  *
  * ⚠️ 실패를 throw로 끝내지 않는다 — 예약 실행 시점에는 사용자가 화면에 없어서
  *    아무도 그 예외를 보지 못한다. 사유를 캠페인에 남긴다.
+ *
+ * ⚠️ MCP 발송은 이것이 아니라 `sendCampaignForMcp`다. 이름이 비슷하지만 하는 일이
+ *    다르다 — 이쪽은 **예약 잡을 클레임**하고 결과를 캠페인에 기록한다. MCP가 이걸
+ *    부르면 예약도 없는데 클레임에 실패해 아무것도 보내지 않고 조용히 끝난다.
  */
 export const sendCampaignInternal = internalAction({
   args: {
@@ -175,11 +184,17 @@ export const sendCampaignInternal = internalAction({
   },
 });
 
+/**
+ * 발송 본문 — **화면·예약·MCP가 공유하는 단일 구현.**
+ *
+ * 경로마다 사본을 두면 파일럿 승인·수신거부·쿨다운·표현 규정·월 한도가 한쪽에서만
+ * 걸린다. 진입점은 인증 방식만 다르고, 여기서부터는 같은 길을 간다.
+ */
 async function sendCampaignForUser(
   ctx: ActionCtx,
   campaignId: Id<"campaigns">,
   userId: Id<"users">,
-): Promise<{ sent: number; failed: number; mode: "smtp"; message?: string }> {
+): Promise<SmtpSendResult> {
   {
     const account = await ctx.runQuery(internal.smtpAccounts.getAccountInternal, { userId });
     if (!account) {
@@ -264,3 +279,18 @@ async function sendCampaignForUser(
     };
   }
 }
+
+/**
+ * MCP 발송 — **웹앱과 같은 함수**를 부른다.
+ *
+ * ⚠️ MCP용 발송 경로를 따로 만들면 게이트가 하나 더 생긴다. 여기서는 사용자 확인만
+ *    한 겹 더 얹고(도구 쪽 `confirm` 인자), 실제 발송은 위와 동일한 경로로 간다.
+ *
+ * ⚠️ 예약 실행용 `sendCampaignInternal`과 다르다. 이쪽은 사용자가 채팅에서 "지금
+ *    보내"라고 한 것이므로 클레임 없이 즉시 보내고 결과를 그대로 돌려준다.
+ */
+export const sendCampaignForMcp = internalAction({
+  args: { userId: v.id("users"), campaignId: v.id("campaigns") },
+  handler: async (ctx, { userId, campaignId }): Promise<SmtpSendResult> =>
+    sendCampaignForUser(ctx, campaignId, userId),
+});

@@ -48,7 +48,7 @@ function appBaseUrl(): string {
 
 function sendingGuidance(topK: number): string {
   const base =
-    "발송은 CrabPitch 웹앱에서 사용자 승인 후에만 진행됩니다. 기자별로 내용을 달리한 개인화 메일만 보내세요.";
+    "발송은 사용자가 초안을 확인하고 명시적으로 동의한 뒤에만 진행하세요(crabpitch_campaign_send의 confirm). 기자별로 내용을 달리한 개인화 메일만 보내세요.";
   if (topK > RECOMMENDED_MATCH_LIMIT) {
     return (
       `${topK}명은 권장치(${RECOMMENDED_MATCH_LIMIT}명)를 넘습니다. ` +
@@ -58,6 +58,27 @@ function sendingGuidance(topK: number): string {
     );
   }
   return `한 번에 ${RECOMMENDED_MATCH_LIMIT}명 이하를 권장합니다. ${base}`;
+}
+
+/** MCP 인자는 무엇이든 올 수 있다 — 문자열이 아니면 빈 값으로 떨어뜨린다. */
+function str(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function strArray(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+
+/**
+ * 캠페인 ID 인자.
+ *
+ * 형식 검증은 Convex가 한다(존재하지 않는 ID면 조회에서 걸린다). 여기서는 문자열만
+ * 확인하고 넘긴다 — 소유권은 각 internal 함수가 `userId`로 다시 확인한다.
+ */
+function campaignIdArg(v: unknown): Id<"campaigns"> {
+  const s = str(v);
+  if (!s) throw new Error("campaignId가 필요합니다.");
+  return s as Id<"campaigns">;
 }
 
 const TOOLS = [
@@ -137,6 +158,144 @@ const TOOLS = [
           description:
             "발송에 쓸 이메일 주소 (선택). 주면 제공자별 절차까지 좁혀 안내합니다. 비밀번호는 절대 넣지 마세요.",
         },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "crabpitch_campaign_list",
+    description:
+      "내 캠페인 목록과 진행 상태(매칭·초안·발송 건수)를 봅니다. 기자 실명·이메일은 포함되지 않습니다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "최대 개수 (기본 20, 최대 50)" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "crabpitch_campaign_create",
+    description:
+      "보도자료를 저장하고 캠페인을 만듭니다. 이후 crabpitch_campaign_match → crabpitch_drafts_generate → crabpitch_campaign_send 순으로 진행합니다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "보도자료 제목" },
+        body: { type: "string", description: "보도자료 본문" },
+        headlines: { type: "array", items: { type: "string" }, description: "헤드라인 후보 (없으면 제목 사용)" },
+        topicTags: { type: "array", items: { type: "string" }, description: "주제 태그 — 기자 매칭의 기준입니다" },
+        who: { type: "string", description: "발표 주체 (선택)" },
+        newsValue: { type: "string", description: "뉴스 가치 한 줄 (선택)" },
+        numbers: { type: "string", description: "핵심 수치 (선택)" },
+        quote: { type: "string", description: "인용문 (선택)" },
+        spokesName: { type: "string", description: "인용문 화자 이름 (선택) — 없으면 메일 초안 인용문에 이름이 빠집니다" },
+        spokesTitle: { type: "string", description: "인용문 화자 직함 (선택) — 예: 대표, CTO" },
+        links: { type: "array", items: { type: "string" }, description: "참고 링크 (선택)" },
+        name: { type: "string", description: "캠페인 이름 (없으면 제목 사용)" },
+      },
+      required: ["title", "body"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "crabpitch_campaign_match",
+    description:
+      "캠페인 주제로 기자를 매칭해 발송 후보를 확정합니다. 수신거부·재접근 거부 기자는 자동 제외됩니다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string", description: "캠페인 ID" },
+        topK: { type: "number", description: "매칭 인원 (기본 15). 한 번에 20명 이하를 권장합니다." },
+      },
+      required: ["campaignId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "crabpitch_drafts_generate",
+    description: "매칭된 기자별로 개인화 메일 초안을 만듭니다. 초안 본문에 기자 실명은 들어가지 않습니다(발송 시점 주입).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string", description: "캠페인 ID" },
+        preset: {
+          type: "string",
+          enum: ["standard", "data", "story", "brief"],
+          description: "메일 프레임 (기본 standard)",
+        },
+      },
+      required: ["campaignId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "crabpitch_campaign_status",
+    description:
+      "캠페인 상세 — 초안 목록(기자 코드·제목·승인 여부·표현 규정 판정)과 발송 전에 걸려 있는 것을 봅니다.",
+    inputSchema: {
+      type: "object",
+      properties: { campaignId: { type: "string", description: "캠페인 ID" } },
+      required: ["campaignId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "crabpitch_drafts_approve",
+    description:
+      "초안을 승인 처리합니다. 승인할 draftId를 하나씩 지정해야 합니다 — 사용자가 내용을 확인했다는 표시이므로 일괄 승인은 제공하지 않습니다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        draftIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "crabpitch_campaign_status가 돌려준 draftId 배열",
+        },
+      },
+      required: ["draftIds"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "crabpitch_campaign_send",
+    description:
+      "승인된 초안을 사용자 본인 메일(SMTP)로 실제 발송합니다. **되돌릴 수 없습니다.** confirm을 생략하면 발송하지 않고 미리보기(대상 수·제외 사유)만 돌려줍니다. 사용자에게 직접 확인받기 전에는 confirm을 넣지 마세요.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string", description: "캠페인 ID" },
+        confirm: {
+          type: "boolean",
+          description: "사용자가 발송에 명시적으로 동의한 경우에만 true. 에이전트가 임의로 넣으면 안 됩니다.",
+        },
+      },
+      required: ["campaignId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "crabpitch_journalist_note",
+    description:
+      "기자에게 메모를 남깁니다(회신 내용·게재 이력·관계 맥락). 날짜와 함께 기존 메모에 덧붙습니다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string", description: "캠페인 ID" },
+        draftId: { type: "string", description: "대상 기자의 draftId (crabpitch_campaign_status에서 확인)" },
+        note: { type: "string", description: "메모 내용" },
+      },
+      required: ["campaignId", "draftId", "note"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "crabpitch_replies",
+    description: "받은 회신 목록과 분류 결과를 봅니다. 기자는 익명 코드로만 표시됩니다.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string", description: "특정 캠페인만 보려면 지정 (선택)" },
       },
       additionalProperties: false,
     },
@@ -342,6 +501,157 @@ async function callTool(
           settingsUrl: `${appBaseUrl()}/settings`,
         });
         return textResult(JSON.stringify(guide, null, 2));
+      }
+      case "crabpitch_campaign_list": {
+        const rows = await ctx.runQuery(internal.mcpInternal.campaignList, {
+          userId,
+          limit: typeof args.limit === "number" ? Math.floor(args.limit) : undefined,
+        });
+        return textResult(JSON.stringify({ campaigns: rows }, null, 2));
+      }
+      case "crabpitch_campaign_create": {
+        const title = str(args.title);
+        const body = str(args.body);
+        if (!title || !body) return textResult("title과 body가 필요합니다.", true);
+        const tags = strArray(args.topicTags);
+        const result = await ctx.runMutation(internal.mcpInternal.createCampaign, {
+          userId,
+          title,
+          body,
+          headlines: strArray(args.headlines),
+          // 태그가 없으면 본문·제목에서 뽑는다 — 매칭의 기준이라 비워 두면 아무도 안 걸린다.
+          topicTags: tags.length ? tags : tagsFromQuery(`${title} ${body}`),
+          who: str(args.who) || undefined,
+          newsValue: str(args.newsValue) || undefined,
+          numbers: str(args.numbers) || undefined,
+          quote: str(args.quote) || undefined,
+          // 화자를 넘기지 않으면 메일 초안 인용문이 「대표는 "…"라고 밝혔습니다」로
+          // 이름 없이 나간다. 웹 폼은 채우는 값이므로 MCP만 빠지면 경로마다 결과가 다르다.
+          spokesName: str(args.spokesName) || undefined,
+          spokesTitle: str(args.spokesTitle) || undefined,
+          links: strArray(args.links),
+          name: str(args.name) || undefined,
+        });
+        return textResult(
+          JSON.stringify(
+            {
+              ...result,
+              next: "crabpitch_campaign_match 로 기자를 매칭하세요.",
+            },
+            null,
+            2,
+          ),
+        );
+      }
+      case "crabpitch_campaign_match": {
+        const campaignId = campaignIdArg(args.campaignId);
+        const topKRaw = typeof args.topK === "number" ? Math.floor(args.topK) : 15;
+        const topK = Math.min(MAX_MATCH_LIMIT, Math.max(1, topKRaw));
+        const { matched } = await ctx.runMutation(internal.mcpInternal.matchCampaign, {
+          userId,
+          campaignId,
+          topK,
+        });
+        return textResult(
+          JSON.stringify(
+            {
+              matched,
+              sendingGuidance: sendingGuidance(topK),
+              next: "crabpitch_drafts_generate 로 초안을 만드세요.",
+            },
+            null,
+            2,
+          ),
+        );
+      }
+      case "crabpitch_drafts_generate": {
+        const campaignId = campaignIdArg(args.campaignId);
+        const result = await ctx.runMutation(internal.mcpInternal.generateDrafts, {
+          userId,
+          campaignId,
+          preset: str(args.preset) || undefined,
+        });
+        return textResult(
+          JSON.stringify(
+            {
+              ...result,
+              next: "crabpitch_campaign_status 로 초안을 확인한 뒤 crabpitch_drafts_approve 로 승인하세요.",
+            },
+            null,
+            2,
+          ),
+        );
+      }
+      case "crabpitch_campaign_status": {
+        const campaignId = campaignIdArg(args.campaignId);
+        const detail = await ctx.runQuery(internal.mcpInternal.campaignDetail, {
+          userId,
+          campaignId,
+        });
+        return textResult(JSON.stringify(detail, null, 2));
+      }
+      case "crabpitch_drafts_approve": {
+        const draftIds = strArray(args.draftIds) as Array<Id<"emailDrafts">>;
+        if (!draftIds.length) {
+          return textResult(
+            "승인할 draftId가 필요합니다. crabpitch_campaign_status로 초안을 먼저 확인하세요.",
+            true,
+          );
+        }
+        const result = await ctx.runMutation(internal.mcpInternal.approveDrafts, {
+          userId,
+          draftIds,
+        });
+        return textResult(JSON.stringify(result, null, 2));
+      }
+      case "crabpitch_campaign_send": {
+        const campaignId = campaignIdArg(args.campaignId);
+        // ⚠️ 확인 없이는 **보내지 않는다.** 발송은 되돌릴 수 없고, 에이전트가 대화 흐름상
+        //    "다음 단계"로 판단해 눌러 버리기 쉬운 자리다. 미확인이면 현황만 돌려준다.
+        if (args.confirm !== true) {
+          const detail = await ctx.runQuery(internal.mcpInternal.campaignDetail, {
+            userId,
+            campaignId,
+          });
+          return textResult(
+            JSON.stringify(
+              {
+                sent: 0,
+                preview: detail,
+                confirmationRequired:
+                  "발송하지 않았습니다. 위 대상과 건수를 사용자에게 보여 주고 동의를 받은 뒤, confirm=true로 다시 호출하세요. 되돌릴 수 없습니다.",
+              },
+              null,
+              2,
+            ),
+          );
+        }
+        // 예약용 `sendCampaignInternal`이 아니다 — 그쪽은 예약 잡을 클레임하므로
+        // 예약이 없는 이 호출은 아무것도 보내지 않고 조용히 끝난다.
+        const result = await ctx.runAction(internal.smtpActions.sendCampaignForMcp, {
+          userId,
+          campaignId,
+        });
+        return textResult(JSON.stringify(result, null, 2));
+      }
+      case "crabpitch_journalist_note": {
+        const note = str(args.note);
+        if (!note) return textResult("note가 필요합니다.", true);
+        const result = await ctx.runMutation(internal.mcpInternal.journalistNote, {
+          userId,
+          campaignId: campaignIdArg(args.campaignId),
+          draftId: str(args.draftId) as Id<"emailDrafts">,
+          note,
+        });
+        return textResult(JSON.stringify(result, null, 2));
+      }
+      case "crabpitch_replies": {
+        const raw = str(args.campaignId);
+        const replies = await ctx.runQuery(internal.mcpInternal.replyList, {
+          userId,
+          campaignId: raw ? (raw as Id<"campaigns">) : undefined,
+        });
+        return textResult(JSON.stringify({ replies }, null, 2));
       }
       case "crabpitch_email_template": {
         const angle = typeof args.angle === "string" ? args.angle : "";

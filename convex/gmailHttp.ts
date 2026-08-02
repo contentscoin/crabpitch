@@ -30,6 +30,13 @@ export const gmailOAuthCallback = httpAction(async (ctx, request) => {
     return Response.redirect(`${app}/settings?gmail=error&reason=invalid_state`, 302);
   }
 
+  // 발급과 콜백 사이에 플랜이 바뀔 수 있다(state 유효기간 10분). 여기서도 다시 묻는다 —
+  // 토큰을 저장한 뒤에 막으면 이미 리프레시 토큰을 들고 있는 상태가 된다.
+  const access = await ctx.runQuery(internal.gmailAccounts.checkOAuthAccess, { userId });
+  if (!access.allowed) {
+    return Response.redirect(`${app}/settings?gmail=error&reason=plan_required`, 302);
+  }
+
   let clientId: string;
   let clientSecret: string;
   try {

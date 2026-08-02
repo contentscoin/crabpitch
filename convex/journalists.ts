@@ -1,5 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { requireUser, getProfile } from "./model";
 import { PLAN_LIMITS, type Plan } from "./lib/plans";
 import { scoreJournalist } from "./lib/scoring";
@@ -42,10 +44,17 @@ export const STALE_MATCH_DAYS = 30;
 export const EXCLUDE_STALE_KEY = "excludeStaleMatches";
 
 /** 캠페인 보도자료 주제로 기자 매칭 실행(적합도 점수 + 근거 기록). */
-export const matchForCampaign = mutation({
-  args: { campaignId: v.id("campaigns"), topK: v.optional(v.number()) },
-  handler: async (ctx, { campaignId, topK }) => {
-    const userId = await requireUser(ctx);
+/**
+ * 기자 매칭 — **웹앱과 MCP가 공유하는 단일 구현.**
+ *
+ * `userId`를 인자로 받는다: MCP에는 로그인 세션이 없고 키로 사용자를 찾는다.
+ * 경로마다 구현을 따로 두면 억제 리스트·재접근 거부 같은 제외 기준이 한쪽에서만 걸린다.
+ */
+export async function matchForCampaignForUser(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  { campaignId, topK }: { campaignId: Id<"campaigns">; topK?: number },
+): Promise<number> {
     const campaign = await ctx.db.get(campaignId);
     if (!campaign || campaign.userId !== userId) throw new Error("캠페인을 찾을 수 없습니다.");
     const pr = await ctx.db.get(campaign.pressReleaseId);
@@ -122,6 +131,13 @@ export const matchForCampaign = mutation({
 
     await ctx.db.patch(campaignId, { status: "matched" });
     return scored.length;
+}
+
+export const matchForCampaign = mutation({
+  args: { campaignId: v.id("campaigns"), topK: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const userId = await requireUser(ctx);
+    return matchForCampaignForUser(ctx, userId, args);
   },
 });
 

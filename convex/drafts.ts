@@ -8,6 +8,7 @@ import {
   ctaLine,
   renderCustomTemplate,
   type EmailTemplateKind,
+  type EmailTemplatePresetId,
   type JournalistContext,
 } from "./lib/emailTemplate";
 import {
@@ -317,14 +318,23 @@ async function finalizeCampaignSend(
 }
 
 /** 포함된 매칭 기자 각각에 개인화 메일 초안 생성. 템플릿(프리셋/커스텀) 선택 가능. */
-export const generateForCampaign = mutation({
-  args: {
-    campaignId: v.id("campaigns"),
-    preset: v.optional(emailTemplatePresetValidator),
-    customTemplateId: v.optional(v.id("userEmailTemplates")),
+/**
+ * 초안 생성 — **웹앱과 MCP가 공유하는 단일 구현.**
+ * `userId`를 인자로 받는다: MCP에는 로그인 세션이 없고 키로 사용자를 찾는다.
+ */
+export async function generateDraftsForUser(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  {
+    campaignId,
+    preset,
+    customTemplateId,
+  }: {
+    campaignId: Id<"campaigns">;
+    preset?: EmailTemplatePresetId;
+    customTemplateId?: Id<"userEmailTemplates">;
   },
-  handler: async (ctx, { campaignId, preset, customTemplateId }) => {
-    const userId = await requireUser(ctx);
+): Promise<number> {
     if (preset && customTemplateId) {
       throw new Error("preset과 customTemplateId는 동시에 지정할 수 없습니다.");
     }
@@ -405,6 +415,17 @@ export const generateForCampaign = mutation({
       await ctx.db.patch(campaignId, { status: "review" });
     }
     return created;
+}
+
+export const generateForCampaign = mutation({
+  args: {
+    campaignId: v.id("campaigns"),
+    preset: v.optional(emailTemplatePresetValidator),
+    customTemplateId: v.optional(v.id("userEmailTemplates")),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireUser(ctx);
+    return generateDraftsForUser(ctx, userId, args);
   },
 });
 
