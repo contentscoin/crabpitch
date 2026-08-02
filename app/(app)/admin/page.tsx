@@ -163,9 +163,13 @@ export default function AdminPage() {
     api.admin.packSyncOverview,
     access?.allowed ? {} : "skip",
   );
+  // 기자 집계는 별도 쿼리로 뺐다 — 팩 동기화 쿼리가 같은 전수 스캔을 또 돌지 않게.
+  const jStats = useQuery(api.admin.journalistStats, access?.allowed ? {} : "skip");
+  const [jPage, setJPage] = useState(1);
   const journalists = useQuery(
     api.admin.listJournalists,
-    access?.allowed ? {} : "skip",
+    // 서버에서 한 페이지만 잘라 온다 — 1,700여 건을 통째로 받지 않는다.
+    access?.allowed ? { page: jPage, pageSize: 50 } : "skip",
   );
   const setPlan = useMutation(api.admin.setUserPlan);
   const setAdmin = useMutation(api.admin.setPlatformAdminFlag);
@@ -434,23 +438,19 @@ export default function AdminPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             label="기자 총원"
-            value={packSync ? `${packSync.journalistTotal}` : "…"}
-            hint={
-              packSync
-                ? `소스 ${Object.keys(packSync.bySource).length}종`
-                : undefined
-            }
+            value={jStats ? `${jStats.total}` : "…"}
+            hint={jStats ? `소스 ${Object.keys(jStats.bySource).length}종` : undefined}
             icon={Users}
           />
           <StatCard
             label="데이터 기준일"
-            value={packSync ? fmtDate(packSync.latestArticleAt) : "…"}
+            value={jStats ? fmtDate(jStats.latestArticleAt) : "…"}
             hint="근거 기사 최신일"
             icon={CalendarClock}
           />
           <StatCard
             label="팩 미확인 레코드"
-            value={packSync ? `${packSync.staleCount}` : "…"}
+            value={jStats ? `${jStats.staleCount}` : "…"}
             hint="30일 이상 팩에서 미확인 · 이직·퇴사 추정"
             icon={AlertTriangle}
           />
@@ -458,18 +458,18 @@ export default function AdminPage() {
             label="결손·실패 팩"
             value={packSync ? `${brokenPacks.length}` : "…"}
             hint={
-              packSync
-                ? `전체 ${packs.length}개 · 매체 분류 미상 ${packSync.missingCategory}건`
+              packSync && jStats
+                ? `전체 ${packs.length}개 · 매체 분류 미상 ${jStats.missingCategory}건`
                 : undefined
             }
             icon={Database}
           />
         </div>
 
-        {packSync && Object.keys(packSync.bySource).length > 0 && (
+        {jStats && Object.keys(jStats.bySource).length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-semibold text-muted">소스별</span>
-            {Object.entries(packSync.bySource)
+            {Object.entries(jStats.bySource)
               .sort((a, b) => b[1] - a[1])
               .map(([src, n]) => (
                 <Badge key={src} variant="outline">
@@ -654,11 +654,12 @@ export default function AdminPage() {
         )}
 
         {packSync?.integrity.expected !== undefined &&
-          packSync.integrity.actual < packSync.integrity.expected && (
+          jStats !== undefined &&
+          jStats.fromPacks < packSync.integrity.expected && (
             <Card>
               <CardContent className="space-y-1 pt-5">
                 <div className="text-sm font-bold text-warning">
-                  정합성 — 반입 {packSync.integrity.actual}명 / 기준 {packSync.integrity.expected}명
+                  정합성 — 반입 {jStats.fromPacks}명 / 기준 {packSync.integrity.expected}명
                 </div>
                 <p className="text-xs text-muted">
                   기자단 reference 팩이 선언한 인원보다 적게 반입됐습니다. 위 팩 표에서 결손(partial)
@@ -957,7 +958,8 @@ export default function AdminPage() {
           <div className="flex flex-wrap items-center gap-2">
             {journalists && (
               <span className="text-xs text-foreground-muted">
-                전체 {journalists.total}명 · 표시 {journalists.shown}명
+                전체 {journalists.total}명 · {journalists.page}/{journalists.pageCount}쪽
+                ({journalists.shown}명 표시)
               </span>
             )}
             <Button
@@ -1100,6 +1102,13 @@ export default function AdminPage() {
                     </tbody>
                   </table>
                 </div>
+                {/* 서버에서 한 페이지만 받아 온다 — 페이지를 넘기면 그만큼만 새로 온다. */}
+                <Pager
+                  page={journalists.page - 1}
+                  total={journalists.matched}
+                  pageSize={journalists.pageSize}
+                  onPage={(p) => setJPage(p + 1)}
+                />
                 <p className="mt-3 text-xs text-muted">
                   기자 실명·이메일·연락처는 관리자 화면에도 표시하지 않습니다. 발송 시점의
                   Gmail 수신자로만 사용됩니다.
