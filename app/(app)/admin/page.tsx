@@ -21,6 +21,7 @@ import { Button, buttonClasses } from "@/components/ui/Button";
 import { toUserMessage } from "@/lib/errorMessage";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { Input } from "@/components/ui/Input";
 import { PageHeader, StatCard } from "@/components/app/bits";
 import { PLANS } from "@/lib/brand";
 import { cn } from "@/lib/utils";
@@ -95,6 +96,47 @@ function summarizeSync(res: {
 /** 목록이 길어지면 화면이 세로로 끝없이 늘어난다 — 한 번에 이만큼만 보여준다. */
 const PACK_PAGE_SIZE = 10;
 
+/**
+ * 목록 상단 도구 막대 — 검색과 건수.
+ *
+ * 페이지를 넘기는 것보다 검색이 빠른 경우가 많다. 찾는 대상이 정해져 있으면
+ * 몇 쪽인지 모르는 채로 넘기게 하지 않는다.
+ */
+function ListToolbar({
+  placeholder,
+  value,
+  onChange,
+  total,
+  matched,
+  note,
+}: {
+  placeholder: string;
+  value: string;
+  onChange: (v: string) => void;
+  total: number;
+  matched: number;
+  note?: string;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {/* 포커스 링·테두리는 Input 프리미티브가 갖는다 — 화면에서 다시 그리지 않는다. */}
+      <Input
+        type="search"
+        className="h-9 min-w-[200px] flex-1"
+        aria-label={placeholder}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <span className="text-xs tabular-nums text-foreground-muted">
+        {/* 검색 중일 때만 "몇 건 중 몇 건"을 보여 준다 — 평소엔 총계 하나면 충분하다. */}
+        {matched === total ? `${total}건` : `${matched} / ${total}건`}
+        {note ? ` · ${note}` : ""}
+      </span>
+    </div>
+  );
+}
+
 function Pager({
   page,
   total,
@@ -149,15 +191,27 @@ function PackStatusBadge({ status }: { status?: string }) {
 }
 
 export default function AdminPage() {
+  // 목록 상태를 쿼리보다 먼저 선언한다 — 쿼리 인자가 이 값들을 참조한다.
+  const [jPage, setJPage] = useState(1);
+  const [jSearch, setJSearch] = useState("");
+  const [userPage, setUserPage] = useState(1);
+  const [userSearch, setUserSearch] = useState("");
+  const [keyPage, setKeyPage] = useState(1);
+  const [keySearch, setKeySearch] = useState("");
+  const [runPage, setRunPage] = useState(0);
+
   const access = useQuery(api.admin.getAccess);
   const overview = useQuery(
     api.admin.getOverview,
     access?.allowed ? {} : "skip",
   );
-  const users = useQuery(api.admin.listUsers, access?.allowed ? {} : "skip");
+  const users = useQuery(
+    api.admin.listUsers,
+    access?.allowed ? { page: userPage, pageSize: 25, search: userSearch } : "skip",
+  );
   const mcpKeys = useQuery(
     api.admin.listMcpKeys,
-    access?.allowed ? {} : "skip",
+    access?.allowed ? { page: keyPage, pageSize: 25, search: keySearch } : "skip",
   );
   const packSync = useQuery(
     api.admin.packSyncOverview,
@@ -165,11 +219,10 @@ export default function AdminPage() {
   );
   // 기자 집계는 별도 쿼리로 뺐다 — 팩 동기화 쿼리가 같은 전수 스캔을 또 돌지 않게.
   const jStats = useQuery(api.admin.journalistStats, access?.allowed ? {} : "skip");
-  const [jPage, setJPage] = useState(1);
   const journalists = useQuery(
     api.admin.listJournalists,
     // 서버에서 한 페이지만 잘라 온다 — 1,700여 건을 통째로 받지 않는다.
-    access?.allowed ? { page: jPage, pageSize: 50 } : "skip",
+    access?.allowed ? { page: jPage, pageSize: 50, search: jSearch } : "skip",
   );
   const setPlan = useMutation(api.admin.setUserPlan);
   const setAdmin = useMutation(api.admin.setPlatformAdminFlag);
@@ -761,8 +814,11 @@ export default function AdminPage() {
             ) : packSync.recentRuns.length === 0 ? (
               <p className="text-sm text-muted">실행 기록이 없습니다.</p>
             ) : (
+              <>
               <ul>
-                {packSync.recentRuns.map((r, i) => (
+                {packSync.recentRuns
+                  .slice(runPage * PACK_PAGE_SIZE, (runPage + 1) * PACK_PAGE_SIZE)
+                  .map((r, i) => (
                   <li
                     key={`${r.packageId}-${r.startedAt}-${i}`}
                     className="flex flex-wrap items-center gap-2 border-b border-border py-2 text-sm last:border-0"
@@ -789,6 +845,14 @@ export default function AdminPage() {
                   </li>
                 ))}
               </ul>
+              {/* 30건이 한 화면에 쏟아지면 스크롤만 길어진다. */}
+              <Pager
+                page={runPage}
+                total={packSync.recentRuns.length}
+                pageSize={PACK_PAGE_SIZE}
+                onPage={setRunPage}
+              />
+              </>
             )}
           </CardContent>
         </Card>
@@ -802,10 +866,25 @@ export default function AdminPage() {
           <CardContent className="space-y-3 pt-5">
             {users === undefined ? (
               <Skeleton className="h-32" />
-            ) : users.length === 0 ? (
-              <p className="text-sm text-muted">사용자가 없습니다.</p>
             ) : (
-              <div className="overflow-x-auto">
+              <>
+                <ListToolbar
+                  placeholder="이메일·회사명으로 찾기"
+                  value={userSearch}
+                  onChange={(v) => {
+                    setUserSearch(v);
+                    // 검색어가 바뀌면 결과가 달라진다 — 3쪽에 머물러 있으면 빈 화면을 본다.
+                    setUserPage(1);
+                  }}
+                  total={users.total}
+                  matched={users.matched}
+                />
+                {users.users.length === 0 ? (
+                  <p className="text-sm text-muted">
+                    {userSearch ? "검색 결과가 없습니다." : "사용자가 없습니다."}
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
                 <table className="w-full min-w-[720px] border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-border text-left text-xs text-muted">
@@ -818,7 +897,7 @@ export default function AdminPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {users.map((u) => (
+                    {users.users.map((u) => (
                       <tr
                         key={u.userId}
                         className="border-b border-border align-top"
@@ -886,7 +965,15 @@ export default function AdminPage() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+                  </div>
+                )}
+                <Pager
+                  page={users.page - 1}
+                  total={users.matched}
+                  pageSize={users.pageSize}
+                  onPage={(p) => setUserPage(p + 1)}
+                />
+              </>
             )}
           </CardContent>
         </Card>
@@ -900,11 +987,26 @@ export default function AdminPage() {
           <CardContent className="space-y-3 pt-5">
             {mcpKeys === undefined ? (
               <Skeleton className="h-24" />
-            ) : mcpKeys.length === 0 ? (
-              <p className="text-sm text-muted">발급된 MCP 키가 없습니다.</p>
             ) : (
-              <ul className="space-y-2">
-                {mcpKeys.map((k) => (
+              <>
+                <ListToolbar
+                  placeholder="이메일·키 이름으로 찾기"
+                  value={keySearch}
+                  onChange={(v) => {
+                    setKeySearch(v);
+                    setKeyPage(1);
+                  }}
+                  total={mcpKeys.total}
+                  matched={mcpKeys.matched}
+                  note={`사용 중 ${mcpKeys.activeCount}개`}
+                />
+                {mcpKeys.keys.length === 0 ? (
+                  <p className="text-sm text-muted">
+                    {keySearch ? "검색 결과가 없습니다." : "발급된 MCP 키가 없습니다."}
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                {mcpKeys.keys.map((k) => (
                   <li
                     key={k._id}
                     className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm"
@@ -946,7 +1048,15 @@ export default function AdminPage() {
                     )}
                   </li>
                 ))}
-              </ul>
+                  </ul>
+                )}
+                <Pager
+                  page={mcpKeys.page - 1}
+                  total={mcpKeys.matched}
+                  pageSize={mcpKeys.pageSize}
+                  onPage={(p) => setKeyPage(p + 1)}
+                />
+              </>
             )}
           </CardContent>
         </Card>
@@ -957,9 +1067,8 @@ export default function AdminPage() {
           <h2 className="text-lg font-bold">기자 디렉터리</h2>
           <div className="flex flex-wrap items-center gap-2">
             {journalists && (
-              <span className="text-xs text-foreground-muted">
-                전체 {journalists.total}명 · {journalists.page}/{journalists.pageCount}쪽
-                ({journalists.shown}명 표시)
+              <span className="text-xs tabular-nums text-foreground-muted">
+                {journalists.page}/{journalists.pageCount}쪽
               </span>
             )}
             <Button
@@ -997,25 +1106,23 @@ export default function AdminPage() {
           </Card>
         ) : (
           <>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <StatCard label="전체" value={String(journalists.total)} />
-              <StatCard
-                label="팩(오픈크랩)"
-                value={String(journalists.bySource.opencrab ?? 0)}
-              />
-              <StatCard
-                label="시드·수동"
-                value={String(
-                  (journalists.bySource.seed ?? 0) +
-                    (journalists.bySource.manual ?? 0) +
-                    (journalists.bySource.unknown ?? 0),
-                )}
-              />
-              <StatCard
-                label="stale (30일+)"
-                value={String(journalists.staleCount)}
-              />
-            </div>
+            {/* 카드 넷을 한 줄로 줄였다 — 같은 숫자가 화면 위쪽 요약에도 이미 있다.
+                자리를 차지하던 만큼을 검색에 내준다. */}
+            <ListToolbar
+              placeholder="매체명으로 찾기"
+              value={jSearch}
+              onChange={(v) => {
+                setJSearch(v);
+                setJPage(1);
+              }}
+              total={journalists.total}
+              matched={journalists.matched}
+              note={`팩 ${journalists.bySource.opencrab ?? 0} · 시드·수동 ${
+                (journalists.bySource.seed ?? 0) +
+                (journalists.bySource.manual ?? 0) +
+                (journalists.bySource.unknown ?? 0)
+              } · stale ${journalists.staleCount}`}
+            />
 
             {/* "왜 N명만 뜨지"의 실제 원인을 숫자로 보여준다. 총계만으로는 못 가린다. */}
             <Card>
@@ -1048,6 +1155,11 @@ export default function AdminPage() {
 
             <Card>
               <CardContent className="pt-5">
+                {journalists.journalists.length === 0 ? (
+                  <p className="text-sm text-muted">
+                    {jSearch ? "검색 결과가 없습니다." : "표시할 기자가 없습니다."}
+                  </p>
+                ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[42rem] text-sm">
                     <thead>
@@ -1102,6 +1214,7 @@ export default function AdminPage() {
                     </tbody>
                   </table>
                 </div>
+                )}
                 {/* 서버에서 한 페이지만 받아 온다 — 페이지를 넘기면 그만큼만 새로 온다. */}
                 <Pager
                   page={journalists.page - 1}

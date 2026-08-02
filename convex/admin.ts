@@ -121,10 +121,47 @@ export const getOverview = query({
   },
 });
 
+/**
+ * 목록 페이징 공통 처리.
+ *
+ * 필터를 좁히면 현재 페이지가 범위를 벗어난다 — 빈 화면 대신 마지막 페이지로 당긴다.
+ * 화면마다 이 계산을 다시 쓰면 그중 하나가 반드시 어긋난다.
+ */
+function paginate<T>(
+  rows: readonly T[],
+  page?: number,
+  pageSize?: number,
+  { max = 200, fallback = 25 }: { max?: number; fallback?: number } = {},
+) {
+  const size = Math.min(max, Math.max(5, pageSize ?? fallback));
+  const pageCount = Math.max(1, Math.ceil(rows.length / size));
+  const safePage = Math.min(Math.max(1, Math.floor(page ?? 1)), pageCount);
+  return {
+    rows: rows.slice((safePage - 1) * size, safePage * size),
+    page: safePage,
+    pageSize: size,
+    pageCount,
+    matched: rows.length,
+  };
+}
+
+const pagingArgs = {
+  page: v.optional(v.number()),
+  pageSize: v.optional(v.number()),
+  /** 이메일·회사명 부분 일치(대소문자 무시) */
+  search: v.optional(v.string()),
+} as const;
+
 export const listUsers = query({
-  args: {},
-  returns: v.array(
-    v.object({
+  args: pagingArgs,
+  returns: v.object({
+    total: v.number(),
+    matched: v.number(),
+    page: v.number(),
+    pageSize: v.number(),
+    pageCount: v.number(),
+    users: v.array(
+      v.object({
       userId: v.id("users"),
       profileId: v.union(v.id("profiles"), v.null()),
       name: v.union(v.string(), v.null()),
@@ -135,10 +172,11 @@ export const listUsers = query({
       gmailConnected: v.boolean(),
       sendsUsed: v.number(),
       pressReleasesUsed: v.number(),
-      mcpKeyCount: v.number(),
-    }),
-  ),
-  handler: async (ctx) => {
+        mcpKeyCount: v.number(),
+      }),
+    ),
+  }),
+  handler: async (ctx, { page, pageSize, search }) => {
     await requirePlatformAdmin(ctx);
     const month = currentMonth();
     const users = await ctx.db.query("users").collect();
@@ -156,7 +194,7 @@ export const listUsers = query({
       mcpCountByUser.set(k.userId, (mcpCountByUser.get(k.userId) ?? 0) + 1);
     }
 
-    return users
+    const all = users
       .map((u) => {
         const profile = profileByUser.get(u._id);
         const usage = usageByUser.get(u._id);
@@ -175,6 +213,21 @@ export const listUsers = query({
         };
       })
       .sort((a, b) => (a.email ?? "").localeCompare(b.email ?? "", "ko"));
+
+    // 사용자가 늘면 이 목록은 끝없이 길어진다. 찾는 사람이 정해져 있을 때는
+    // 페이지를 넘기는 것보다 검색이 빠르다.
+    const needle = search?.trim().toLowerCase() ?? "";
+    const filtered = needle
+      ? all.filter(
+          (u) =>
+            (u.email ?? "").toLowerCase().includes(needle) ||
+            (u.companyName ?? "").toLowerCase().includes(needle) ||
+            (u.name ?? "").toLowerCase().includes(needle),
+        )
+      : all;
+
+    const { rows, ...meta } = paginate(filtered, page, pageSize);
+    return { total: all.length, ...meta, users: rows };
   },
 });
 
@@ -212,9 +265,16 @@ export const setPlatformAdminFlag = mutation({
 });
 
 export const listMcpKeys = query({
-  args: {},
-  returns: v.array(
-    v.object({
+  args: pagingArgs,
+  returns: v.object({
+    total: v.number(),
+    matched: v.number(),
+    page: v.number(),
+    pageSize: v.number(),
+    pageCount: v.number(),
+    activeCount: v.number(),
+    keys: v.array(
+      v.object({
       _id: v.id("userMcpKeys"),
       userId: v.id("users"),
       email: v.union(v.string(), v.null()),
@@ -223,10 +283,11 @@ export const listMcpKeys = query({
       createdAt: v.number(),
       lastUsedAt: v.union(v.number(), v.null()),
       revoked: v.boolean(),
-      plan: v.string(),
-    }),
-  ),
-  handler: async (ctx) => {
+        plan: v.string(),
+      }),
+    ),
+  }),
+  handler: async (ctx, { page, pageSize, search }) => {
     await requirePlatformAdmin(ctx);
     const keys = await ctx.db.query("userMcpKeys").collect();
     const users = await ctx.db.query("users").collect();
@@ -234,7 +295,7 @@ export const listMcpKeys = query({
     const userById = new Map(users.map((u) => [u._id, u]));
     const profileByUser = new Map(profiles.map((p) => [p.userId, p]));
 
-    return keys
+    const all = keys
       .map((k) => {
         const user = userById.get(k.userId);
         const profile = profileByUser.get(k.userId);
@@ -251,6 +312,25 @@ export const listMcpKeys = query({
         };
       })
       .sort((a, b) => b.createdAt - a.createdAt);
+
+    const needle = search?.trim().toLowerCase() ?? "";
+    const filtered = needle
+      ? all.filter(
+          (k) =>
+            (k.email ?? "").toLowerCase().includes(needle) ||
+            k.name.toLowerCase().includes(needle) ||
+            k.keyPrefix.toLowerCase().includes(needle),
+        )
+      : all;
+
+    const { rows, ...meta } = paginate(filtered, page, pageSize);
+    return {
+      total: all.length,
+      // 폐기된 키는 목록에 남지만 "살아 있는 키 몇 개"가 실제로 궁금한 값이다.
+      activeCount: all.filter((k) => !k.revoked).length,
+      ...meta,
+      keys: rows,
+    };
   },
 });
 
