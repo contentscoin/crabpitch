@@ -121,10 +121,47 @@ export const getOverview = query({
   },
 });
 
+/**
+ * 목록 페이징 공통 처리.
+ *
+ * 필터를 좁히면 현재 페이지가 범위를 벗어난다 — 빈 화면 대신 마지막 페이지로 당긴다.
+ * 화면마다 이 계산을 다시 쓰면 그중 하나가 반드시 어긋난다.
+ */
+function paginate<T>(
+  rows: readonly T[],
+  page?: number,
+  pageSize?: number,
+  { max = 200, fallback = 25 }: { max?: number; fallback?: number } = {},
+) {
+  const size = Math.min(max, Math.max(5, pageSize ?? fallback));
+  const pageCount = Math.max(1, Math.ceil(rows.length / size));
+  const safePage = Math.min(Math.max(1, Math.floor(page ?? 1)), pageCount);
+  return {
+    rows: rows.slice((safePage - 1) * size, safePage * size),
+    page: safePage,
+    pageSize: size,
+    pageCount,
+    matched: rows.length,
+  };
+}
+
+const pagingArgs = {
+  page: v.optional(v.number()),
+  pageSize: v.optional(v.number()),
+  /** 이메일·회사명 부분 일치(대소문자 무시) */
+  search: v.optional(v.string()),
+} as const;
+
 export const listUsers = query({
-  args: {},
-  returns: v.array(
-    v.object({
+  args: pagingArgs,
+  returns: v.object({
+    total: v.number(),
+    matched: v.number(),
+    page: v.number(),
+    pageSize: v.number(),
+    pageCount: v.number(),
+    users: v.array(
+      v.object({
       userId: v.id("users"),
       profileId: v.union(v.id("profiles"), v.null()),
       name: v.union(v.string(), v.null()),
@@ -135,10 +172,11 @@ export const listUsers = query({
       gmailConnected: v.boolean(),
       sendsUsed: v.number(),
       pressReleasesUsed: v.number(),
-      mcpKeyCount: v.number(),
-    }),
-  ),
-  handler: async (ctx) => {
+        mcpKeyCount: v.number(),
+      }),
+    ),
+  }),
+  handler: async (ctx, { page, pageSize, search }) => {
     await requirePlatformAdmin(ctx);
     const month = currentMonth();
     const users = await ctx.db.query("users").collect();
@@ -156,7 +194,7 @@ export const listUsers = query({
       mcpCountByUser.set(k.userId, (mcpCountByUser.get(k.userId) ?? 0) + 1);
     }
 
-    return users
+    const all = users
       .map((u) => {
         const profile = profileByUser.get(u._id);
         const usage = usageByUser.get(u._id);
@@ -175,6 +213,21 @@ export const listUsers = query({
         };
       })
       .sort((a, b) => (a.email ?? "").localeCompare(b.email ?? "", "ko"));
+
+    // 사용자가 늘면 이 목록은 끝없이 길어진다. 찾는 사람이 정해져 있을 때는
+    // 페이지를 넘기는 것보다 검색이 빠르다.
+    const needle = search?.trim().toLowerCase() ?? "";
+    const filtered = needle
+      ? all.filter(
+          (u) =>
+            (u.email ?? "").toLowerCase().includes(needle) ||
+            (u.companyName ?? "").toLowerCase().includes(needle) ||
+            (u.name ?? "").toLowerCase().includes(needle),
+        )
+      : all;
+
+    const { rows, ...meta } = paginate(filtered, page, pageSize);
+    return { total: all.length, ...meta, users: rows };
   },
 });
 
@@ -212,9 +265,16 @@ export const setPlatformAdminFlag = mutation({
 });
 
 export const listMcpKeys = query({
-  args: {},
-  returns: v.array(
-    v.object({
+  args: pagingArgs,
+  returns: v.object({
+    total: v.number(),
+    matched: v.number(),
+    page: v.number(),
+    pageSize: v.number(),
+    pageCount: v.number(),
+    activeCount: v.number(),
+    keys: v.array(
+      v.object({
       _id: v.id("userMcpKeys"),
       userId: v.id("users"),
       email: v.union(v.string(), v.null()),
@@ -223,10 +283,11 @@ export const listMcpKeys = query({
       createdAt: v.number(),
       lastUsedAt: v.union(v.number(), v.null()),
       revoked: v.boolean(),
-      plan: v.string(),
-    }),
-  ),
-  handler: async (ctx) => {
+        plan: v.string(),
+      }),
+    ),
+  }),
+  handler: async (ctx, { page, pageSize, search }) => {
     await requirePlatformAdmin(ctx);
     const keys = await ctx.db.query("userMcpKeys").collect();
     const users = await ctx.db.query("users").collect();
@@ -234,7 +295,7 @@ export const listMcpKeys = query({
     const userById = new Map(users.map((u) => [u._id, u]));
     const profileByUser = new Map(profiles.map((p) => [p.userId, p]));
 
-    return keys
+    const all = keys
       .map((k) => {
         const user = userById.get(k.userId);
         const profile = profileByUser.get(k.userId);
@@ -251,6 +312,25 @@ export const listMcpKeys = query({
         };
       })
       .sort((a, b) => b.createdAt - a.createdAt);
+
+    const needle = search?.trim().toLowerCase() ?? "";
+    const filtered = needle
+      ? all.filter(
+          (k) =>
+            (k.email ?? "").toLowerCase().includes(needle) ||
+            k.name.toLowerCase().includes(needle) ||
+            k.keyPrefix.toLowerCase().includes(needle),
+        )
+      : all;
+
+    const { rows, ...meta } = paginate(filtered, page, pageSize);
+    return {
+      total: all.length,
+      // 폐기된 키는 목록에 남지만 "살아 있는 키 몇 개"가 실제로 궁금한 값이다.
+      activeCount: all.filter((k) => !k.revoked).length,
+      ...meta,
+      keys: rows,
+    };
   },
 });
 
@@ -304,9 +384,27 @@ export const planLimits = query({
  * ⚠️ 위 PII 무노출 원칙을 그대로 지킨다 — 이름·이메일·연락처는 넣지 않는다.
  *    진단에 필요한 건 출처·신선도·신뢰도이지 신원이 아니다.
  */
+/**
+ * 기자 디렉터리 — **서버에서 한 페이지만 잘라 보낸다.**
+ *
+ * 예전에는 1,700여 건을 통째로 클라이언트로 내려보냈다. 관리자가 실제로 보는 것은
+ * 한 화면 분량인데, 나머지는 전송·파싱 비용만 내고 버려진다.
+ *
+ * 집계(출처별·신뢰도별·stale)는 전수를 봐야 나오므로 스캔은 남는다. 줄인 것은 **페이로드**다.
+ * 스캔 자체를 줄이려면 카운터 테이블이 필요하고, 그건 별개의 작업이다.
+ */
 export const listJournalists = query({
-  args: { limit: v.optional(v.number()) },
-  handler: async (ctx, { limit }) => {
+  args: {
+    page: v.optional(v.number()),
+    pageSize: v.optional(v.number()),
+    /** "opencrab" | "manual" | "seed" … 지정하면 그 출처만 */
+    source: v.optional(v.string()),
+    /** 켜면 stale 레코드만 — 이직·퇴사 추정분을 훑을 때 쓴다 */
+    staleOnly: v.optional(v.boolean()),
+    /** 매체명 부분 일치(대소문자 무시) */
+    search: v.optional(v.string()),
+  },
+  handler: async (ctx, { page, pageSize, source, staleOnly, search }) => {
     await requirePlatformAdmin(ctx);
     const all = await ctx.db.query("journalists").collect();
 
@@ -322,6 +420,8 @@ export const listJournalists = query({
       j.source === "opencrab" &&
       !(j.lastSeenInPackAt !== undefined && j.lastSeenInPackAt >= staleBefore);
 
+    // 집계는 **필터 전 전체** 기준이다 — 필터를 걸 때마다 총계가 바뀌면
+    // "전체 몇 명인가"를 볼 수 없다.
     const bySource: Record<string, number> = {};
     const byConfidence: Record<string, number> = {};
     for (const j of all) {
@@ -329,14 +429,25 @@ export const listJournalists = query({
       bySource[src] = (bySource[src] ?? 0) + 1;
       byConfidence[j.contactConfidence] = (byConfidence[j.contactConfidence] ?? 0) + 1;
     }
-
     const staleCount = all.filter(isStale).length;
 
-    const rows = all
+    const needle = search?.trim().toLowerCase() ?? "";
+    const filtered = all.filter((j) => {
+      if (source && (j.source ?? "unknown") !== source) return false;
+      if (staleOnly && !isStale(j)) return false;
+      if (needle && !j.outlet.toLowerCase().includes(needle)) return false;
+      return true;
+    });
+
+    const size = Math.min(200, Math.max(10, pageSize ?? 50));
+    const pageCount = Math.max(1, Math.ceil(filtered.length / size));
+    // 필터를 좁히면 현재 페이지가 범위를 벗어난다 — 빈 화면 대신 마지막 페이지로 당긴다.
+    const safePage = Math.min(Math.max(1, Math.floor(page ?? 1)), pageCount);
+
+    const rows = filtered
       .slice()
       .sort((a, b) => b.referenceArticleCount - a.referenceArticleCount)
-      // 관리자에는 전체가 보여야 한다 — 몇 건이 어디서 왔는지 대조하는 화면이다.
-      .slice(0, limit ?? all.length)
+      .slice((safePage - 1) * size, safePage * size)
       .map((j) => ({
         _id: j._id,
         code: journalistCode(j._id),
@@ -354,7 +465,12 @@ export const listJournalists = query({
 
     return {
       total: all.length,
+      /** 필터 적용 후 건수 — 페이지네이션의 기준 */
+      matched: filtered.length,
       shown: rows.length,
+      page: safePage,
+      pageSize: size,
+      pageCount,
       bySource,
       byConfidence,
       staleCount,
@@ -363,6 +479,60 @@ export const listJournalists = query({
       /** 매칭 1회가 만드는 최대 후보 수 — "왜 15명만 나오지"의 답 */
       matchTopKDefault: 15,
       journalists: rows,
+    };
+  },
+});
+
+/**
+ * 기자 데이터 집계만 — 팩 동기화 화면이 쓴다.
+ *
+ * 예전에는 `packSyncOverview`가 이 계산을 직접 했다. 그래서 관리자 화면 한 번 여는 데
+ * `getOverview`·`listJournalists`·`packSyncOverview`가 **각각** 전수 스캔을 돌렸다.
+ * 집계를 여기 하나로 모아 두면 화면을 나눌 때 필요한 쪽만 부를 수 있다.
+ */
+export const journalistStats = query({
+  args: {},
+  returns: v.object({
+    total: v.number(),
+    bySource: v.record(v.string(), v.number()),
+    latestArticleAt: v.optional(v.number()),
+    staleCount: v.number(),
+    missingCategory: v.number(),
+    fromPacks: v.number(),
+  }),
+  handler: async (ctx) => {
+    await requirePlatformAdmin(ctx);
+    const journalists = await ctx.db.query("journalists").collect();
+
+    const bySource: Record<string, number> = {};
+    let latestArticleAt: number | undefined;
+    let staleCount = 0;
+    let missingCategory = 0;
+    let fromPacks = 0;
+    const now = Date.now();
+    const STALE_MS = STALE_MATCH_DAYS * 24 * 60 * 60 * 1000;
+
+    for (const j of journalists) {
+      const src = j.source ?? "unknown";
+      bySource[src] = (bySource[src] ?? 0) + 1;
+      if (j.latestArticleAt && (!latestArticleAt || j.latestArticleAt > latestArticleAt)) {
+        latestArticleAt = j.latestArticleAt;
+      }
+      if (j.source === "opencrab") {
+        fromPacks += 1;
+        const seen = j.lastSeenInPackAt;
+        if (seen === undefined || now - seen > STALE_MS) staleCount += 1;
+        if (!j.outletCategory) missingCategory += 1;
+      }
+    }
+
+    return {
+      total: journalists.length,
+      bySource,
+      latestArticleAt,
+      staleCount,
+      missingCategory,
+      fromPacks,
     };
   },
 });
@@ -434,7 +604,9 @@ export const packSyncOverview = query({
       .withIndex("by_startedAt")
       .order("desc")
       .take(200);
-    const journalists = await ctx.db.query("journalists").collect();
+    // ⚠️ 기자 전수 스캔은 여기서 하지 않는다 — `admin.journalistStats`가 담당한다.
+    //    예전에는 이 쿼리와 `getOverview`·`listJournalists`가 각각 스캔을 돌려서,
+    //    관리자 화면 한 번 여는 데 1,700여 건을 세 번 훑었다.
 
     // 팩별 최신 run
     const latestRun = new Map<string, (typeof runs)[number]>();
@@ -442,34 +614,7 @@ export const packSyncOverview = query({
       if (!latestRun.has(r.packageId)) latestRun.set(r.packageId, r);
     }
 
-    const bySource: Record<string, number> = {};
-    let latestArticleAt: number | undefined;
-    let staleCount = 0;
-    let missingCategory = 0;
-    const now = Date.now();
-    const STALE_MS = 30 * 24 * 60 * 60 * 1000;
-
-    for (const j of journalists) {
-      const src = j.source ?? "unknown";
-      bySource[src] = (bySource[src] ?? 0) + 1;
-      if (j.latestArticleAt && (!latestArticleAt || j.latestArticleAt > latestArticleAt)) {
-        latestArticleAt = j.latestArticleAt;
-      }
-      if (j.source === "opencrab") {
-        const seen = j.lastSeenInPackAt;
-        if (seen === undefined || now - seen > STALE_MS) staleCount += 1;
-        if (!j.outletCategory) missingCategory += 1;
-      }
-    }
-
     return {
-      journalistTotal: journalists.length,
-      bySource,
-      /** 근거 기사 최신일 — "데이터 기준일" */
-      latestArticleAt,
-      /** 팩에서 최근 확인되지 않은 레코드 수(이직·퇴사 추정) */
-      staleCount,
-      missingCategory,
       packs: packs
         .map((p) => {
           const run = latestRun.get(p.packageId);
@@ -501,12 +646,12 @@ export const packSyncOverview = query({
         .filter((p) => p.series === "pr-presskit" && p.packageId !== PR_PRESSKIT_PACK.packageId)
         .map((p) => ({ packageId: p.packageId, name: p.name, capturedAt: p.capturedAt })),
       /**
-       * 정합성 — reference 팩이 선언한 인원과 실제 반입된 팩 유래 기자 수 대조.
-       * 배치 팩 결손(예: batch-025)이 있으면 여기서 차이로 드러난다.
+       * 정합성 — reference 팩이 선언한 인원.
+       * 실제 반입된 팩 유래 기자 수(`fromPacks`)는 `journalistStats`가 준다.
+       * 배치 팩 결손(예: batch-025)이 있으면 둘의 차이로 드러난다.
        */
       integrity: {
         expected: packs.find((p) => p.series === "journalist-reference")?.recordCount,
-        actual: journalists.filter((j) => j.source === "opencrab").length,
       },
       recentRuns: runs.slice(0, 30).map((r) => ({
         packageId: r.packageId,
@@ -517,6 +662,78 @@ export const packSyncOverview = query({
         inserted: r.inserted,
         updated: r.updated,
         error: r.error,
+        trigger: r.trigger,
+      })),
+    };
+  },
+});
+
+/**
+ * 팩 동기화 실행 이력 — **별도 화면(`/admin/logs`)용.**
+ *
+ * 요약 화면에 30건을 통째로 붙여 두면 스크롤만 길어지고, 정작 실패를 파고들 때는
+ * 30건으로 부족하다. 목적이 다르므로 화면을 나누고 쿼리도 나눈다.
+ *
+ * `by_startedAt` 인덱스 역순으로 최근 것부터 본다. 이력은 오래될수록 볼 일이 줄어드므로
+ * 전수를 훑지 않고 상한(1,000건)까지만 가져와 그 안에서 거른다.
+ */
+export const listPackSyncRuns = query({
+  args: {
+    page: v.optional(v.number()),
+    pageSize: v.optional(v.number()),
+    /** "ok" | "partial" | "failed" — 미지정이면 전체 */
+    status: v.optional(v.string()),
+    packageId: v.optional(v.string()),
+    /** 실패·결손만 — 사고를 쫓을 때 쓰는 단축 필터 */
+    problemsOnly: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { page, pageSize, status, packageId, problemsOnly }) => {
+    await requirePlatformAdmin(ctx);
+
+    const runs = await ctx.db
+      .query("packSyncRuns")
+      .withIndex("by_startedAt")
+      .order("desc")
+      .take(1000);
+
+    // 팩 이름은 이력에 없다 — 표에 packageId만 뜨면 어느 팩인지 알 수 없다.
+    const packs = await ctx.db.query("opencrabPacks").collect();
+    const nameById = new Map(
+      packs.map((p) => [p.packageId, p.name ?? p.batch ?? p.series]),
+    );
+
+    const byStatus: Record<string, number> = {};
+    for (const r of runs) byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
+
+    const filtered = runs.filter((r) => {
+      if (status && r.status !== status) return false;
+      if (packageId && r.packageId !== packageId) return false;
+      if (problemsOnly && r.status === "ok") return false;
+      return true;
+    });
+
+    const { rows, ...meta } = paginate(filtered, page, pageSize, { fallback: 30 });
+
+    return {
+      total: runs.length,
+      byStatus,
+      ...meta,
+      /** 필터 드롭다운용 — 이력에 실제로 등장한 팩만 */
+      packOptions: [...new Set(runs.map((r) => r.packageId))]
+        .map((id) => ({ packageId: id, name: nameById.get(id) ?? id.slice(0, 8) }))
+        .sort((a, b) => a.name.localeCompare(b.name, "ko")),
+      runs: rows.map((r) => ({
+        _id: r._id,
+        packageId: r.packageId,
+        packName: nameById.get(r.packageId) ?? `${r.packageId.slice(0, 8)}…`,
+        status: r.status,
+        startedAt: r.startedAt,
+        finishedAt: r.finishedAt ?? null,
+        recordCount: r.recordCount ?? null,
+        fetched: r.fetched,
+        inserted: r.inserted,
+        updated: r.updated,
+        error: r.error ?? null,
         trigger: r.trigger,
       })),
     };

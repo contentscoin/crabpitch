@@ -8,11 +8,29 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ConfidenceBadge } from "@/components/ui/Badge";
 import { PageHeader, EmptyState } from "@/components/app/bits";
+import { Pager, PageSizeSelect } from "@/components/app/listBits";
 import { SkeletonRows } from "@/components/ui/Skeleton";
+
+/** 목록을 무엇 기준으로 훑을지 — 목적이 다르면 정렬도 달라야 한다. */
+const SORTS = [
+  { id: "references", label: "기사 많은 순" },
+  { id: "outlet", label: "매체명" },
+  { id: "beat", label: "beat" },
+] as const;
 
 export default function JournalistsPage() {
   const [search, setSearch] = useState("");
-  const journalists = useQuery(api.journalists.list, { search: search || undefined });
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [sort, setSort] = useState<string>("references");
+  const data = useQuery(api.journalists.list, {
+    search: search || undefined,
+    page,
+    pageSize,
+    sort,
+  });
+  // 표에 그릴 목록. 쿼리 결과가 오기 전에는 undefined다.
+  const journalists = data?.journalists;
   const seed = useMutation(api.seed.run);
   const [seeding, setSeeding] = useState(false);
 
@@ -26,7 +44,11 @@ export default function JournalistsPage() {
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
             <Input
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                // 검색을 좁히면 결과가 달라진다 — 3쪽에 머물러 있으면 빈 화면을 본다.
+                setPage(1);
+              }}
               placeholder="매체·beat 검색"
               className="w-56 pl-9"
             />
@@ -38,6 +60,34 @@ export default function JournalistsPage() {
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
         기자 개인정보 보호 — 실명·이메일·연락처는 익명 코드로 대체되며, 실제 연락처는 메일 발송 시점에만 사용됩니다.
       </div>
+
+      {data && data.total > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1" role="group" aria-label="정렬">
+            {SORTS.map((o) => (
+              <Button
+                key={o.id}
+                type="button"
+                size="sm"
+                variant={sort === o.id ? "brand" : "subtle"}
+                aria-pressed={sort === o.id}
+                onClick={() => {
+                  setSort(o.id);
+                  setPage(1);
+                }}
+              >
+                {o.label}
+              </Button>
+            ))}
+          </div>
+          <PageSizeSelect value={pageSize} onChange={(n) => { setPageSize(n); setPage(1); }} />
+          <span className="text-xs tabular-nums text-foreground-muted">
+            {data.matched === data.total
+              ? `${data.total}명`
+              : `${data.matched} / ${data.total}명`}
+          </span>
+        </div>
+      )}
 
       {journalists === undefined ? (
         <SkeletonRows rows={5} />
@@ -139,6 +189,16 @@ export default function JournalistsPage() {
               </tbody>
             </table>
           </div>
+
+          {/* 서버에서 한 쪽만 받아 온다 — 넘기면 그만큼만 새로 온다. */}
+          {data && (
+            <Pager
+              page={data.page - 1}
+              total={data.matched}
+              pageSize={data.pageSize}
+              onPage={(p) => setPage(p + 1)}
+            />
+          )}
         </>
       )}
     </div>

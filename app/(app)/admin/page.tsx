@@ -21,7 +21,10 @@ import { Button, buttonClasses } from "@/components/ui/Button";
 import { toUserMessage } from "@/lib/errorMessage";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { Input } from "@/components/ui/Input";
 import { PageHeader, StatCard } from "@/components/app/bits";
+import { AdminNav, PackStatusBadge, fmtDate, fmtDateTime } from "@/components/app/adminBits";
+import { ListToolbar, Pager } from "@/components/app/listBits";
 import { PLANS } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -34,15 +37,6 @@ type PlanId = "free" | "solo" | "growth" | "agency";
  */
 
 type PackStatus = "ok" | "partial" | "failed";
-
-const PACK_STATUS: Record<
-  PackStatus,
-  { label: string; variant: "success" | "warning" | "danger" }
-> = {
-  ok: { label: "정상", variant: "success" },
-  partial: { label: "결손", variant: "warning" },
-  failed: { label: "실패", variant: "danger" },
-};
 
 const SERIES_LABEL: Record<string, string> = {
   "journalist-contacts": "기자단 배치",
@@ -69,14 +63,6 @@ function packLabel(p: {
   return p.batch ?? p.name ?? `${p.packageId.slice(0, 8)}…`;
 }
 
-function fmtDate(ts?: number): string {
-  return ts ? new Date(ts).toLocaleDateString("ko-KR") : "—";
-}
-
-function fmtDateTime(ts?: number): string {
-  return ts ? new Date(ts).toLocaleString("ko-KR") : "—";
-}
-
 function summarizeSync(res: {
   packsAttempted: number;
   ok: number;
@@ -95,78 +81,34 @@ function summarizeSync(res: {
 /** 목록이 길어지면 화면이 세로로 끝없이 늘어난다 — 한 번에 이만큼만 보여준다. */
 const PACK_PAGE_SIZE = 10;
 
-function Pager({
-  page,
-  total,
-  pageSize,
-  onPage,
-}: {
-  page: number;
-  total: number;
-  pageSize: number;
-  onPage: (p: number) => void;
-}) {
-  const pages = Math.max(1, Math.ceil(total / pageSize));
-  if (pages <= 1) return null;
-  const from = page * pageSize + 1;
-  const to = Math.min(total, (page + 1) * pageSize);
-  return (
-    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-foreground-muted">
-      <span className="tabular-nums">
-        {from}–{to} / {total}
-      </span>
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="subtle"
-          disabled={page === 0}
-          onClick={() => onPage(page - 1)}
-        >
-          이전
-        </Button>
-        <span className="tabular-nums">
-          {page + 1} / {pages}
-        </span>
-        <Button
-          type="button"
-          size="sm"
-          variant="subtle"
-          disabled={page >= pages - 1}
-          onClick={() => onPage(page + 1)}
-        >
-          다음
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function PackStatusBadge({ status }: { status?: string }) {
-  const s = status ? PACK_STATUS[status as PackStatus] : undefined;
-  if (!s) return <Badge variant="outline">{status ?? "미실행"}</Badge>;
-  return <Badge variant={s.variant}>{s.label}</Badge>;
-}
 
 export default function AdminPage() {
+  // 목록 상태를 쿼리보다 먼저 선언한다 — 쿼리 인자가 이 값들을 참조한다.
+  const [userPage, setUserPage] = useState(1);
+  const [userSearch, setUserSearch] = useState("");
+  const [keyPage, setKeyPage] = useState(1);
+  const [keySearch, setKeySearch] = useState("");
+
   const access = useQuery(api.admin.getAccess);
   const overview = useQuery(
     api.admin.getOverview,
     access?.allowed ? {} : "skip",
   );
-  const users = useQuery(api.admin.listUsers, access?.allowed ? {} : "skip");
+  const users = useQuery(
+    api.admin.listUsers,
+    access?.allowed ? { page: userPage, pageSize: 25, search: userSearch } : "skip",
+  );
   const mcpKeys = useQuery(
     api.admin.listMcpKeys,
-    access?.allowed ? {} : "skip",
+    access?.allowed ? { page: keyPage, pageSize: 25, search: keySearch } : "skip",
   );
   const packSync = useQuery(
     api.admin.packSyncOverview,
     access?.allowed ? {} : "skip",
   );
-  const journalists = useQuery(
-    api.admin.listJournalists,
-    access?.allowed ? {} : "skip",
-  );
+  // 기자 집계는 별도 쿼리로 뺐다 — 팩 동기화 쿼리가 같은 전수 스캔을 또 돌지 않게.
+  const jStats = useQuery(api.admin.journalistStats, access?.allowed ? {} : "skip");
+  const lastRun = packSync?.recentRuns[0];
   const setPlan = useMutation(api.admin.setUserPlan);
   const setAdmin = useMutation(api.admin.setPlatformAdminFlag);
   const revokeKey = useMutation(api.admin.revokeMcpKey);
@@ -177,7 +119,6 @@ export default function AdminPage() {
   const [brokenPage, setBrokenPage] = useState(0);
   const [packPage, setPackPage] = useState(0);
   const syncPacks = useAction(api.opencrabActions.syncPacksManual);
-  const seedTestJournalist = useMutation(api.admin.seedTestJournalist);
 
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -290,7 +231,7 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="max-w-5xl space-y-8">
+    <div className="max-w-5xl space-y-6">
       <PageHeader
         title="관리자"
         description="사용자·요금제·MCP 키·연동 상태를 운영합니다. 에이전시 admin과 별개의 플랫폼 권한입니다."
@@ -300,6 +241,7 @@ export default function AdminPage() {
           </Badge>
         }
       />
+      <AdminNav current="overview" />
 
       {msg && <p className="text-sm text-foreground-muted">{msg}</p>}
 
@@ -333,6 +275,129 @@ export default function AdminPage() {
           icon={Shield}
         />
       </div>
+
+      {/* 관리자가 이 화면에 오는 가장 잦은 이유가 사용자 조회·플랜 변경이다.
+          운영 지표보다 먼저 온다. */}
+      <section className="space-y-3">
+        <h2 className="flex items-center gap-2 text-lg font-bold">
+          <Users className="h-5 w-5" /> 사용자 · 플랜
+        </h2>
+        <Card>
+          <CardContent className="space-y-3 pt-5">
+            {users === undefined ? (
+              <Skeleton className="h-32" />
+            ) : (
+              <>
+                <ListToolbar
+                  placeholder="이메일·회사명으로 찾기"
+                  value={userSearch}
+                  onChange={(v) => {
+                    setUserSearch(v);
+                    // 검색어가 바뀌면 결과가 달라진다 — 3쪽에 머물러 있으면 빈 화면을 본다.
+                    setUserPage(1);
+                  }}
+                  total={users.total}
+                  matched={users.matched}
+                />
+                {users.users.length === 0 ? (
+                  <p className="text-sm text-muted">
+                    {userSearch ? "검색 결과가 없습니다." : "사용자가 없습니다."}
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-xs text-muted">
+                      <th className="py-2 pr-3 font-semibold">이메일</th>
+                      <th className="py-2 pr-3 font-semibold">회사</th>
+                      <th className="py-2 pr-3 font-semibold">플랜</th>
+                      <th className="py-2 pr-3 font-semibold">사용량</th>
+                      <th className="py-2 pr-3 font-semibold">MCP</th>
+                      <th className="py-2 font-semibold">관리자</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.users.map((u) => (
+                      <tr
+                        key={u.userId}
+                        className="border-b border-border align-top"
+                      >
+                        <td className="py-3 pr-3">
+                          <div className="font-medium">
+                            {u.email ?? "(이메일 없음)"}
+                          </div>
+                          <div className="text-xs text-muted">
+                            {u.name ?? "—"}
+                          </div>
+                        </td>
+                        <td className="py-3 pr-3 text-foreground-muted">
+                          {u.companyName ?? "—"}
+                          {u.gmailConnected && (
+                            <div className="text-xs text-success">Gmail</div>
+                          )}
+                        </td>
+                        <td className="py-3 pr-3">
+                          <select
+                            className="rounded-md border border-border bg-card px-2 py-1.5 text-xs font-semibold"
+                            value={u.plan}
+                            disabled={busy || !u.profileId}
+                            onChange={(e) => {
+                              const plan = e.target.value as PlanId;
+                              void run(`${u.email ?? u.userId} → ${plan}`, () =>
+                                setPlan({ userId: u.userId, plan }),
+                              );
+                            }}
+                          >
+                            {PLANS.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="py-3 pr-3 text-xs text-muted">
+                          발송 {u.sendsUsed} · 보도자료 {u.pressReleasesUsed}
+                        </td>
+                        <td className="py-3 pr-3 text-xs">{u.mcpKeyCount}개</td>
+                        <td className="py-3">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={u.isPlatformAdmin ? "brand" : "subtle"}
+                            disabled={busy}
+                            onClick={() =>
+                              void run(
+                                u.isPlatformAdmin
+                                  ? "관리자 해제"
+                                  : "관리자 부여",
+                                () =>
+                                  setAdmin({
+                                    userId: u.userId,
+                                    isPlatformAdmin: !u.isPlatformAdmin,
+                                  }),
+                              )
+                            }
+                          >
+                            {u.isPlatformAdmin ? "관리자" : "일반"}
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                  </div>
+                )}
+                <Pager
+                  page={users.page - 1}
+                  total={users.matched}
+                  pageSize={users.pageSize}
+                  onPage={(p) => setUserPage(p + 1)}
+                />
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </section>
 
       {overview && (
         <section className="space-y-3">
@@ -386,7 +451,7 @@ export default function AdminPage() {
         </section>
       )}
 
-      <section className="space-y-4">
+      <section className="space-y-3">
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <div>
             <h2 className="flex items-center gap-2 text-lg font-bold">
@@ -431,26 +496,18 @@ export default function AdminPage() {
           </p>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            label="기자 총원"
-            value={packSync ? `${packSync.journalistTotal}` : "…"}
-            hint={
-              packSync
-                ? `소스 ${Object.keys(packSync.bySource).length}종`
-                : undefined
-            }
-            icon={Users}
-          />
+        {/* 이 줄은 **팩 데이터의 건강 상태**만 다룬다. 기자 총원은 화면 위 요약과
+            기자 디렉터리에 이미 있어서 여기 두면 같은 숫자가 한 화면에 세 번 나온다. */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <StatCard
             label="데이터 기준일"
-            value={packSync ? fmtDate(packSync.latestArticleAt) : "…"}
+            value={jStats ? fmtDate(jStats.latestArticleAt) : "…"}
             hint="근거 기사 최신일"
             icon={CalendarClock}
           />
           <StatCard
             label="팩 미확인 레코드"
-            value={packSync ? `${packSync.staleCount}` : "…"}
+            value={jStats ? `${jStats.staleCount}` : "…"}
             hint="30일 이상 팩에서 미확인 · 이직·퇴사 추정"
             icon={AlertTriangle}
           />
@@ -458,18 +515,18 @@ export default function AdminPage() {
             label="결손·실패 팩"
             value={packSync ? `${brokenPacks.length}` : "…"}
             hint={
-              packSync
-                ? `전체 ${packs.length}개 · 매체 분류 미상 ${packSync.missingCategory}건`
+              packSync && jStats
+                ? `전체 ${packs.length}개 · 매체 분류 미상 ${jStats.missingCategory}건`
                 : undefined
             }
             icon={Database}
           />
         </div>
 
-        {packSync && Object.keys(packSync.bySource).length > 0 && (
+        {jStats && Object.keys(jStats.bySource).length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-semibold text-muted">소스별</span>
-            {Object.entries(packSync.bySource)
+            {Object.entries(jStats.bySource)
               .sort((a, b) => b[1] - a[1])
               .map(([src, n]) => (
                 <Badge key={src} variant="outline">
@@ -654,11 +711,12 @@ export default function AdminPage() {
         )}
 
         {packSync?.integrity.expected !== undefined &&
-          packSync.integrity.actual < packSync.integrity.expected && (
+          jStats !== undefined &&
+          jStats.fromPacks < packSync.integrity.expected && (
             <Card>
               <CardContent className="space-y-1 pt-5">
                 <div className="text-sm font-bold text-warning">
-                  정합성 — 반입 {packSync.integrity.actual}명 / 기준 {packSync.integrity.expected}명
+                  정합성 — 반입 {jStats.fromPacks}명 / 기준 {packSync.integrity.expected}명
                 </div>
                 <p className="text-xs text-muted">
                   기자단 reference 팩이 선언한 인원보다 적게 반입됐습니다. 위 팩 표에서 결손(partial)
@@ -752,141 +810,35 @@ export default function AdminPage() {
           </Card>
         )}
 
+        {/* 실행 이력은 `/admin/logs`로 뺐다 — 요약에서는 "지금 정상인가"만 알면 되고,
+            "언제 무엇이 왜 실패했나"는 30건으로 부족하다. 여기서는 최근 한 건만 띄운다. */}
         <Card>
-          <CardContent className="space-y-2 pt-5">
-            <div className="text-sm font-bold">최근 실행 기록</div>
-            {packSync === undefined ? (
-              <Skeleton className="h-24" />
-            ) : packSync.recentRuns.length === 0 ? (
-              <p className="text-sm text-muted">실행 기록이 없습니다.</p>
-            ) : (
-              <ul>
-                {packSync.recentRuns.map((r, i) => (
-                  <li
-                    key={`${r.packageId}-${r.startedAt}-${i}`}
-                    className="flex flex-wrap items-center gap-2 border-b border-border py-2 text-sm last:border-0"
-                  >
-                    <PackStatusBadge status={r.status} />
-                    <span className="font-medium">
-                      {packNames.get(r.packageId) ??
-                        `${r.packageId.slice(0, 8)}…`}
-                    </span>
-                    <span className="text-xs text-muted">
-                      {fmtDateTime(r.startedAt)} ·{" "}
-                      {r.trigger === "cron" ? "크론" : "수동"}
-                    </span>
-                    <span className="text-xs text-foreground-muted tabular-nums">
-                      취득 {r.fetched}
-                      {r.recordCount != null ? `/${r.recordCount}` : ""} · 신규{" "}
-                      {r.inserted} · 갱신 {r.updated}
-                    </span>
-                    {r.error && (
-                      <span className="w-full text-xs text-warning">
-                        {r.error}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="flex items-center gap-2 text-lg font-bold">
-          <Users className="h-5 w-5" /> 사용자 · 플랜
-        </h2>
-        <Card>
-          <CardContent className="space-y-3 pt-5">
-            {users === undefined ? (
-              <Skeleton className="h-32" />
-            ) : users.length === 0 ? (
-              <p className="text-sm text-muted">사용자가 없습니다.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] border-collapse text-sm">
-                  <thead>
-                    <tr className="border-b border-border text-left text-xs text-muted">
-                      <th className="py-2 pr-3 font-semibold">이메일</th>
-                      <th className="py-2 pr-3 font-semibold">회사</th>
-                      <th className="py-2 pr-3 font-semibold">플랜</th>
-                      <th className="py-2 pr-3 font-semibold">사용량</th>
-                      <th className="py-2 pr-3 font-semibold">MCP</th>
-                      <th className="py-2 font-semibold">관리자</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map((u) => (
-                      <tr
-                        key={u.userId}
-                        className="border-b border-border align-top"
-                      >
-                        <td className="py-3 pr-3">
-                          <div className="font-medium">
-                            {u.email ?? "(이메일 없음)"}
-                          </div>
-                          <div className="text-xs text-muted">
-                            {u.name ?? "—"}
-                          </div>
-                        </td>
-                        <td className="py-3 pr-3 text-foreground-muted">
-                          {u.companyName ?? "—"}
-                          {u.gmailConnected && (
-                            <div className="text-xs text-success">Gmail</div>
-                          )}
-                        </td>
-                        <td className="py-3 pr-3">
-                          <select
-                            className="rounded-md border border-border bg-card px-2 py-1.5 text-xs font-semibold"
-                            value={u.plan}
-                            disabled={busy || !u.profileId}
-                            onChange={(e) => {
-                              const plan = e.target.value as PlanId;
-                              void run(`${u.email ?? u.userId} → ${plan}`, () =>
-                                setPlan({ userId: u.userId, plan }),
-                              );
-                            }}
-                          >
-                            {PLANS.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.name}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="py-3 pr-3 text-xs text-muted">
-                          발송 {u.sendsUsed} · 보도자료 {u.pressReleasesUsed}
-                        </td>
-                        <td className="py-3 pr-3 text-xs">{u.mcpKeyCount}개</td>
-                        <td className="py-3">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={u.isPlatformAdmin ? "brand" : "subtle"}
-                            disabled={busy}
-                            onClick={() =>
-                              void run(
-                                u.isPlatformAdmin
-                                  ? "관리자 해제"
-                                  : "관리자 부여",
-                                () =>
-                                  setAdmin({
-                                    userId: u.userId,
-                                    isPlatformAdmin: !u.isPlatformAdmin,
-                                  }),
-                              )
-                            }
-                          >
-                            {u.isPlatformAdmin ? "관리자" : "일반"}
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-5">
+            <div className="min-w-0">
+              <div className="text-sm font-bold">최근 실행</div>
+              {packSync === undefined ? (
+                <Skeleton className="mt-1 h-5 w-48" />
+              ) : lastRun ? (
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
+                  <PackStatusBadge status={lastRun.status} />
+                  <span className="font-medium">
+                    {packNames.get(lastRun.packageId) ?? `${lastRun.packageId.slice(0, 8)}…`}
+                  </span>
+                  <span className="text-xs text-muted">
+                    {fmtDateTime(lastRun.startedAt)} ·{" "}
+                    {lastRun.trigger === "cron" ? "크론" : "수동"}
+                  </span>
+                  {lastRun.error && (
+                    <span className="w-full text-xs text-warning">{lastRun.error}</span>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-1 text-sm text-muted">실행 기록이 없습니다.</p>
+              )}
+            </div>
+            <Link href="/admin/logs" className={buttonClasses({ variant: "subtle", size: "sm" })}>
+              전체 로그 보기
+            </Link>
           </CardContent>
         </Card>
       </section>
@@ -899,11 +851,26 @@ export default function AdminPage() {
           <CardContent className="space-y-3 pt-5">
             {mcpKeys === undefined ? (
               <Skeleton className="h-24" />
-            ) : mcpKeys.length === 0 ? (
-              <p className="text-sm text-muted">발급된 MCP 키가 없습니다.</p>
             ) : (
-              <ul className="space-y-2">
-                {mcpKeys.map((k) => (
+              <>
+                <ListToolbar
+                  placeholder="이메일·키 이름으로 찾기"
+                  value={keySearch}
+                  onChange={(v) => {
+                    setKeySearch(v);
+                    setKeyPage(1);
+                  }}
+                  total={mcpKeys.total}
+                  matched={mcpKeys.matched}
+                  note={`사용 중 ${mcpKeys.activeCount}개`}
+                />
+                {mcpKeys.keys.length === 0 ? (
+                  <p className="text-sm text-muted">
+                    {keySearch ? "검색 결과가 없습니다." : "발급된 MCP 키가 없습니다."}
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                {mcpKeys.keys.map((k) => (
                   <li
                     key={k._id}
                     className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm"
@@ -945,169 +912,48 @@ export default function AdminPage() {
                     )}
                   </li>
                 ))}
-              </ul>
+                  </ul>
+                )}
+                <Pager
+                  page={mcpKeys.page - 1}
+                  total={mcpKeys.matched}
+                  pageSize={mcpKeys.pageSize}
+                  onPage={(p) => setKeyPage(p + 1)}
+                />
+              </>
             )}
           </CardContent>
         </Card>
       </section>
 
+      {/* 디렉터리 전체는 `/admin/journalists`로 뺐다 — 요약에서는 "몇 명 있나"만 알면 되고,
+          "이 매체 기자가 왜 매칭에 안 뜨나"는 필터가 있어야 파고들 수 있다. */}
       <section className="space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-lg font-bold">기자 디렉터리</h2>
-          <div className="flex flex-wrap items-center gap-2">
-            {journalists && (
-              <span className="text-xs text-foreground-muted">
-                전체 {journalists.total}명 · 표시 {journalists.shown}명
-              </span>
-            )}
-            <Button
-              type="button"
-              size="sm"
-              variant="subtle"
-              disabled={packBusy}
-              onClick={() =>
-                // run()은 콜백 뒤에 label로 메시지를 덮어써 결과별 안내가 사라진다.
-                // runPackJob은 반환 문자열을 그대로 쓴다.
-                void runPackJob("테스트 기자 시드", async () => {
-                  const r = await seedTestJournalist({});
-                  return r.created
-                    ? "테스트 기자(김테스트 · hiway@kakao.com)를 추가했습니다."
-                    : "이미 있습니다 — 중복 생성하지 않았습니다.";
-                })
-              }
-            >
-              테스트 기자 시드
-            </Button>
-          </div>
-        </div>
-
-        {journalists === undefined ? (
-          <Skeleton className="h-40" />
-        ) : journalists.total === 0 ? (
-          <Card>
-            <CardContent className="space-y-2 pt-5 text-sm">
-              <p className="font-semibold">기자 데이터가 없습니다.</p>
-              <p className="text-foreground-muted">
-                오픈크랩 연동이 꺼져 있거나 팩 동기화가 한 번도 돌지 않은 상태입니다. 위
-                「오픈크랩 팩 동기화」에서 수동 동기화를 실행해 보세요.
+        <h2 className="text-lg font-bold">기자 디렉터리</h2>
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-5">
+            {jStats === undefined ? (
+              <Skeleton className="h-10 w-64" />
+            ) : jStats.total === 0 ? (
+              <p className="text-sm text-muted">
+                기자 데이터가 없습니다. 위 「오픈크랩 팩 동기화」를 먼저 실행하세요.
               </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <StatCard label="전체" value={String(journalists.total)} />
-              <StatCard
-                label="팩(오픈크랩)"
-                value={String(journalists.bySource.opencrab ?? 0)}
-              />
-              <StatCard
-                label="시드·수동"
-                value={String(
-                  (journalists.bySource.seed ?? 0) +
-                    (journalists.bySource.manual ?? 0) +
-                    (journalists.bySource.unknown ?? 0),
-                )}
-              />
-              <StatCard
-                label="stale (30일+)"
-                value={String(journalists.staleCount)}
-              />
-            </div>
-
-            {/* "왜 N명만 뜨지"의 실제 원인을 숫자로 보여준다. 총계만으로는 못 가린다. */}
-            <Card>
-              <CardContent className="space-y-2 pt-5 text-sm">
-                <p className="font-semibold">매칭에 몇 명이 뜨는지</p>
-                <p className="text-foreground-muted">
-                  매칭 1회는{" "}
-                  <b className="text-foreground">
-                    최대 {journalists.matchTopKDefault}명
-                  </b>
-                  을 만듭니다. 디렉터리에 {journalists.total}명이 있어도 그 이상은 나오지
-                  않습니다. 여기에{" "}
-                  <b className="text-foreground">주제 태그가 하나도 겹치지 않는 기자</b>는
-                  점수 0으로 아예 빠지고, 수신거부·재접근 제외도 추가로 걸립니다.
-                  {journalists.excludeStale && journalists.staleCount > 0 ? (
-                    <>
-                      {" "}
-                      지금은 stale 제외가 켜져 있어{" "}
-                      <b className="text-foreground">{journalists.staleCount}명</b>이 더
-                      빠집니다.
-                    </>
-                  ) : null}
-                </p>
-                <p className="text-xs text-muted">
-                  신뢰도 low인 기자는 목록에는 나오지만 승인 화면에서 기본 해제됩니다 —{" "}
-                  {journalists.byConfidence.low ?? 0}명.
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="pt-5">
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[42rem] text-sm">
-                    <thead>
-                      <tr className="border-b border-border text-left text-xs text-foreground-muted">
-                        <th className="pb-2 pr-3 font-medium">코드</th>
-                        <th className="pb-2 pr-3 font-medium">매체</th>
-                        <th className="pb-2 pr-3 font-medium">beat</th>
-                        <th className="pb-2 pr-3 font-medium">신뢰도</th>
-                        <th className="pb-2 pr-3 font-medium">근거</th>
-                        <th className="pb-2 pr-3 font-medium">출처</th>
-                        <th className="pb-2 font-medium">팩 확인</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {journalists.journalists.map((j) => (
-                        <tr key={j._id} className="border-b border-border/50">
-                          <td className="py-2 pr-3 font-mono text-xs">{j.code}</td>
-                          <td className="py-2 pr-3">{j.outlet}</td>
-                          <td className="py-2 pr-3 text-foreground-muted">
-                            {j.beatPrimary}
-                          </td>
-                          <td className="py-2 pr-3">
-                            <Badge
-                              variant={
-                                j.contactConfidence === "high"
-                                  ? "brand"
-                                  : j.contactConfidence === "low"
-                                    ? "warning"
-                                    : "outline"
-                              }
-                            >
-                              {j.contactConfidence}
-                            </Badge>
-                          </td>
-                          <td className="py-2 pr-3 tabular-nums text-foreground-muted">
-                            {j.referenceArticleCount}
-                          </td>
-                          <td className="py-2 pr-3 text-xs text-foreground-muted">
-                            {j.source}
-                          </td>
-                          <td className="py-2 text-xs text-foreground-muted">
-                            {j.stale ? (
-                              <span className="text-warning">
-                                {fmtDate(j.lastSeenInPackAt ?? undefined)} (stale)
-                              </span>
-                            ) : (
-                              fmtDate(j.lastSeenInPackAt ?? undefined)
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <p className="mt-3 text-xs text-muted">
-                  기자 실명·이메일·연락처는 관리자 화면에도 표시하지 않습니다. 발송 시점의
-                  Gmail 수신자로만 사용됩니다.
-                </p>
-              </CardContent>
-            </Card>
-          </>
-        )}
+            ) : (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                <span className="font-semibold tabular-nums">{jStats.total}명</span>
+                <span className="text-xs text-foreground-muted tabular-nums">
+                  팩 유래 {jStats.fromPacks} · 시드·수동 {jStats.total - jStats.fromPacks}
+                </span>
+              </div>
+            )}
+            <Link
+              href="/admin/journalists"
+              className={buttonClasses({ variant: "subtle", size: "sm" })}
+            >
+              디렉터리 열기
+            </Link>
+          </CardContent>
+        </Card>
       </section>
     </div>
   );
