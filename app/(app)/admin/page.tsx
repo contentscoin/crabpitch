@@ -23,14 +23,8 @@ import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Input } from "@/components/ui/Input";
 import { PageHeader, StatCard } from "@/components/app/bits";
-import {
-  AdminNav,
-  ListToolbar,
-  PackStatusBadge,
-  Pager,
-  fmtDate,
-  fmtDateTime,
-} from "@/components/app/adminBits";
+import { AdminNav, PackStatusBadge, fmtDate, fmtDateTime } from "@/components/app/adminBits";
+import { ListToolbar, Pager } from "@/components/app/listBits";
 import { PLANS } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -281,6 +275,129 @@ export default function AdminPage() {
           icon={Shield}
         />
       </div>
+
+      {/* 관리자가 이 화면에 오는 가장 잦은 이유가 사용자 조회·플랜 변경이다.
+          운영 지표보다 먼저 온다. */}
+      <section className="space-y-3">
+        <h2 className="flex items-center gap-2 text-lg font-bold">
+          <Users className="h-5 w-5" /> 사용자 · 플랜
+        </h2>
+        <Card>
+          <CardContent className="space-y-3 pt-5">
+            {users === undefined ? (
+              <Skeleton className="h-32" />
+            ) : (
+              <>
+                <ListToolbar
+                  placeholder="이메일·회사명으로 찾기"
+                  value={userSearch}
+                  onChange={(v) => {
+                    setUserSearch(v);
+                    // 검색어가 바뀌면 결과가 달라진다 — 3쪽에 머물러 있으면 빈 화면을 본다.
+                    setUserPage(1);
+                  }}
+                  total={users.total}
+                  matched={users.matched}
+                />
+                {users.users.length === 0 ? (
+                  <p className="text-sm text-muted">
+                    {userSearch ? "검색 결과가 없습니다." : "사용자가 없습니다."}
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-xs text-muted">
+                      <th className="py-2 pr-3 font-semibold">이메일</th>
+                      <th className="py-2 pr-3 font-semibold">회사</th>
+                      <th className="py-2 pr-3 font-semibold">플랜</th>
+                      <th className="py-2 pr-3 font-semibold">사용량</th>
+                      <th className="py-2 pr-3 font-semibold">MCP</th>
+                      <th className="py-2 font-semibold">관리자</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.users.map((u) => (
+                      <tr
+                        key={u.userId}
+                        className="border-b border-border align-top"
+                      >
+                        <td className="py-3 pr-3">
+                          <div className="font-medium">
+                            {u.email ?? "(이메일 없음)"}
+                          </div>
+                          <div className="text-xs text-muted">
+                            {u.name ?? "—"}
+                          </div>
+                        </td>
+                        <td className="py-3 pr-3 text-foreground-muted">
+                          {u.companyName ?? "—"}
+                          {u.gmailConnected && (
+                            <div className="text-xs text-success">Gmail</div>
+                          )}
+                        </td>
+                        <td className="py-3 pr-3">
+                          <select
+                            className="rounded-md border border-border bg-card px-2 py-1.5 text-xs font-semibold"
+                            value={u.plan}
+                            disabled={busy || !u.profileId}
+                            onChange={(e) => {
+                              const plan = e.target.value as PlanId;
+                              void run(`${u.email ?? u.userId} → ${plan}`, () =>
+                                setPlan({ userId: u.userId, plan }),
+                              );
+                            }}
+                          >
+                            {PLANS.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="py-3 pr-3 text-xs text-muted">
+                          발송 {u.sendsUsed} · 보도자료 {u.pressReleasesUsed}
+                        </td>
+                        <td className="py-3 pr-3 text-xs">{u.mcpKeyCount}개</td>
+                        <td className="py-3">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={u.isPlatformAdmin ? "brand" : "subtle"}
+                            disabled={busy}
+                            onClick={() =>
+                              void run(
+                                u.isPlatformAdmin
+                                  ? "관리자 해제"
+                                  : "관리자 부여",
+                                () =>
+                                  setAdmin({
+                                    userId: u.userId,
+                                    isPlatformAdmin: !u.isPlatformAdmin,
+                                  }),
+                              )
+                            }
+                          >
+                            {u.isPlatformAdmin ? "관리자" : "일반"}
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                  </div>
+                )}
+                <Pager
+                  page={users.page - 1}
+                  total={users.matched}
+                  pageSize={users.pageSize}
+                  onPage={(p) => setUserPage(p + 1)}
+                />
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </section>
 
       {overview && (
         <section className="space-y-3">
@@ -722,127 +839,6 @@ export default function AdminPage() {
             <Link href="/admin/logs" className={buttonClasses({ variant: "subtle", size: "sm" })}>
               전체 로그 보기
             </Link>
-          </CardContent>
-        </Card>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="flex items-center gap-2 text-lg font-bold">
-          <Users className="h-5 w-5" /> 사용자 · 플랜
-        </h2>
-        <Card>
-          <CardContent className="space-y-3 pt-5">
-            {users === undefined ? (
-              <Skeleton className="h-32" />
-            ) : (
-              <>
-                <ListToolbar
-                  placeholder="이메일·회사명으로 찾기"
-                  value={userSearch}
-                  onChange={(v) => {
-                    setUserSearch(v);
-                    // 검색어가 바뀌면 결과가 달라진다 — 3쪽에 머물러 있으면 빈 화면을 본다.
-                    setUserPage(1);
-                  }}
-                  total={users.total}
-                  matched={users.matched}
-                />
-                {users.users.length === 0 ? (
-                  <p className="text-sm text-muted">
-                    {userSearch ? "검색 결과가 없습니다." : "사용자가 없습니다."}
-                  </p>
-                ) : (
-                  <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] border-collapse text-sm">
-                  <thead>
-                    <tr className="border-b border-border text-left text-xs text-muted">
-                      <th className="py-2 pr-3 font-semibold">이메일</th>
-                      <th className="py-2 pr-3 font-semibold">회사</th>
-                      <th className="py-2 pr-3 font-semibold">플랜</th>
-                      <th className="py-2 pr-3 font-semibold">사용량</th>
-                      <th className="py-2 pr-3 font-semibold">MCP</th>
-                      <th className="py-2 font-semibold">관리자</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.users.map((u) => (
-                      <tr
-                        key={u.userId}
-                        className="border-b border-border align-top"
-                      >
-                        <td className="py-3 pr-3">
-                          <div className="font-medium">
-                            {u.email ?? "(이메일 없음)"}
-                          </div>
-                          <div className="text-xs text-muted">
-                            {u.name ?? "—"}
-                          </div>
-                        </td>
-                        <td className="py-3 pr-3 text-foreground-muted">
-                          {u.companyName ?? "—"}
-                          {u.gmailConnected && (
-                            <div className="text-xs text-success">Gmail</div>
-                          )}
-                        </td>
-                        <td className="py-3 pr-3">
-                          <select
-                            className="rounded-md border border-border bg-card px-2 py-1.5 text-xs font-semibold"
-                            value={u.plan}
-                            disabled={busy || !u.profileId}
-                            onChange={(e) => {
-                              const plan = e.target.value as PlanId;
-                              void run(`${u.email ?? u.userId} → ${plan}`, () =>
-                                setPlan({ userId: u.userId, plan }),
-                              );
-                            }}
-                          >
-                            {PLANS.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.name}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="py-3 pr-3 text-xs text-muted">
-                          발송 {u.sendsUsed} · 보도자료 {u.pressReleasesUsed}
-                        </td>
-                        <td className="py-3 pr-3 text-xs">{u.mcpKeyCount}개</td>
-                        <td className="py-3">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={u.isPlatformAdmin ? "brand" : "subtle"}
-                            disabled={busy}
-                            onClick={() =>
-                              void run(
-                                u.isPlatformAdmin
-                                  ? "관리자 해제"
-                                  : "관리자 부여",
-                                () =>
-                                  setAdmin({
-                                    userId: u.userId,
-                                    isPlatformAdmin: !u.isPlatformAdmin,
-                                  }),
-                              )
-                            }
-                          >
-                            {u.isPlatformAdmin ? "관리자" : "일반"}
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                  </div>
-                )}
-                <Pager
-                  page={users.page - 1}
-                  total={users.matched}
-                  pageSize={users.pageSize}
-                  onPage={(p) => setUserPage(p + 1)}
-                />
-              </>
-            )}
           </CardContent>
         </Card>
       </section>

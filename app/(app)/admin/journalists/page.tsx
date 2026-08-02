@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { PageHeader } from "@/components/app/bits";
 import { toUserMessage } from "@/lib/errorMessage";
-import { AdminNav, ListToolbar, Pager, fmtDate } from "@/components/app/adminBits";
+import { AdminNav, fmtDate } from "@/components/app/adminBits";
+import { ListToolbar, Pager, PageSizeSelect } from "@/components/app/listBits";
 
 /**
  * 기자 디렉터리.
@@ -21,6 +22,7 @@ import { AdminNav, ListToolbar, Pager, fmtDate } from "@/components/app/adminBit
  */
 export default function AdminJournalistsPage() {
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [search, setSearch] = useState("");
   const [source, setSource] = useState("");
   const [staleOnly, setStaleOnly] = useState(false);
@@ -33,7 +35,7 @@ export default function AdminJournalistsPage() {
     access?.allowed
       ? {
           page,
-          pageSize: 50,
+          pageSize,
           search,
           source: source || undefined,
           staleOnly: staleOnly || undefined,
@@ -89,6 +91,10 @@ export default function AdminJournalistsPage() {
                 matched={data.matched}
                 note={`stale ${data.staleCount}`}
               >
+                <PageSizeSelect
+                  value={pageSize}
+                  onChange={(n) => applyFilter(() => setPageSize(n))}
+                />
                 <div className="flex flex-wrap items-center gap-2">
                   {(
                     [

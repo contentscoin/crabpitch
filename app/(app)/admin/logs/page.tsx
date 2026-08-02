@@ -6,13 +6,8 @@ import { api } from "@/convex/_generated/api";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { PageHeader } from "@/components/app/bits";
-import {
-  AdminNav,
-  ListToolbar,
-  PackStatusBadge,
-  Pager,
-  fmtDateTime,
-} from "@/components/app/adminBits";
+import { AdminNav, PackStatusBadge, fmtDateTime } from "@/components/app/adminBits";
+import { ListToolbar, Pager } from "@/components/app/listBits";
 
 /**
  * 팩 동기화 실행 이력.

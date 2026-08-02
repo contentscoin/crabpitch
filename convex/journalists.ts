@@ -12,11 +12,26 @@ import { journalistCode } from "./lib/mask";
  * ⚠️ PII 보호: 실명·이메일·연락처는 클라이언트로 절대 내려보내지 않는다.
  *    익명 코드(기자 #XXXX) + 매체 + beat + 신뢰도만 노출한다.
  */
+/**
+ * ⚠️ **서버에서 한 쪽만 잘라 보낸다.** 예전에는 조건에 맞는 전부(1,700여 건)를
+ *    브라우저로 보냈다. 사용자가 보는 건 한 화면인데 나머지는 전송·파싱 비용만 낸다.
+ *
+ * 정렬은 사용자가 고른다 — 근거 기사 수로 보는 것과 매체 이름으로 훑는 것은 목적이
+ * 다르다. 기본은 근거 기사 수(많이 쓴 기자가 먼저)다.
+ */
 export const list = query({
-  args: { search: v.optional(v.string()) },
-  handler: async (ctx, { search }) => {
+  args: {
+    search: v.optional(v.string()),
+    page: v.optional(v.number()),
+    pageSize: v.optional(v.number()),
+    /** "references" | "outlet" | "beat" */
+    sort: v.optional(v.string()),
+  },
+  handler: async (ctx, { search, page, pageSize, sort }) => {
     await requireUser(ctx);
-    let journalists = await ctx.db.query("journalists").collect();
+    const all = await ctx.db.query("journalists").collect();
+
+    let journalists = all;
     if (search) {
       const s = search.toLowerCase();
       // 검색은 매체/beat 기준 (실명은 노출하지 않으므로 표시에 쓰지 않음)
@@ -24,17 +39,36 @@ export const list = query({
         (j) => j.outlet.toLowerCase().includes(s) || j.beatPrimary.toLowerCase().includes(s),
       );
     }
-    journalists.sort((a, b) => b.referenceArticleCount - a.referenceArticleCount);
-    return journalists.map((j) => ({
-      _id: j._id,
-      code: journalistCode(j._id),
-      outlet: j.outlet,
-      beatPrimary: j.beatPrimary,
-      beatSecondary: j.beatSecondary,
-      contactConfidence: j.contactConfidence,
-      referenceArticleCount: j.referenceArticleCount,
-      topReferenceTitle: j.topReferenceTitle,
-    }));
+
+    const sorted = journalists.slice().sort((a, b) => {
+      if (sort === "outlet") return a.outlet.localeCompare(b.outlet, "ko");
+      if (sort === "beat") return a.beatPrimary.localeCompare(b.beatPrimary, "ko");
+      return b.referenceArticleCount - a.referenceArticleCount;
+    });
+
+    // 검색을 좁히면 현재 쪽이 범위를 벗어난다 — 빈 화면 대신 마지막 쪽으로 당긴다.
+    const size = Math.min(50, Math.max(10, pageSize ?? 20));
+    const pageCount = Math.max(1, Math.ceil(sorted.length / size));
+    const safePage = Math.min(Math.max(1, Math.floor(page ?? 1)), pageCount);
+
+    return {
+      total: all.length,
+      matched: sorted.length,
+      page: safePage,
+      pageSize: size,
+      pageCount,
+      sort: sort ?? "references",
+      journalists: sorted.slice((safePage - 1) * size, safePage * size).map((j) => ({
+        _id: j._id,
+        code: journalistCode(j._id),
+        outlet: j.outlet,
+        beatPrimary: j.beatPrimary,
+        beatSecondary: j.beatSecondary,
+        contactConfidence: j.contactConfidence,
+        referenceArticleCount: j.referenceArticleCount,
+        topReferenceTitle: j.topReferenceTitle,
+      })),
+    };
   },
 });
 
