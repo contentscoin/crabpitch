@@ -8,8 +8,8 @@ import Link from "next/link";
 /**
  * 관리자 화면 공용 조각.
  *
- * `/admin`과 `/admin/logs`가 같은 표·같은 페이저를 쓴다. 화면마다 복사해 두면
- * 한쪽만 고쳐지고, 관리자는 같은 표가 화면에 따라 다르게 동작하는 것을 본다.
+ * `/admin`·`/admin/journalists`·`/admin/logs`가 같은 표·같은 페이저를 쓴다. 화면마다
+ * 복사해 두면 한쪽만 고쳐지고, 관리자는 같은 표가 화면에 따라 다르게 동작하는 것을 본다.
  */
 
 export type PackStatus = "ok" | "partial" | "failed";
@@ -136,9 +136,14 @@ export function Pager({
  * 화면이 여럿이 되면 "지금 어디에 있고 어디로 갈 수 있는지"가 먼저 보여야 한다.
  * 현재 화면을 `aria-current`로 표시해 스크린리더에서도 같은 정보를 준다.
  */
-export function AdminNav({ current }: { current: "overview" | "logs" }) {
+export function AdminNav({
+  current,
+}: {
+  current: "overview" | "journalists" | "logs";
+}) {
   const tabs = [
     { id: "overview", href: "/admin", label: "요약 · 운영" },
+    { id: "journalists", href: "/admin/journalists", label: "기자 디렉터리" },
     { id: "logs", href: "/admin/logs", label: "동기화 로그" },
   ] as const;
   return (

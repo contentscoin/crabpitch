@@ -90,8 +90,6 @@ const PACK_PAGE_SIZE = 10;
 
 export default function AdminPage() {
   // 목록 상태를 쿼리보다 먼저 선언한다 — 쿼리 인자가 이 값들을 참조한다.
-  const [jPage, setJPage] = useState(1);
-  const [jSearch, setJSearch] = useState("");
   const [userPage, setUserPage] = useState(1);
   const [userSearch, setUserSearch] = useState("");
   const [keyPage, setKeyPage] = useState(1);
@@ -117,11 +115,6 @@ export default function AdminPage() {
   // 기자 집계는 별도 쿼리로 뺐다 — 팩 동기화 쿼리가 같은 전수 스캔을 또 돌지 않게.
   const jStats = useQuery(api.admin.journalistStats, access?.allowed ? {} : "skip");
   const lastRun = packSync?.recentRuns[0];
-  const journalists = useQuery(
-    api.admin.listJournalists,
-    // 서버에서 한 페이지만 잘라 온다 — 1,700여 건을 통째로 받지 않는다.
-    access?.allowed ? { page: jPage, pageSize: 50, search: jSearch } : "skip",
-  );
   const setPlan = useMutation(api.admin.setUserPlan);
   const setAdmin = useMutation(api.admin.setPlatformAdminFlag);
   const revokeKey = useMutation(api.admin.revokeMcpKey);
@@ -132,7 +125,6 @@ export default function AdminPage() {
   const [brokenPage, setBrokenPage] = useState(0);
   const [packPage, setPackPage] = useState(0);
   const syncPacks = useAction(api.opencrabActions.syncPacksManual);
-  const seedTestJournalist = useMutation(api.admin.seedTestJournalist);
 
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -942,174 +934,35 @@ export default function AdminPage() {
         </Card>
       </section>
 
+      {/* 디렉터리 전체는 `/admin/journalists`로 뺐다 — 요약에서는 "몇 명 있나"만 알면 되고,
+          "이 매체 기자가 왜 매칭에 안 뜨나"는 필터가 있어야 파고들 수 있다. */}
       <section className="space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-lg font-bold">기자 디렉터리</h2>
-          <div className="flex flex-wrap items-center gap-2">
-            {journalists && (
-              <span className="text-xs tabular-nums text-foreground-muted">
-                {journalists.page}/{journalists.pageCount}쪽
-              </span>
-            )}
-            <Button
-              type="button"
-              size="sm"
-              variant="subtle"
-              disabled={packBusy}
-              onClick={() =>
-                // run()은 콜백 뒤에 label로 메시지를 덮어써 결과별 안내가 사라진다.
-                // runPackJob은 반환 문자열을 그대로 쓴다.
-                void runPackJob("테스트 기자 시드", async () => {
-                  const r = await seedTestJournalist({});
-                  return r.created
-                    ? "테스트 기자(김테스트 · hiway@kakao.com)를 추가했습니다."
-                    : "이미 있습니다 — 중복 생성하지 않았습니다.";
-                })
-              }
-            >
-              테스트 기자 시드
-            </Button>
-          </div>
-        </div>
-
-        {journalists === undefined ? (
-          <Skeleton className="h-40" />
-        ) : journalists.total === 0 ? (
-          <Card>
-            <CardContent className="space-y-2 pt-5 text-sm">
-              <p className="font-semibold">기자 데이터가 없습니다.</p>
-              <p className="text-foreground-muted">
-                오픈크랩 연동이 꺼져 있거나 팩 동기화가 한 번도 돌지 않은 상태입니다. 위
-                「오픈크랩 팩 동기화」에서 수동 동기화를 실행해 보세요.
+        <h2 className="text-lg font-bold">기자 디렉터리</h2>
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-5">
+            {jStats === undefined ? (
+              <Skeleton className="h-10 w-64" />
+            ) : jStats.total === 0 ? (
+              <p className="text-sm text-muted">
+                기자 데이터가 없습니다. 위 「오픈크랩 팩 동기화」를 먼저 실행하세요.
               </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <>
-            {/* 카드 넷을 한 줄로 줄였다 — 같은 숫자가 화면 위쪽 요약에도 이미 있다.
-                자리를 차지하던 만큼을 검색에 내준다. */}
-            <ListToolbar
-              placeholder="매체명으로 찾기"
-              value={jSearch}
-              onChange={(v) => {
-                setJSearch(v);
-                setJPage(1);
-              }}
-              total={journalists.total}
-              matched={journalists.matched}
-              note={`팩 ${journalists.bySource.opencrab ?? 0} · 시드·수동 ${
-                (journalists.bySource.seed ?? 0) +
-                (journalists.bySource.manual ?? 0) +
-                (journalists.bySource.unknown ?? 0)
-              } · stale ${journalists.staleCount}`}
-            />
-
-            {/* "왜 N명만 뜨지"의 실제 원인을 숫자로 보여준다. 총계만으로는 못 가린다. */}
-            <Card>
-              <CardContent className="space-y-2 pt-5 text-sm">
-                <p className="font-semibold">매칭에 몇 명이 뜨는지</p>
-                <p className="text-foreground-muted">
-                  매칭 1회는{" "}
-                  <b className="text-foreground">
-                    최대 {journalists.matchTopKDefault}명
-                  </b>
-                  을 만듭니다. 디렉터리에 {journalists.total}명이 있어도 그 이상은 나오지
-                  않습니다. 여기에{" "}
-                  <b className="text-foreground">주제 태그가 하나도 겹치지 않는 기자</b>는
-                  점수 0으로 아예 빠지고, 수신거부·재접근 제외도 추가로 걸립니다.
-                  {journalists.excludeStale && journalists.staleCount > 0 ? (
-                    <>
-                      {" "}
-                      지금은 stale 제외가 켜져 있어{" "}
-                      <b className="text-foreground">{journalists.staleCount}명</b>이 더
-                      빠집니다.
-                    </>
-                  ) : null}
-                </p>
-                <p className="text-xs text-muted">
-                  신뢰도 low인 기자는 목록에는 나오지만 승인 화면에서 기본 해제됩니다 —{" "}
-                  {journalists.byConfidence.low ?? 0}명.
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="pt-5">
-                {journalists.journalists.length === 0 ? (
-                  <p className="text-sm text-muted">
-                    {jSearch ? "검색 결과가 없습니다." : "표시할 기자가 없습니다."}
-                  </p>
-                ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[42rem] text-sm">
-                    <thead>
-                      <tr className="border-b border-border text-left text-xs text-foreground-muted">
-                        <th className="pb-2 pr-3 font-medium">코드</th>
-                        <th className="pb-2 pr-3 font-medium">매체</th>
-                        <th className="pb-2 pr-3 font-medium">beat</th>
-                        <th className="pb-2 pr-3 font-medium">신뢰도</th>
-                        <th className="pb-2 pr-3 font-medium">근거</th>
-                        <th className="pb-2 pr-3 font-medium">출처</th>
-                        <th className="pb-2 font-medium">팩 확인</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {journalists.journalists.map((j) => (
-                        <tr key={j._id} className="border-b border-border/50">
-                          <td className="py-2 pr-3 font-mono text-xs">{j.code}</td>
-                          <td className="py-2 pr-3">{j.outlet}</td>
-                          <td className="py-2 pr-3 text-foreground-muted">
-                            {j.beatPrimary}
-                          </td>
-                          <td className="py-2 pr-3">
-                            <Badge
-                              variant={
-                                j.contactConfidence === "high"
-                                  ? "brand"
-                                  : j.contactConfidence === "low"
-                                    ? "warning"
-                                    : "outline"
-                              }
-                            >
-                              {j.contactConfidence}
-                            </Badge>
-                          </td>
-                          <td className="py-2 pr-3 tabular-nums text-foreground-muted">
-                            {j.referenceArticleCount}
-                          </td>
-                          <td className="py-2 pr-3 text-xs text-foreground-muted">
-                            {j.source}
-                          </td>
-                          <td className="py-2 text-xs text-foreground-muted">
-                            {j.stale ? (
-                              <span className="text-warning">
-                                {fmtDate(j.lastSeenInPackAt ?? undefined)} (stale)
-                              </span>
-                            ) : (
-                              fmtDate(j.lastSeenInPackAt ?? undefined)
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                )}
-                {/* 서버에서 한 페이지만 받아 온다 — 페이지를 넘기면 그만큼만 새로 온다. */}
-                <Pager
-                  page={journalists.page - 1}
-                  total={journalists.matched}
-                  pageSize={journalists.pageSize}
-                  onPage={(p) => setJPage(p + 1)}
-                />
-                <p className="mt-3 text-xs text-muted">
-                  기자 실명·이메일·연락처는 관리자 화면에도 표시하지 않습니다. 발송 시점의
-                  Gmail 수신자로만 사용됩니다.
-                </p>
-              </CardContent>
-            </Card>
-          </>
-        )}
+            ) : (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                <span className="font-semibold tabular-nums">{jStats.total}명</span>
+                <span className="text-xs text-foreground-muted tabular-nums">
+                  팩 {jStats.fromPacks} · stale {jStats.staleCount} · 매체 분류 미상{" "}
+                  {jStats.missingCategory}
+                </span>
+              </div>
+            )}
+            <Link
+              href="/admin/journalists"
+              className={buttonClasses({ variant: "subtle", size: "sm" })}
+            >
+              디렉터리 열기
+            </Link>
+          </CardContent>
+        </Card>
       </section>
     </div>
   );
