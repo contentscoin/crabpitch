@@ -23,6 +23,14 @@ import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Input } from "@/components/ui/Input";
 import { PageHeader, StatCard } from "@/components/app/bits";
+import {
+  AdminNav,
+  ListToolbar,
+  PackStatusBadge,
+  Pager,
+  fmtDate,
+  fmtDateTime,
+} from "@/components/app/adminBits";
 import { PLANS } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -35,15 +43,6 @@ type PlanId = "free" | "solo" | "growth" | "agency";
  */
 
 type PackStatus = "ok" | "partial" | "failed";
-
-const PACK_STATUS: Record<
-  PackStatus,
-  { label: string; variant: "success" | "warning" | "danger" }
-> = {
-  ok: { label: "정상", variant: "success" },
-  partial: { label: "결손", variant: "warning" },
-  failed: { label: "실패", variant: "danger" },
-};
 
 const SERIES_LABEL: Record<string, string> = {
   "journalist-contacts": "기자단 배치",
@@ -70,14 +69,6 @@ function packLabel(p: {
   return p.batch ?? p.name ?? `${p.packageId.slice(0, 8)}…`;
 }
 
-function fmtDate(ts?: number): string {
-  return ts ? new Date(ts).toLocaleDateString("ko-KR") : "—";
-}
-
-function fmtDateTime(ts?: number): string {
-  return ts ? new Date(ts).toLocaleString("ko-KR") : "—";
-}
-
 function summarizeSync(res: {
   packsAttempted: number;
   ok: number;
@@ -96,99 +87,6 @@ function summarizeSync(res: {
 /** 목록이 길어지면 화면이 세로로 끝없이 늘어난다 — 한 번에 이만큼만 보여준다. */
 const PACK_PAGE_SIZE = 10;
 
-/**
- * 목록 상단 도구 막대 — 검색과 건수.
- *
- * 페이지를 넘기는 것보다 검색이 빠른 경우가 많다. 찾는 대상이 정해져 있으면
- * 몇 쪽인지 모르는 채로 넘기게 하지 않는다.
- */
-function ListToolbar({
-  placeholder,
-  value,
-  onChange,
-  total,
-  matched,
-  note,
-}: {
-  placeholder: string;
-  value: string;
-  onChange: (v: string) => void;
-  total: number;
-  matched: number;
-  note?: string;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {/* 포커스 링·테두리는 Input 프리미티브가 갖는다 — 화면에서 다시 그리지 않는다. */}
-      <Input
-        type="search"
-        className="h-9 min-w-[200px] flex-1"
-        aria-label={placeholder}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      <span className="text-xs tabular-nums text-foreground-muted">
-        {/* 검색 중일 때만 "몇 건 중 몇 건"을 보여 준다 — 평소엔 총계 하나면 충분하다. */}
-        {matched === total ? `${total}건` : `${matched} / ${total}건`}
-        {note ? ` · ${note}` : ""}
-      </span>
-    </div>
-  );
-}
-
-function Pager({
-  page,
-  total,
-  pageSize,
-  onPage,
-}: {
-  page: number;
-  total: number;
-  pageSize: number;
-  onPage: (p: number) => void;
-}) {
-  const pages = Math.max(1, Math.ceil(total / pageSize));
-  if (pages <= 1) return null;
-  const from = page * pageSize + 1;
-  const to = Math.min(total, (page + 1) * pageSize);
-  return (
-    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-foreground-muted">
-      <span className="tabular-nums">
-        {from}–{to} / {total}
-      </span>
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="subtle"
-          disabled={page === 0}
-          onClick={() => onPage(page - 1)}
-        >
-          이전
-        </Button>
-        <span className="tabular-nums">
-          {page + 1} / {pages}
-        </span>
-        <Button
-          type="button"
-          size="sm"
-          variant="subtle"
-          disabled={page >= pages - 1}
-          onClick={() => onPage(page + 1)}
-        >
-          다음
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function PackStatusBadge({ status }: { status?: string }) {
-  const s = status ? PACK_STATUS[status as PackStatus] : undefined;
-  if (!s) return <Badge variant="outline">{status ?? "미실행"}</Badge>;
-  return <Badge variant={s.variant}>{s.label}</Badge>;
-}
 
 export default function AdminPage() {
   // 목록 상태를 쿼리보다 먼저 선언한다 — 쿼리 인자가 이 값들을 참조한다.
@@ -198,7 +96,6 @@ export default function AdminPage() {
   const [userSearch, setUserSearch] = useState("");
   const [keyPage, setKeyPage] = useState(1);
   const [keySearch, setKeySearch] = useState("");
-  const [runPage, setRunPage] = useState(0);
 
   const access = useQuery(api.admin.getAccess);
   const overview = useQuery(
@@ -219,6 +116,7 @@ export default function AdminPage() {
   );
   // 기자 집계는 별도 쿼리로 뺐다 — 팩 동기화 쿼리가 같은 전수 스캔을 또 돌지 않게.
   const jStats = useQuery(api.admin.journalistStats, access?.allowed ? {} : "skip");
+  const lastRun = packSync?.recentRuns[0];
   const journalists = useQuery(
     api.admin.listJournalists,
     // 서버에서 한 페이지만 잘라 온다 — 1,700여 건을 통째로 받지 않는다.
@@ -357,6 +255,7 @@ export default function AdminPage() {
           </Badge>
         }
       />
+      <AdminNav current="overview" />
 
       {msg && <p className="text-sm text-foreground-muted">{msg}</p>}
 
@@ -806,54 +705,35 @@ export default function AdminPage() {
           </Card>
         )}
 
+        {/* 실행 이력은 `/admin/logs`로 뺐다 — 요약에서는 "지금 정상인가"만 알면 되고,
+            "언제 무엇이 왜 실패했나"는 30건으로 부족하다. 여기서는 최근 한 건만 띄운다. */}
         <Card>
-          <CardContent className="space-y-2 pt-5">
-            <div className="text-sm font-bold">최근 실행 기록</div>
-            {packSync === undefined ? (
-              <Skeleton className="h-24" />
-            ) : packSync.recentRuns.length === 0 ? (
-              <p className="text-sm text-muted">실행 기록이 없습니다.</p>
-            ) : (
-              <>
-              <ul>
-                {packSync.recentRuns
-                  .slice(runPage * PACK_PAGE_SIZE, (runPage + 1) * PACK_PAGE_SIZE)
-                  .map((r, i) => (
-                  <li
-                    key={`${r.packageId}-${r.startedAt}-${i}`}
-                    className="flex flex-wrap items-center gap-2 border-b border-border py-2 text-sm last:border-0"
-                  >
-                    <PackStatusBadge status={r.status} />
-                    <span className="font-medium">
-                      {packNames.get(r.packageId) ??
-                        `${r.packageId.slice(0, 8)}…`}
-                    </span>
-                    <span className="text-xs text-muted">
-                      {fmtDateTime(r.startedAt)} ·{" "}
-                      {r.trigger === "cron" ? "크론" : "수동"}
-                    </span>
-                    <span className="text-xs text-foreground-muted tabular-nums">
-                      취득 {r.fetched}
-                      {r.recordCount != null ? `/${r.recordCount}` : ""} · 신규{" "}
-                      {r.inserted} · 갱신 {r.updated}
-                    </span>
-                    {r.error && (
-                      <span className="w-full text-xs text-warning">
-                        {r.error}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-              {/* 30건이 한 화면에 쏟아지면 스크롤만 길어진다. */}
-              <Pager
-                page={runPage}
-                total={packSync.recentRuns.length}
-                pageSize={PACK_PAGE_SIZE}
-                onPage={setRunPage}
-              />
-              </>
-            )}
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-5">
+            <div className="min-w-0">
+              <div className="text-sm font-bold">최근 실행</div>
+              {packSync === undefined ? (
+                <Skeleton className="mt-1 h-5 w-48" />
+              ) : lastRun ? (
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
+                  <PackStatusBadge status={lastRun.status} />
+                  <span className="font-medium">
+                    {packNames.get(lastRun.packageId) ?? `${lastRun.packageId.slice(0, 8)}…`}
+                  </span>
+                  <span className="text-xs text-muted">
+                    {fmtDateTime(lastRun.startedAt)} ·{" "}
+                    {lastRun.trigger === "cron" ? "크론" : "수동"}
+                  </span>
+                  {lastRun.error && (
+                    <span className="w-full text-xs text-warning">{lastRun.error}</span>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-1 text-sm text-muted">실행 기록이 없습니다.</p>
+              )}
+            </div>
+            <Link href="/admin/logs" className={buttonClasses({ variant: "subtle", size: "sm" })}>
+              전체 로그 보기
+            </Link>
           </CardContent>
         </Card>
       </section>

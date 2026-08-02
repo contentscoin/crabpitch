@@ -668,6 +668,78 @@ export const packSyncOverview = query({
   },
 });
 
+/**
+ * 팩 동기화 실행 이력 — **별도 화면(`/admin/logs`)용.**
+ *
+ * 요약 화면에 30건을 통째로 붙여 두면 스크롤만 길어지고, 정작 실패를 파고들 때는
+ * 30건으로 부족하다. 목적이 다르므로 화면을 나누고 쿼리도 나눈다.
+ *
+ * `by_startedAt` 인덱스 역순으로 최근 것부터 본다. 이력은 오래될수록 볼 일이 줄어드므로
+ * 전수를 훑지 않고 상한(1,000건)까지만 가져와 그 안에서 거른다.
+ */
+export const listPackSyncRuns = query({
+  args: {
+    page: v.optional(v.number()),
+    pageSize: v.optional(v.number()),
+    /** "ok" | "partial" | "failed" — 미지정이면 전체 */
+    status: v.optional(v.string()),
+    packageId: v.optional(v.string()),
+    /** 실패·결손만 — 사고를 쫓을 때 쓰는 단축 필터 */
+    problemsOnly: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { page, pageSize, status, packageId, problemsOnly }) => {
+    await requirePlatformAdmin(ctx);
+
+    const runs = await ctx.db
+      .query("packSyncRuns")
+      .withIndex("by_startedAt")
+      .order("desc")
+      .take(1000);
+
+    // 팩 이름은 이력에 없다 — 표에 packageId만 뜨면 어느 팩인지 알 수 없다.
+    const packs = await ctx.db.query("opencrabPacks").collect();
+    const nameById = new Map(
+      packs.map((p) => [p.packageId, p.name ?? p.batch ?? p.series]),
+    );
+
+    const byStatus: Record<string, number> = {};
+    for (const r of runs) byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
+
+    const filtered = runs.filter((r) => {
+      if (status && r.status !== status) return false;
+      if (packageId && r.packageId !== packageId) return false;
+      if (problemsOnly && r.status === "ok") return false;
+      return true;
+    });
+
+    const { rows, ...meta } = paginate(filtered, page, pageSize, { fallback: 30 });
+
+    return {
+      total: runs.length,
+      byStatus,
+      ...meta,
+      /** 필터 드롭다운용 — 이력에 실제로 등장한 팩만 */
+      packOptions: [...new Set(runs.map((r) => r.packageId))]
+        .map((id) => ({ packageId: id, name: nameById.get(id) ?? id.slice(0, 8) }))
+        .sort((a, b) => a.name.localeCompare(b.name, "ko")),
+      runs: rows.map((r) => ({
+        _id: r._id,
+        packageId: r.packageId,
+        packName: nameById.get(r.packageId) ?? `${r.packageId.slice(0, 8)}…`,
+        status: r.status,
+        startedAt: r.startedAt,
+        finishedAt: r.finishedAt ?? null,
+        recordCount: r.recordCount ?? null,
+        fetched: r.fetched,
+        inserted: r.inserted,
+        updated: r.updated,
+        error: r.error ?? null,
+        trigger: r.trigger,
+      })),
+    };
+  },
+});
+
 /** 신규·파생 시리즈 팩의 자동 동기화 여부를 관리자가 승인/해제한다(자동 전환 금지). */
 export const setPackSyncEnabled = mutation({
   args: { packageId: v.string(), enabled: v.boolean() },
