@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { requireUser, getProfile, bumpSends } from "./model";
+import { buildPressReleaseAttachment } from "./lib/pressReleaseFile";
 import {
   buildEmailContext,
   buildEmailDraftWithPreset,
@@ -1226,18 +1227,31 @@ export const selectForExternalSend = internalMutation({
     ),
     counts: blockedCountsValidator,
     queuedTotal: v.number(),
+    /**
+     * 모든 수신자에게 똑같이 붙는 보도자료 전문 첨부.
+     *
+     * 수신자마다 다르지 않으므로 초안 배열에 넣지 않는다. 여기서 **한 번** 만들어야
+     * Gmail·SMTP 두 경로가 같은 파일을 붙인다 — 경로마다 만들면 한쪽만 갱신되는
+     * 날이 온다.
+     */
+    attachment: v.optional(v.object({ filename: v.string(), text: v.string() })),
   }),
   handler: async (ctx, { campaignId, userId }) => {
     const campaign = await ctx.db.get(campaignId);
     if (!campaign || campaign.userId !== userId) {
       throw new Error("캠페인을 찾을 수 없습니다.");
     }
+    const pr = await ctx.db.get(campaign.pressReleaseId);
+    const profile = await getProfile(ctx, userId);
+    const attachment = pr
+      ? buildPressReleaseAttachment(pr, profile ?? {}, Date.now())
+      : undefined;
     const { allowed, result, halted, queuedTotal } = await selectSendableDrafts(
       ctx,
       campaignId,
       userId,
     );
-    if (halted) return { drafts: [], counts: result, queuedTotal };
+    if (halted) return { drafts: [], counts: result, queuedTotal, attachment };
 
     const rows = [];
     for (const d of allowed) {
@@ -1251,7 +1265,7 @@ export const selectForExternalSend = internalMutation({
         journalistEmail: j.email,
       });
     }
-    return { drafts: rows, counts: result, queuedTotal };
+    return { drafts: rows, counts: result, queuedTotal, attachment };
   },
 });
 

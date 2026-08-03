@@ -309,3 +309,114 @@ describe("커스텀 템플릿 신규 자리표시자", () => {
     expect(body).toContain("최근기사=선택된 기사");
   });
 });
+
+/**
+ * 실제로 기자에게 나간 메일에서 확인된 결함들.
+ *
+ * 2026-08-03 hiway@kakao.com 시험 발송 본문:
+ *   「(주)더에이치클럽/FMG은(는) 크랩피치, MCP 채팅에서 기자 발송까지 지원.
+ *     MCP 도구 16종 기술 차별점과 사용성 관점에서 자료를 준비했습니다.
+ *     김대표 대표는 "…"라고 밝혔습니다.」
+ */
+describe("발송 메일 문안 회귀", () => {
+  const FMG = {
+    ...EMAIL,
+    companyName: "(주)더에이치클럽/FMG",
+    headline: "크랩피치, MCP 채팅에서 기자 발송까지 지원",
+    bodyFact: "MCP 도구 16종",
+    spokesName: "김대표",
+    spokesTitle: "대표",
+    links: [],
+  };
+  const AI: JournalistContext = { beatPrimary: "AI/데이터", topReferenceTitle: "MCP 확산" };
+
+  const ALL_PRESETS: EmailTemplatePresetId[] = ["standard", "data", "story", "brief"];
+
+  it("조사 병기가 어느 프리셋에서도 나가지 않는다", () => {
+    for (const preset of ALL_PRESETS) {
+      const { body } = buildEmailDraftWithPreset(preset, FMG, AI);
+      expect(body).not.toContain("은(는)");
+      expect(body).not.toContain("이(가)");
+      expect(body).not.toContain("을(를)");
+    }
+  });
+
+  it("로마자로 끝나는 회사명에 맞는 조사를 고른다", () => {
+    const { body } = buildEmailDraft(FMG, AI);
+    expect(body).toContain("(주)더에이치클럽/FMG는");
+  });
+
+  it("명사구 수치가 앵글 문장에 붙어 한 문장이 되지 않는다", () => {
+    for (const preset of ALL_PRESETS) {
+      const { body } = buildEmailDraftWithPreset(preset, FMG, AI);
+      expect(body).not.toContain("MCP 도구 16종 기술 차별점");
+      expect(body).toContain("MCP 도구 16종.");
+    }
+  });
+
+  it("수치가 비어 있으면 앵글만 남고 앞에 공백·빈 문장이 생기지 않는다", () => {
+    const { body } = buildEmailDraft({ ...FMG, bodyFact: "" }, AI);
+    expect(body).toContain("기술 차별점과 사용성 관점에서 자료를 준비했습니다.");
+    expect(body).not.toMatch(/^\s+기술 차별점/m);
+    expect(body).not.toMatch(/\.\s*\.\s/);
+  });
+
+  it("이름이 직함으로 끝나면 직함을 겹쳐 쓰지 않는다", () => {
+    const { body } = buildEmailDraft(FMG, AI);
+    expect(body).not.toContain("김대표 대표는");
+    expect(body).toContain('김대표는 "');
+  });
+
+  it("화자 이름에도 조사를 맞춘다", () => {
+    const { body } = buildEmailDraft({ ...FMG, spokesName: "홍길동" }, AI);
+    expect(body).toContain('홍길동 대표는 "');
+  });
+
+  it("헤드라인이 명사형 제목이어도 서술어 자리에 들어가지 않는다", () => {
+    const { body } = buildEmailDraft(FMG, AI);
+    // 제목은 따옴표로 감싸고 문장은 따로 끝맺는다.
+    expect(body).toContain("'크랩피치, MCP 채팅에서 기자 발송까지 지원' 소식을 전합니다.");
+  });
+
+  it("뉴스 가치 한 줄이 본문에 실린다 — 예전에는 어디에도 나가지 않았다", () => {
+    const { body } = buildEmailDraft({ ...FMG, meaning: "채팅에서 기자 발송까지 한 번에" }, AI);
+    expect(body).toContain("채팅에서 기자 발송까지 한 번에.");
+  });
+
+  it("첨부가 있으면 본문이 파일명을 밝힌다", () => {
+    const name = "보도자료_크랩피치_2026-08-03.txt";
+    for (const preset of ALL_PRESETS) {
+      const { body } = buildEmailDraftWithPreset(preset, { ...FMG, attachmentName: name }, AI);
+      expect(body).toContain(`· 보도자료 전문을 첨부했습니다: ${name}`);
+    }
+  });
+
+  it("첨부가 없으면 첨부 안내도 없다 — 오지 않은 파일을 가리키지 않는다", () => {
+    const { body } = buildEmailDraft(FMG, AI);
+    expect(body).not.toContain("첨부했습니다");
+  });
+
+  it("첨부 자체가 자산이므로 CTA가 자료 보유를 단언할 수 있다", () => {
+    const withAttachment = buildEmailDraft(
+      { ...FMG, attachmentName: "보도자료.txt" },
+      { ...AI, outletCategory: "newswire" },
+    ).body;
+    expect(withAttachment).toContain("원문 자료와 이미지가 준비돼 있습니다");
+
+    // 링크도 첨부도 없으면 예전대로 "준비해 보내드리겠습니다"에 머문다.
+    const bare = buildEmailDraft(FMG, { ...AI, outletCategory: "newswire" }).body;
+    expect(bare).toContain("준비해 보내드리겠습니다");
+  });
+
+  it("수신거부는 여전히 마지막 블록이다", () => {
+    for (const preset of ALL_PRESETS) {
+      const { body } = buildEmailDraftWithPreset(
+        preset,
+        { ...FMG, attachmentName: "보도자료.txt", meaning: "왜 지금인가" },
+        AI,
+      );
+      expect(hasOptOut(body)).toBe(true);
+      expect(body.trimEnd().endsWith("즉시 명단에서 제외하겠습니다.")).toBe(true);
+    }
+  });
+});

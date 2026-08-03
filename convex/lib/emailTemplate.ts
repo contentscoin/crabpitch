@@ -11,6 +11,8 @@
  *  - 기자 실명은 초안에 저장하지 않는다 — 발송 시점 `personalizeForSend`만 주입
  */
 
+import { josa } from "./josa";
+import { pressReleaseFilename } from "./pressReleaseFile";
 import type { BeatWeight, ReferenceArticle } from "./opencrabMap";
 import type { OutletCategory } from "./packSync";
 
@@ -26,6 +28,14 @@ export interface EmailContext {
   spokesName?: string; // 대표명
   links?: string[];
   contact?: string;
+  /**
+   * 함께 나가는 보도자료 전문 첨부의 파일명.
+   *
+   * 첨부는 발송 시점에 붙는데, 본문이 그 사실을 말하지 않으면 기자는 자료가 온 줄
+   * 모른다("자료를 준비했습니다"만 읽고 첨부를 안 본다). 파일명까지 적어야 어느
+   * 첨부를 열라는 건지 분명해진다.
+   */
+  attachmentName?: string;
   /** 엠바고 해제 시각(ms) — 있으면 최상단·자료 블록 이중 표기 */
   embargoAt?: number;
   /** 캠페인 주제 태그 — 후킹에 쓸 기사를 고를 때 겹침 판정에 사용 */
@@ -67,9 +77,14 @@ export function embargoLine(embargoAt: number | undefined): string {
   return `[엠바고] ${stamp} 이후 보도 요청`;
 }
 
-/** 보도자료에 실제로 등록된 자료가 있는가 — CTA가 자산 보유를 단언해도 되는지 판정. */
+/**
+ * 보도자료에 실제로 등록된 자료가 있는가 — CTA가 자산 보유를 단언해도 되는지 판정.
+ *
+ * 보도자료 전문 첨부도 자산으로 친다. 링크가 하나도 없어도 전문은 **항상 함께 나가므로**
+ * "자료가 준비돼 있다"는 문장이 빈말이 되지 않는다.
+ */
 function hasAssets(email: EmailContext): boolean {
-  return (email.links ?? []).filter(Boolean).length > 0;
+  return (email.links ?? []).filter(Boolean).length > 0 || Boolean(email.attachmentName);
 }
 
 /** 자료 블록에 덧붙는 엠바고 재고지(이중 표기). */
@@ -157,52 +172,39 @@ export function ctaLine(
  * 없으면 beatPrimary → beatSecondary 순으로 본다. 어디에도 안 걸리면 사실만 전한다
  * (억지 앵글은 티가 나고 역효과다).
  */
-const BEAT_ANGLES: Array<{ match: RegExp; angle: (fact: string) => string }> = [
-  {
-    match: /투자|벤처|스타트업|ir|펀딩/i,
-    angle: (f) => `${f} 이번 라운드의 의미와 성장 지표를 중심으로 정리했습니다.`,
-  },
-  {
-    match: /핀테크|금융|결제|보험|은행/i,
-    angle: (f) => `${f} 규제 대응과 사용자 보호 관점의 자료를 함께 드립니다.`,
-  },
-  {
-    match: /ai|인공지능|데이터|소프트웨어|제품|it|테크|클라우드/i,
-    angle: (f) => `${f} 기술 차별점과 사용성 관점에서 자료를 준비했습니다.`,
-  },
-  {
-    match: /반도체|하드웨어|제조|부품/i,
-    angle: (f) => `${f} 공정·수율과 공급망 관점의 수치를 정리했습니다.`,
-  },
-  {
-    match: /유통|커머스|리테일|물류/i,
-    angle: (f) => `${f} 판매·입점·소비 트렌드 관점의 자료를 함께 드립니다.`,
-  },
-  {
-    match: /바이오|헬스|의료|제약/i,
-    angle: (f) => `${f} 임상·인허가 단계와 검증 근거를 함께 정리했습니다.`,
-  },
-  {
-    match: /게임|콘텐츠|미디어|엔터/i,
-    angle: (f) => `${f} 이용자 반응과 콘텐츠 파이프라인 관점에서 준비했습니다.`,
-  },
-  {
-    match: /모빌리티|자동차|배터리|에너지|환경/i,
-    angle: (f) => `${f} 실증 데이터와 친환경 효과를 수치로 정리했습니다.`,
-  },
-  {
-    match: /정책|규제|공공|행정/i,
-    angle: (f) => `${f} 제도 변화와 산업 영향 관점의 배경 자료를 준비했습니다.`,
-  },
+const BEAT_ANGLES: Array<{ match: RegExp; tail: string }> = [
+  { match: /투자|벤처|스타트업|ir|펀딩/i, tail: "이번 라운드의 의미와 성장 지표를 중심으로 정리했습니다." },
+  { match: /핀테크|금융|결제|보험|은행/i, tail: "규제 대응과 사용자 보호 관점의 자료를 함께 드립니다." },
+  { match: /ai|인공지능|데이터|소프트웨어|제품|it|테크|클라우드/i, tail: "기술 차별점과 사용성 관점에서 자료를 준비했습니다." },
+  { match: /반도체|하드웨어|제조|부품/i, tail: "공정·수율과 공급망 관점의 수치를 정리했습니다." },
+  { match: /유통|커머스|리테일|물류/i, tail: "판매·입점·소비 트렌드 관점의 자료를 함께 드립니다." },
+  { match: /바이오|헬스|의료|제약/i, tail: "임상·인허가 단계와 검증 근거를 함께 정리했습니다." },
+  { match: /게임|콘텐츠|미디어|엔터/i, tail: "이용자 반응과 콘텐츠 파이프라인 관점에서 준비했습니다." },
+  { match: /모빌리티|자동차|배터리|에너지|환경/i, tail: "실증 데이터와 친환경 효과를 수치로 정리했습니다." },
+  { match: /정책|규제|공공|행정/i, tail: "제도 변화와 산업 영향 관점의 배경 자료를 준비했습니다." },
 ];
 
+/**
+ * 문장 하나로 끝맺는다.
+ *
+ * `numbers`는 사용자가 「MCP 도구 16종」처럼 **명사구**로 적는 칸이다. 예전에는 이 값을
+ * 앵글 문장 앞에 공백으로 이어 붙여서 「MCP 도구 16종 기술 차별점과 사용성 관점에서…」가
+ * 기자에게 나갔다. 한 문장으로 읽히면서 뜻이 무너진다. 종결부호를 보장해 두 문장으로 만든다.
+ */
+function endSentence(s: string): string {
+  const t = s.trim().replace(/[\s.。]+$/, "");
+  return t ? `${t}.` : "";
+}
+
 export function beatAngleFor(beats: string[], fact: string): string {
+  const f = endSentence(fact);
   for (const beat of beats) {
     if (!beat) continue;
     const hit = BEAT_ANGLES.find((entry) => entry.match.test(beat));
-    if (hit) return hit.angle(fact);
+    // 수치가 비어 있으면 앵글만 남긴다 — 앞에 빈 문장이나 공백이 붙지 않게 한다.
+    if (hit) return [f, hit.tail].filter(Boolean).join(" ");
   }
-  return fact;
+  return f;
 }
 
 /** 기자 컨텍스트에서 앵글 판정에 쓸 beat를 비중 순으로 뽑는다. */
@@ -216,6 +218,41 @@ function orderedBeats(j: JournalistContext): string[] {
 
 function beatAngle(j: JournalistContext, ctx: EmailContext): string {
   return beatAngleFor(orderedBeats(j), ctx.bodyFact);
+}
+
+/**
+ * 배경·뉴스 가치 문장.
+ *
+ * `newsValue`(뉴스 가치 한 줄)는 캠페인 생성 때 받아 두고도 **메일 어디에도 실리지
+ * 않았다.** 그래서 기자가 받는 것은 제목과 숫자뿐이었고, "왜 지금 이 소식인가"가
+ * 빠졌다 — 기자가 기사화를 판단하는 데 가장 필요한 한 줄이다.
+ *
+ * 보도자료 본문은 여기 넣지 않는다. 전문은 첨부로 함께 나가므로 본문에 다시 실으면
+ * 같은 내용이 두 벌이 된다. 메일은 판단할 근거만 주고, 실체는 첨부가 맡는다.
+ */
+function contextLine(email: EmailContext): string {
+  return [email.background, email.meaning]
+    .map((part) => endSentence(part ?? ""))
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * 소식을 알리는 첫 문장.
+ *
+ * 예전에는 `${회사명}은(는) ${헤드라인}.` 이었다. 두 가지가 동시에 깨졌다.
+ *  ① 조사 병기가 그대로 나갔다 — 「(주)더에이치클럽/FMG은(는)」.
+ *  ② 헤드라인은 「크랩피치, MCP 채팅에서 기자 발송까지 지원」처럼 **명사형 제목**이라
+ *     문장 서술어 자리에 넣으면 비문이 된다. 게다가 헤드라인이 이미 주체를 담고 있어
+ *     회사명과 겹쳐 읽힌다.
+ *
+ * 제목은 제목답게 따옴표로 감싸고, 문장은 「소식을 전합니다」로 끝맺는다. 헤드라인이
+ * 어떤 형태로 들어와도 문장이 무너지지 않는다.
+ */
+function announcement(email: EmailContext): string {
+  const headline = email.headline.trim().replace(/[.。\s]+$/, "");
+  const subject = `${email.companyName}${josa(email.companyName, "은는")}`;
+  return `${subject} '${headline}' 소식을 전합니다.`;
 }
 
 /**
@@ -234,10 +271,12 @@ export function buildEmailDraft(
     `기자님, 안녕하세요. ${email.senderName}입니다.`,
     personalHook(email, j),
     "",
-    `${email.companyName}은(는) ${email.headline}. ${angle}`,
-    email.background ? `${email.background}. ${email.meaning ?? ""}`.trim() : undefined,
+    announcement(email),
+    // 「왜 지금인가」가 수치보다 앞이다 — 틀을 먼저 주고 숫자를 얹어야 숫자가 읽힌다.
+    contextLine(email) || undefined,
+    angle || undefined,
     quoteLine(email) || undefined,
-    linkLines(email) || undefined,
+    assetLines(email) || undefined,
     embargoAssetNote(email.embargoAt) || undefined,
     "",
     // CTA는 정확히 1개 — 매체 유형별 분기(미등록 매체는 기본 인터뷰 제안)
@@ -327,14 +366,24 @@ function quoteLine(email: EmailContext): string {
   if (!email.quote) return "";
   const name = email.spokesName?.trim();
   const title = email.spokesTitle?.trim() || "대표";
-  const speaker = name ? `${name} ${title}` : title;
-  return `${speaker}는 "${email.quote}"라고 밝혔습니다.`.replace(/\s+/g, " ");
+  // 이름 칸에 직함까지 적는 사용자가 있다("김대표" + "대표" → 「김대표 대표는」).
+  // 겹치면 이름만 쓴다 — 실제 발송 메일에 이 형태가 나갔다.
+  const speaker = name ? (name.endsWith(title) ? name : `${name} ${title}`) : title;
+  return `${speaker}${josa(speaker, "은는")} "${email.quote}"라고 밝혔습니다.`.replace(/\s+/g, " ");
 }
 
-function linkLines(email: EmailContext): string {
-  return email.links && email.links.length
-    ? email.links.map((l) => `· 자료: ${l}`).join("\n")
-    : "";
+/**
+ * 자료 블록 — 링크 목록 + 보도자료 전문 첨부 안내.
+ *
+ * 첨부는 붙는데 본문이 말하지 않으면 기자는 첨부를 열지 않는다. 파일명을 적어
+ * 무엇이 왔는지 한 줄로 보이게 한다.
+ */
+function assetLines(email: EmailContext): string {
+  const lines = (email.links ?? []).filter(Boolean).map((l) => `· 자료: ${l}`);
+  if (email.attachmentName) {
+    lines.unshift(`· 보도자료 전문을 첨부했습니다: ${email.attachmentName}`);
+  }
+  return lines.join("\n");
 }
 
 function signature(email: EmailContext): string {
@@ -364,7 +413,7 @@ export function buildEmailDraftWithPreset(
 
   const hook = personalHook(email, j);
   const quote = quoteLine(email);
-  const links = linkLines(email);
+  const links = assetLines(email);
   // 프리셋도 컴플라이언스 요소를 승계한다: 엠바고 최상단 표기 · CTA 정확히 1개 ·
   // 자료 블록 엠바고 재고지 · OPT_OUT 최종 블록(signature) · 후킹 신선도 강등(personalHook).
   // 본문 구조 자체의 완전 7블록 재설계는 2차(S8) — 발송 게이트(D-4)가 3경로에서 최종
@@ -410,9 +459,10 @@ export function buildEmailDraftWithPreset(
       "",
       email.background
         ? `${email.background}. 저희는 이 문제에서 출발했습니다.`
-        : `${email.companyName}이(가) 풀려는 문제에서 출발한 이야기입니다.`,
-      `그 결과가 이번 소식입니다 — ${email.headline}. ${angle}`,
-      email.meaning ? `${email.meaning}` : undefined,
+        : `${email.companyName}${josa(email.companyName, "이가")} 풀려는 문제에서 출발한 이야기입니다.`,
+      `그 결과가 이번 소식입니다 — '${email.headline.trim().replace(/[.。\s]+$/, "")}'.`,
+      angle || undefined,
+      endSentence(email.meaning ?? "") || undefined,
       quote || undefined,
       links || undefined,
       embargoNote,
@@ -430,7 +480,8 @@ export function buildEmailDraftWithPreset(
     embargo,
     `기자님, 안녕하세요. ${email.senderName}입니다.`,
     hook,
-    `${email.companyName}: ${email.headline}. ${angle}`,
+    `${email.companyName}: ${email.headline.trim().replace(/[.。\s]+$/, "")}`,
+    angle || undefined,
     quote || undefined,
     links || undefined,
     embargoNote,
@@ -483,6 +534,8 @@ export interface PressReleaseLike {
   headlines: string[];
   body: string;
   who?: string;
+  /** 뉴스 가치 한 줄 — 「왜 지금 이 소식인가」. 메일 본문의 배경 블록으로 나간다. */
+  newsValue?: string;
   numbers?: string;
   quote?: string;
   links?: string[];
@@ -510,11 +563,17 @@ export function buildEmailContext(
     headline: pr.headlines[0] ?? pr.title,
     // 숫자 근거가 없으면 본문 앞부분으로 대체한다 — 문장 경계를 지킨다.
     bodyFact: pr.numbers?.trim() || leadingSentences(pr.body, BODY_FACT_FALLBACK_CHARS),
+    // 뉴스 가치 한 줄 — 「왜 지금 이 소식인가」. 스키마에는 있었지만 메일로 나가는
+    // 경로가 없어 한 번도 쓰이지 않던 필드다.
+    meaning: pr.newsValue,
     quote: pr.quote,
     // 인용문 화자 — 비어 있으면 quoteLine이 "대표"만 쓰고 이름 자리는 비운다.
     spokesName: pr.spokesName,
     spokesTitle: pr.spokesTitle,
     links: pr.links,
+    // 보도자료 전문은 발송 시점에 첨부로 붙는다. 파일명을 여기서 정해 두면 초안 본문과
+    // 실제 첨부가 **같은 함수**에서 나온다 — 미리보기 화면도 같은 이름을 보여 준다.
+    attachmentName: pressReleaseFilename(pr.title),
     contact: profile?.contactEmail,
     embargoAt: pr.embargoAt,
     topicTags: pr.topicTags,
@@ -589,7 +648,7 @@ export function renderCustomTemplate(
     핵심수치: email.bodyFact,
     후킹: personalHook(email, j),
     인용문: quoteLine(email),
-    자료링크: linkLines(email),
+    자료링크: assetLines(email),
     연락처: email.contact ?? "",
     비트: j.beatPrimary,
     // 신선도 상한을 넘긴 기사는 후킹에서 강등되므로 여기서도 비운다(불일치 방지).

@@ -99,4 +99,74 @@ describe("gmailMime", () => {
     expect(raw).not.toMatch(/[+/=]/);
     expect(Buffer.from(raw, "base64url").toString("utf8")).toContain("To: a@b.com");
   });
+
+  it("첨부가 없으면 예전처럼 단일 text/plain이다", () => {
+    const decoded = decode(buildRawEmail({ to: "a@b.com", subject: "제목", body: "본문" }));
+    expect(decoded).toContain('Content-Type: text/plain; charset="UTF-8"');
+    expect(decoded).not.toContain("multipart/mixed");
+  });
+
+  it("첨부가 있으면 multipart/mixed로 본문과 파일을 함께 싣는다", () => {
+    const decoded = decode(
+      buildRawEmail({
+        to: "a@b.com",
+        subject: "제목",
+        body: "본문",
+        attachments: [{ filename: "보도자료_신제품.txt", text: "전문 내용" }],
+      }),
+    );
+    expect(decoded).toContain("multipart/mixed");
+    expect(decoded).toContain("본문");
+    expect(decoded).toContain("Content-Disposition: attachment;");
+    // 첨부 내용은 base64로 실린다.
+    expect(decoded).toContain(Buffer.from("전문 내용", "utf8").toString("base64"));
+  });
+
+  it("한글 파일명을 RFC 2231로 싣고 ASCII 폴백을 함께 둔다", () => {
+    const decoded = decode(
+      buildRawEmail({
+        to: "a@b.com",
+        subject: "제목",
+        body: "본문",
+        attachments: [{ filename: "보도자료_신제품.txt", text: "전문" }],
+      }),
+    );
+    expect(decoded).toContain(`filename*=UTF-8''${encodeURIComponent("보도자료_신제품.txt")}`);
+    // 폴백 파일명에는 비ASCII가 남지 않는다.
+    const fallback = decoded.match(/filename="([^"]+)"/)![1]!;
+    // eslint-disable-next-line no-control-regex
+    expect(fallback).toMatch(/^[\x20-\x7E]+$/);
+  });
+
+  it("경계 문자열이 내용과 겹치면 겹치지 않을 때까지 늘린다", () => {
+    const collide = "==crabpitch-boundary==";
+    const decoded = decode(
+      buildRawEmail({
+        to: "a@b.com",
+        subject: "제목",
+        body: `본문에 ${collide} 가 들어 있다`,
+        attachments: [{ filename: "a.txt", text: "전문" }],
+      }),
+    );
+    const boundary = decoded.match(/boundary="([^"]+)"/)![1]!;
+    expect(boundary.length).toBeGreaterThan(collide.length);
+    // 경계로 쪼갰을 때 본문 파트 + 첨부 파트 두 개가 나온다.
+    expect(decoded.split(`--${boundary}`).length).toBe(4); // 앞머리 + 2파트 + 종료
+  });
+
+  it("빈 첨부는 무시한다 — 빈 파일을 기자에게 보내지 않는다", () => {
+    const decoded = decode(
+      buildRawEmail({
+        to: "a@b.com",
+        subject: "제목",
+        body: "본문",
+        attachments: [{ filename: "a.txt", text: "" }],
+      }),
+    );
+    expect(decoded).not.toContain("multipart/mixed");
+  });
 });
+
+function decode(raw: string): string {
+  return Buffer.from(raw, "base64url").toString("utf8");
+}

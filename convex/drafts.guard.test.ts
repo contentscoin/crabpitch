@@ -264,6 +264,18 @@ describe("외부 전송 수단 경로", () => {
       expect(source.match(/internal\.drafts\.confirmExternalSent/g) ?? []).toHaveLength(1);
     });
 
+    /**
+     * 보도자료 전문 첨부.
+     *
+     * 메일 본문은 「보도자료 전문을 첨부했습니다: …」라고 적는다. 한 경로가 첨부를
+     * 빠뜨리면 그 문장이 거짓말이 되고, 기자는 오지 않은 파일을 찾는다.
+     */
+    it(`${label}: 선별이 돌려준 첨부를 실제로 붙인다`, () => {
+      expect(source).toContain("attachment");
+      // 첨부를 자기 경로에서 새로 만들지 않는다 — 선별 단계가 만든 것을 그대로 쓴다.
+      expect(source).not.toContain("buildPressReleaseAttachment(");
+    });
+
     it(`${label}: 예약 실행 실패를 삼키지 않고 기록한다`, () => {
       // 예약 실행 시점에는 사용자가 화면에 없다 — throw로 끝나면 아무도 모른다.
       expect(source).toContain("internal.drafts.recordScheduledSendFailure");
@@ -287,6 +299,11 @@ describe("외부 전송 수단 경로", () => {
 
   it("확정 mutation은 공통 확정 함수만 쓴다", () => {
     expect(exportBlock("confirmExternalSent")).toContain("confirmSent(");
+  });
+
+  it("첨부는 선별 mutation 한 곳에서만 만들어진다", () => {
+    // 경로마다 만들면 파일명 규칙이 갈라져 본문이 가리키는 이름과 어긋난다.
+    expect(exportBlock("selectForExternalSend")).toContain("buildPressReleaseAttachment(");
   });
 
   it("선별·확정 mutation은 전송 수단별로 늘어나지 않는다", () => {
