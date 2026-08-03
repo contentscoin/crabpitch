@@ -95,7 +95,7 @@ const TOOLS = [
   {
     name: "crabpitch_match_journalists",
     description:
-      "주제 태그로 기자 후보를 매칭합니다. 응답에는 기자 코드(기자 #XXXX)만 포함되며 실명·이메일은 노출되지 않습니다. 발송은 CrabPitch 웹앱에서 진행하세요.",
+      "주제 태그로 기자 후보를 미리 봅니다(캠페인에 저장하지 않음). 응답에는 기자 코드(기자 #XXXX)만 포함되며 실명·이메일은 노출되지 않습니다. 캠페인에 대상을 확정하려면 crabpitch_campaign_match를 쓰세요.",
     inputSchema: {
       type: "object",
       properties: {
@@ -120,7 +120,7 @@ const TOOLS = [
   {
     name: "crabpitch_email_template",
     description:
-      "보도자료 피치용 이메일 제목/본문 템플릿을 생성합니다. 실제 발송은 CrabPitch 웹앱의 Gmail 연동으로 합니다.",
+      "보도자료 피치용 이메일 제목/본문 템플릿을 생성합니다(문안 미리보기). 캠페인 초안은 crabpitch_drafts_generate가 기자별로 만듭니다.",
     inputSchema: {
       type: "object",
       properties: {
@@ -785,7 +785,12 @@ async function handleRpc(
         },
         serverInfo: SERVER_INFO,
         instructions:
-          "CrabPitch MCP — 보도자료 피치용 도구입니다. 기자 실명/이메일은 반환하지 않습니다. 발송은 CrabPitch 웹앱에서 진행하세요. 무료 플랜은 보도자료 작성 도구만 노출되며, 매칭·메일 템플릿·회신 분류는 Solo 이상에서 열립니다(웹앱에서는 무료로도 이용 가능).",
+          "CrabPitch MCP — 보도자료 작성부터 기자 매칭·대상 선별·초안 생성·승인·발송까지 채팅에서 진행합니다. " +
+          "기자 실명·이메일은 어떤 응답에도 포함되지 않습니다(익명 코드만). " +
+          "발송은 crabpitch_campaign_send로 하되 confirm 없이는 미리보기만 돌려주며, " +
+          "confirm은 사용자가 직접 동의했을 때만 넣으세요 — 되돌릴 수 없습니다. " +
+          "대상을 좁혀야 하면 crabpitch_match_select의 keepOnly를 먼저 쓰세요. " +
+          "무료 플랜은 보도자료 작성·캠페인 관리·메일 설정 안내까지 열리고, 매칭·초안·승인·발송·회신 분류는 Solo 이상입니다(웹앱에서는 무료도 전부 이용 가능).",
       });
     case "notifications/initialized":
       return null;

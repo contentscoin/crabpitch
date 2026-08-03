@@ -13,7 +13,7 @@ export default function AiHubPage() {
     <div className="max-w-3xl space-y-10">
       <PageHeader
         title="내 AI"
-        description="이미 구독 중인 ChatGPT·Claude·Gemini를 그대로 씁니다 — 쓰던 AI 채팅에 크랩피치를 연결(MCP·스킬)하는 것이 기본이고, 발송은 이 웹앱에서만 합니다."
+        description="이미 구독 중인 ChatGPT·Claude·Gemini를 그대로 씁니다 — 쓰던 AI 채팅에 크랩피치를 연결(MCP·스킬)하면 매칭·초안·승인·발송까지 채팅에서 진행됩니다. 발송은 어느 경로든 사용자 확인을 거칩니다."
       />
 
       <div className="flex items-start gap-3 rounded-lg border border-border bg-card p-4 text-sm text-foreground-muted">

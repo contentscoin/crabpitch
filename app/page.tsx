@@ -296,7 +296,7 @@ export default function LandingPage() {
         <Eyebrow>어디서든</Eyebrow>
         <SecTitle>웹앱이든, 내 AI든 — 같은 피치</SecTitle>
         <SecDesc>
-          대시보드에서 끝까지 돌리거나, 평소 쓰는 AI 채팅에서 초안을 잡고 웹앱에서만 발송하세요.
+          대시보드에서 끝까지 돌리거나, 평소 쓰는 AI 채팅에서 매칭·초안·승인·발송까지 진행하세요. 어느 쪽이든 발송 전 확인은 사용자가 합니다.
         </SecDesc>
         <div className="mt-8 grid gap-4 sm:grid-cols-3">
           {[
