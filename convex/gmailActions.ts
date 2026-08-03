@@ -5,7 +5,12 @@ import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "./_generated/dataModel";
-import { buildRawEmail, GMAIL_PR_LABEL, GMAIL_SCOPES } from "./lib/gmailMime";
+import {
+  buildRawEmail,
+  GMAIL_PR_LABEL,
+  GMAIL_SCOPES,
+  type RawEmailAttachment,
+} from "./lib/gmailMime";
 import { personalizeForSend } from "./lib/emailTemplate";
 import { pilotGateMessage } from "./lib/pilotGate";
 import { requireGoogleOAuthClient } from "./lib/googleOAuthEnv";
@@ -140,13 +145,21 @@ async function ensureLabelId(accessToken: string, labelName: string): Promise<st
 
 async function createGmailDraft(
   accessToken: string,
-  opts: { to: string; from: string; subject: string; body: string; labelId: string | null },
+  opts: {
+    to: string;
+    from: string;
+    subject: string;
+    body: string;
+    labelId: string | null;
+    attachments?: RawEmailAttachment[];
+  },
 ): Promise<string | null> {
   const raw = buildRawEmail({
     to: opts.to,
     from: opts.from,
     subject: opts.subject,
     body: opts.body,
+    attachments: opts.attachments,
   });
   const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/drafts", {
     method: "POST",
@@ -251,7 +264,7 @@ async function pushCampaignForUser(
 
     // ① 선별 — 다른 세 경로와 **같은 게이트**를 통과한다(파일럿·수신거부·쿨다운·
     //    표현 규정·캠페인당 상한·월 한도). 제외분은 사유를 남긴 채 초안으로 남는다.
-    const { drafts: pending, counts, queuedTotal } = await ctx.runMutation(
+    const { drafts: pending, counts, queuedTotal, attachment } = await ctx.runMutation(
       internal.drafts.selectForExternalSend,
       { campaignId, userId },
     );
@@ -282,6 +295,9 @@ async function pushCampaignForUser(
         subject: d.subject,
         body,
         labelId,
+        // SMTP 경로와 **같은 첨부**다. 여기만 빠지면 Gmail로 보낸 메일에는
+        // 본문이 가리키는 파일이 오지 않는다.
+        attachments: attachment ? [attachment] : undefined,
       });
       updates.push({ draftId: d.draftId, gmailDraftId: gmailDraftId ?? undefined });
     }

@@ -203,7 +203,7 @@ async function sendCampaignForUser(
 
     // ① 선별 — Gmail 경로와 **같은 게이트**(파일럿 승인·수신거부 재대조·7일 쿨다운·
     //    표현 규정·캠페인당 상한·월 한도). 제외분은 사유를 남긴 채 초안으로 남는다.
-    const { drafts: pending, counts, queuedTotal } = await ctx.runMutation(
+    const { drafts: pending, counts, queuedTotal, attachment } = await ctx.runMutation(
       internal.drafts.selectForExternalSend,
       { campaignId, userId },
     );
@@ -233,6 +233,19 @@ async function sendCampaignForUser(
             to: d.journalistEmail,
             subject: d.subject,
             text: personalizeForSend(d.body, d.journalistName),
+            // 보도자료 전문 — 본문은 판단할 근거만 주고 실체는 이 파일이 맡는다.
+            // 수신자마다 같은 파일이라 선별 단계에서 한 번 만들어 돌려 쓴다.
+            ...(attachment
+              ? {
+                  attachments: [
+                    {
+                      filename: attachment.filename,
+                      content: attachment.text,
+                      contentType: "text/plain; charset=utf-8",
+                    },
+                  ],
+                }
+              : {}),
           });
           updates.push({ draftId: d.draftId });
         } catch (err) {
