@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
+import { Input } from "@/components/ui/Input";
 import { PageHeader } from "@/components/app/bits";
 import { toUserMessage } from "@/lib/errorMessage";
 import { AdminNav, fmtDate } from "@/components/app/adminBits";
@@ -28,6 +29,8 @@ export default function AdminJournalistsPage() {
   const [staleOnly, setStaleOnly] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [seedEmail, setSeedEmail] = useState("");
+  const [seedName, setSeedName] = useState("");
 
   const access = useQuery(api.admin.getAccess);
   const data = useQuery(
@@ -231,32 +234,59 @@ export default function AdminJournalistsPage() {
         </>
       )}
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Button
-          type="button"
-          size="sm"
-          variant="subtle"
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            setMsg(null);
-            try {
-              const r = await seedTestJournalist({});
-              setMsg(
-                r.created
-                  ? "테스트 기자(김테스트 · hiway@kakao.com)를 추가했습니다."
-                  : "이미 있습니다 — 중복 생성하지 않았습니다.",
-              );
-            } catch (e) {
-              setMsg(toUserMessage(e));
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          테스트 기자 시드
-        </Button>
-        {msg && <span className="text-xs text-foreground-muted">{msg}</span>}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="space-y-1">
+            <span className="block text-xs text-muted">수신 주소 (비우면 기본 테스트 주소)</span>
+            <Input
+              value={seedEmail}
+              onChange={(e) => setSeedEmail(e.target.value)}
+              placeholder="hiway@kakao.com"
+              className="w-64"
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="block text-xs text-muted">이름</span>
+            <Input
+              value={seedName}
+              onChange={(e) => setSeedName(e.target.value)}
+              placeholder="김테스트"
+              className="w-40"
+            />
+          </label>
+          <Button
+            type="button"
+            size="sm"
+            variant="subtle"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              setMsg(null);
+              try {
+                const r = await seedTestJournalist({
+                  email: seedEmail.trim() || undefined,
+                  name: seedName.trim() || undefined,
+                });
+                setMsg(
+                  r.created
+                    ? `테스트 기자 ${r.code} 를 추가했습니다. 캠페인 매칭에서 이 코드로 대상을 좁히세요.`
+                    : `이미 있습니다 — ${r.code} 로 등록돼 있어 중복 생성하지 않았습니다.`,
+                );
+              } catch (e) {
+                setMsg(toUserMessage(e));
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            테스트 기자 시드
+          </Button>
+        </div>
+        {msg && <p className="text-xs text-foreground-muted">{msg}</p>}
+        <p className="text-xs text-muted">
+          발송 쿨다운은 기자별 7일입니다. 같은 주소로 연달아 시험 발송할 수 없으므로, 문안을
+          고친 뒤 바로 확인하려면 수신 주소를 다르게 준 테스트 기자를 하나 더 만드세요.
+        </p>
       </div>
 
       <p className="text-xs text-muted">

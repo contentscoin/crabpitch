@@ -550,20 +550,40 @@ export const journalistStats = query({
  * - `mailingStatus: "candidate"` — 테스트라고 컴플라이언스 전제를 바꾸지 않는다.
  *
  * 이메일이 같으면 다시 만들지 않는다(중복 발송 방지).
+ *
+ * 수신 주소를 **인자로 받는다.** 하나로 고정해 두면 7일 쿨다운에 걸린 뒤로는 그 주소로
+ * 다시 보낼 수 없어 문안·첨부를 고쳐도 실물을 확인할 방법이 없다. 쿨다운은 기자별이므로
+ * 테스트 수신처를 하나 더 두면 게이트를 건드리지 않고 확인할 수 있다.
  */
 export const seedTestJournalist = mutation({
-  args: {},
-  returns: v.object({ created: v.boolean(), journalistId: v.id("journalists") }),
-  handler: async (ctx) => {
+  args: {
+    /** 실제로 받아 볼 수 있는 주소. 생략하면 기본 테스트 주소. */
+    email: v.optional(v.string()),
+    /** 목록에서 구분하기 위한 이름. 생략하면 김테스트. */
+    name: v.optional(v.string()),
+  },
+  returns: v.object({
+    created: v.boolean(),
+    journalistId: v.id("journalists"),
+    /** 매칭·초안 화면에서 이 레코드를 찾을 때 쓰는 익명 코드. */
+    code: v.string(),
+  }),
+  handler: async (ctx, args) => {
     await requirePlatformAdmin(ctx);
-    const email = "hiway@kakao.com";
+    const email = (args.email ?? "hiway@kakao.com").trim().toLowerCase();
+    // 실제로 메일이 나가는 주소다 — 형식이 깨진 값을 넣으면 발송 루프가 그 건에서 실패한다.
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new Error("이메일 형식이 올바르지 않습니다.");
+    }
     const existing = (await ctx.db.query("journalists").collect()).find(
       (j) => j.email === email,
     );
-    if (existing) return { created: false, journalistId: existing._id };
+    if (existing) {
+      return { created: false, journalistId: existing._id, code: journalistCode(existing._id) };
+    }
 
     const journalistId = await ctx.db.insert("journalists", {
-      name: "김테스트",
+      name: args.name?.trim() || "김테스트",
       outlet: "테스트매체",
       email,
       beatPrimary: "AI/데이터",
@@ -581,7 +601,7 @@ export const seedTestJournalist = mutation({
       mailingStatus: "candidate",
       source: "manual",
     });
-    return { created: true, journalistId };
+    return { created: true, journalistId, code: journalistCode(journalistId) };
   },
 });
 
