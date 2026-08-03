@@ -40,7 +40,7 @@ export const MCP_TOOLS: McpToolInfo[] = [
   {
     name: "crabpitch_email_template",
     title: "메일 초안",
-    description: "피치 메일 제목·본문 초안을 만듭니다. 실제 발송은 웹앱에서만 합니다.",
+    description: "피치 메일 제목·본문 초안을 만듭니다. 발송은 승인 뒤 웹앱 또는 MCP에서 합니다.",
     examplePrompt:
       "앵글이 '시리즈A 50억 유치'야. 크랩피치로 피치 메일 초안을 만들어줘.",
   },
@@ -87,7 +87,7 @@ export const MCP_PLATFORMS: McpPlatformGuide[] = [
       "아래에서 연결 키를 만들고 「연결 주소 복사」를 누릅니다.",
       "Gemini Gem 또는 커넥터 설정에 주소를 넣습니다.",
       "채팅에서 기자 찾기·메일 초안을 요청해 봅니다.",
-      "실제 발송은 크랩피치 웹앱의 Gmail 연동에서만 하세요.",
+      "발송은 승인 뒤에 합니다 — 웹앱 캠페인 화면 또는 MCP의 crabpitch_campaign_send(confirm 필요).",
     ],
   },
   {

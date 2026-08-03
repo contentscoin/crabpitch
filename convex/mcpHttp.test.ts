@@ -107,6 +107,23 @@ describe("MCP HTTP 엔드포인트", () => {
     expect(body.result.capabilities.tools).toBeDefined();
   });
 
+  it("서버 안내문이 실제 기능과 어긋나지 않는다", async () => {
+    // `instructions`는 MCP 클라이언트가 **가장 먼저 읽는 문장**이다. 여기가 낡으면
+    // 도구가 다 열려 있어도 에이전트는 "발송은 웹앱에서만 된다"고 판단하고 멈춘다.
+    // 실제로 다른 어시스턴트가 그 문장을 근거로 오진했다.
+    const { ctx } = makeCtx();
+    const res = await handleMcpRequest(
+      ctx,
+      post(VALID_KEY, { jsonrpc: "2.0", id: 31, method: "initialize", params: {} }),
+    );
+    const instructions = (await res.json()).result.instructions as string;
+    expect(instructions).toContain("crabpitch_campaign_send");
+    expect(instructions).toContain("confirm");
+    expect(instructions).toContain("crabpitch_match_select");
+    // 발송이 MCP에서 불가능하다는 낡은 문구가 되살아나면 여기서 깨진다.
+    expect(instructions).not.toMatch(/발송은 CrabPitch 웹앱에서 진행/);
+  });
+
   it("tools/list — 파이프라인 전체를 노출한다", async () => {
     const { ctx } = makeCtx();
     const res = await handleMcpRequest(

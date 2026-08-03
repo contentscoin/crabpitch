@@ -124,7 +124,7 @@ export function buildMailSetupGuide(opts: {
         : {}),
       steps: [
         `${status.email} 로 발송할 준비가 이미 끝났습니다. 추가 설정은 필요하지 않습니다.`,
-        "발송은 CrabPitch 웹앱에서 캠페인을 열고 승인 단계를 거쳐야 진행됩니다.",
+        "발송은 웹앱 캠페인 화면에서, 또는 MCP에서 crabpitch_campaign_send(confirm=true)로 합니다. 어느 쪽이든 사용자 승인이 먼저입니다.",
       ],
       cautions,
     };
