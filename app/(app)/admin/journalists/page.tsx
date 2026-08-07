@@ -270,7 +270,7 @@ export default function AdminJournalistsPage() {
                 setMsg(
                   r.created
                     ? `테스트 기자 ${r.code} 를 추가했습니다. 캠페인 매칭에서 이 코드로 대상을 좁히세요.`
-                    : `이미 있습니다 — ${r.code} 로 등록돼 있어 중복 생성하지 않았습니다.`,
+                    : `이미 있습니다 — ${r.code} 로 등록돼 있어 중복 생성하지 않았습니다. 그대로 쓰시면 됩니다.`,
                 );
               } catch (e) {
                 setMsg(toUserMessage(e));
@@ -284,8 +284,9 @@ export default function AdminJournalistsPage() {
         </div>
         {msg && <p className="text-xs text-foreground-muted">{msg}</p>}
         <p className="text-xs text-muted">
-          발송 쿨다운은 기자별 7일입니다. 같은 주소로 연달아 시험 발송할 수 없으므로, 문안을
-          고친 뒤 바로 확인하려면 수신 주소를 다르게 준 테스트 기자를 하나 더 만드세요.
+          테스트 기자는 <b className="text-foreground">7일 쿨다운에서 면제</b>됩니다 — 문안을
+          고친 뒤 같은 주소로 몇 번이든 다시 시험 발송할 수 있습니다. 수신거부·표현 규정·발송
+          상한은 실제 기자와 똑같이 적용됩니다.
         </p>
       </div>
 

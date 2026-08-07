@@ -9,6 +9,7 @@ import {
 } from "./lib/platformAdmin";
 import { requireUser, getProfile } from "./model";
 import { journalistCode } from "./lib/mask";
+import { TEST_OUTLET } from "./lib/sendGuard";
 import { EXCLUDE_STALE_KEY, STALE_MATCH_DAYS } from "./journalists";
 import { PR_PRESSKIT_PACK } from "./lib/packRegistry";
 
@@ -551,9 +552,11 @@ export const journalistStats = query({
  *
  * 이메일이 같으면 다시 만들지 않는다(중복 발송 방지).
  *
- * 수신 주소를 **인자로 받는다.** 하나로 고정해 두면 7일 쿨다운에 걸린 뒤로는 그 주소로
- * 다시 보낼 수 없어 문안·첨부를 고쳐도 실물을 확인할 방법이 없다. 쿨다운은 기자별이므로
- * 테스트 수신처를 하나 더 두면 게이트를 건드리지 않고 확인할 수 있다.
+ * 수신 주소를 **인자로 받는다.** 받아 볼 수 있는 주소가 사람마다 다르기 때문이다.
+ *
+ * 이렇게 만든 레코드는 `outlet`이 `TEST_OUTLET`이고 `source`가 `"manual"`이라
+ * `isTestRecipient`가 참이 되어 **7일 쿨다운에서 면제**된다. 같은 주소로 연달아 시험
+ * 발송할 수 있다는 뜻이다. 수신거부·표현 규정·발송 상한은 그대로 적용된다.
  */
 export const seedTestJournalist = mutation({
   args: {
@@ -584,7 +587,8 @@ export const seedTestJournalist = mutation({
 
     const journalistId = await ctx.db.insert("journalists", {
       name: args.name?.trim() || "김테스트",
-      outlet: "테스트매체",
+      // ⚠️ `isTestRecipient`(쿨다운 면제)가 이 매체명 + source로 판정한다. 함께 바꿔야 한다.
+      outlet: TEST_OUTLET,
       email,
       beatPrimary: "AI/데이터",
       beatSecondary: [

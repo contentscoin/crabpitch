@@ -39,6 +39,33 @@ export const COOLDOWN_DAYS = 7;
 export const COOLDOWN_MS = COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
 
 /**
+ * 발송 테스트용 기자 레코드의 매체명.
+ * `admin.seedTestJournalist`(플랫폼 관리자 전용)만 이 값을 넣는다.
+ */
+export const TEST_OUTLET = "테스트매체";
+
+/**
+ * 쿨다운을 면제할 **테스트 수신처**인지 판정.
+ *
+ * 쿨다운은 실제 기자를 반복 발송에서 보호하는 장치다. 그런데 관리자가 자기 주소로 만든
+ * 테스트 레코드까지 함께 묶이면, 메일 문안을 고칠 때마다 7일을 기다리거나 매번 새 주소를
+ * 만들어야 해서 발송 경로를 실물로 확인할 방법이 사실상 사라진다. 보호할 대상이 없는
+ * 레코드이므로 여기서만 뺀다.
+ *
+ * 두 조건을 **모두** 만족해야 한다 — 팩에서 온 레코드가 매체명만 우연히 겹쳐 면제되는
+ * 일이 없도록. `source: "manual"`은 관리자 시드만 붙이는 값이고(`seed.ts`의 데모 데이터는
+ * `"seed"`, 팩 동기화는 `"opencrab"`), `TEST_OUTLET`은 실제 기자단 팩에 존재하지 않는다.
+ *
+ * ⚠️ 면제는 **쿨다운 한정**이다. 수신거부(억제 리스트)·표현 규정·발송 상한은 테스트
+ *    레코드에도 그대로 적용된다 — 테스트라고 컴플라이언스 전제를 바꾸지 않는다.
+ */
+export function isTestRecipient(
+  journalist: { outlet?: string; source?: string } | null | undefined,
+): boolean {
+  return journalist?.source === "manual" && journalist.outlet === TEST_OUTLET;
+}
+
+/**
  * 캠페인과 무관하게, 같은 기자에게 최근 발송한 이력이 있으면 제외한다.
  *
  * ⚠️ 판정 스코프는 **사용자 단위**다. `lastSentAt`에는 반드시 *해당 사용자의* 캠페인에 속한
@@ -46,10 +73,13 @@ export const COOLDOWN_MS = COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
  * 전역 판정은 교차 테넌트 간섭을 만들 뿐 아니라 "다른 누군가가 이 기자에게 최근 발송했다"는
  * 사이드채널이 되므로 금지한다. suppression의 `by_user_email` 격리와 동형이다.
  *
+ * `cooldownExempt`가 켜진 항목은 이력과 무관하게 통과시킨다 — 관리자가 만든 테스트
+ * 수신처(`isTestRecipient`)에만 붙인다. 호출 측이 판정해서 넘긴다.
+ *
  * @param now 판정 기준 시각
  * @returns sendable = 발송 가능, blocked = 쿨다운으로 제외(초안은 삭제하지 않고 사유만 기록)
  */
-export function partitionByCooldown<T extends { lastSentAt?: number }>(
+export function partitionByCooldown<T extends { lastSentAt?: number; cooldownExempt?: boolean }>(
   drafts: T[],
   now: number,
   cooldownMs: number = COOLDOWN_MS,
@@ -57,6 +87,10 @@ export function partitionByCooldown<T extends { lastSentAt?: number }>(
   const sendable: T[] = [];
   const blocked: Array<T & { daysRemaining: number }> = [];
   for (const d of drafts) {
+    if (d.cooldownExempt) {
+      sendable.push(d);
+      continue;
+    }
     const last = d.lastSentAt;
     if (last === undefined || now - last >= cooldownMs) {
       sendable.push(d);

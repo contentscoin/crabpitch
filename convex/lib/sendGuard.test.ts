@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { normalizeEmail, partitionBySuppression, suppressedEmailSet, partitionByCooldown, cooldownReason } from "./sendGuard";
+import {
+  normalizeEmail,
+  partitionBySuppression,
+  suppressedEmailSet,
+  partitionByCooldown,
+  cooldownReason,
+  isTestRecipient,
+  TEST_OUTLET,
+} from "./sendGuard";
 
 describe("발송 직전 수신거부 가드", () => {
   it("억제된 기자를 발송 대상에서 제외한다", () => {
@@ -72,5 +80,48 @@ describe("7일 쿨다운", () => {
     const reason = cooldownReason(3);
     expect(reason).toContain("3일 후");
     expect(reason).not.toMatch(/@/);
+  });
+
+  it("면제 대상은 이력이 있어도 통과한다", () => {
+    const { sendable, blocked } = partitionByCooldown(
+      [{ id: "test", lastSentAt: now - 1 * day, cooldownExempt: true }],
+      now,
+    );
+    expect(sendable).toHaveLength(1);
+    expect(blocked).toHaveLength(0);
+  });
+
+  it("면제는 해당 항목에만 적용되고 나머지는 그대로 막힌다", () => {
+    const { sendable, blocked } = partitionByCooldown(
+      [
+        { id: "test", lastSentAt: now - 1 * day, cooldownExempt: true },
+        { id: "real", lastSentAt: now - 1 * day },
+      ],
+      now,
+    );
+    expect(sendable.map((d) => d.id)).toEqual(["test"]);
+    expect(blocked.map((d) => d.id)).toEqual(["real"]);
+  });
+});
+
+describe("테스트 수신처 판정", () => {
+  it("관리자 시드로 만든 레코드만 면제 대상이다", () => {
+    expect(isTestRecipient({ outlet: TEST_OUTLET, source: "manual" })).toBe(true);
+  });
+
+  it("매체명만 같고 팩에서 온 레코드는 면제하지 않는다", () => {
+    expect(isTestRecipient({ outlet: TEST_OUTLET, source: "opencrab" })).toBe(false);
+    expect(isTestRecipient({ outlet: TEST_OUTLET, source: "seed" })).toBe(false);
+    expect(isTestRecipient({ outlet: TEST_OUTLET })).toBe(false);
+  });
+
+  it("실제 매체는 source가 manual이어도 면제하지 않는다", () => {
+    expect(isTestRecipient({ outlet: "전자신문", source: "manual" })).toBe(false);
+  });
+
+  it("기자를 찾지 못한 경우(null·undefined)를 면제로 오판하지 않는다", () => {
+    expect(isTestRecipient(null)).toBe(false);
+    expect(isTestRecipient(undefined)).toBe(false);
+    expect(isTestRecipient({})).toBe(false);
   });
 });
