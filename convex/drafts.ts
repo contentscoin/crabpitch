@@ -40,6 +40,7 @@ import { journalistCode } from "./lib/mask";
 import { PLAN_LIMITS, currentMonth, type Plan } from "./lib/plans";
 import {
   cooldownReason,
+  isTestRecipient,
   partitionByCooldown,
   partitionBySuppression,
   suppressedEmailSet,
@@ -193,11 +194,14 @@ async function selectSendableDrafts(
   result.blockedSuppressed = suppressedCount;
 
   // ② 7일 쿨다운 (사용자 단위)
+  //    관리자가 만든 테스트 수신처는 면제한다 — 보호할 실제 기자가 없는 레코드이고,
+  //    묶어 두면 문안을 고칠 때마다 7일을 기다려야 해서 실물 확인이 불가능해진다.
   const withHistory = [];
   for (const d of notSuppressed) {
     withHistory.push({
       draft: d,
       lastSentAt: await lastSentAtForJournalist(ctx, userId, d.journalistId),
+      cooldownExempt: isTestRecipient(await ctx.db.get(d.journalistId)),
     });
   }
   const now = Date.now();
